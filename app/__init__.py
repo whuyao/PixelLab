@@ -1,0 +1,1 @@
+"""LocalFarmer application package."""

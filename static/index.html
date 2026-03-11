@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>本地农夫实验室</title>
+    <link rel="stylesheet" href="/static/styles.css?v=20260311i" />
+  </head>
+  <body>
+    <main class="layout">
+      <section class="top-shell">
+        <section class="stage-panel main-stage">
+          <header class="stage-header">
+            <div>
+              <p class="eyebrow">GeoAI 田园研究站</p>
+              <h1>本地农夫研究站</h1>
+            </div>
+            <div class="status-strip">
+              <span id="dayLabel">第 1 天</span>
+              <span id="timeLabel">上午</span>
+            </div>
+          </header>
+          <canvas id="labCanvas" width="1184" height="720"></canvas>
+          <div class="controls">
+            <span>移动：WASD / 方向键</span>
+            <span>按 `E`：和身边的人说话</span>
+            <button id="autoExploreBtn" type="button">自动漫游：开</button>
+            <button id="advanceBtn" type="button">推进时段</button>
+          </div>
+        </section>
+        <aside class="action-rail">
+          <section class="panel mission-panel">
+            <div class="panel-head">
+              <h2>任务进展</h2>
+              <span class="panel-tag">主线区</span>
+            </div>
+            <div id="taskList" class="stack"></div>
+          </section>
+          <section class="composer-panel">
+            <div class="composer-head">
+              <h2>玩家对话</h2>
+              <span id="talkTarget">当前对象：未靠近任何同事</span>
+            </div>
+            <form id="talkForm" class="talk-form">
+              <input id="talkInput" name="text" type="text" placeholder="例如：你觉得这个 GeoAI 线索值得继续做吗？" />
+              <button id="talkSendBtn" type="submit">发送</button>
+            </form>
+            <p class="composer-tip">靠近同事后按 `E` 会自动聚焦到输入框，回车即可发送。</p>
+          </section>
+          <section class="panel signal-panel">
+            <div class="panel-head">
+              <h2>信号终端</h2>
+              <span class="panel-tag">外部输入</span>
+            </div>
+            <form id="newsForm" class="signal-form">
+              <input id="newsTopic" name="topic" type="text" placeholder="例如：GeoAI 推理突破" />
+              <select id="newsCategory" name="category">
+                <option value="geoai">GeoAI</option>
+                <option value="tech">科技</option>
+                <option value="market">市场</option>
+                <option value="gaming">游戏</option>
+                <option value="general" selected>综合</option>
+              </select>
+              <button type="submit">从 Brave 注入</button>
+            </form>
+            <p id="signalStatus" class="signal-status"></p>
+          </section>
+        </aside>
+      </section>
+      <section class="lower-board">
+        <section class="panel metrics-panel">
+          <div class="panel-head">
+            <h2>实验室指标</h2>
+            <span class="panel-tag">概览</span>
+          </div>
+          <div id="metricsList" class="metric-list"></div>
+        </section>
+        <section class="panel dialogue-panel">
+          <div class="panel-head">
+            <h2>对话记录</h2>
+            <span class="panel-tag">实时</span>
+          </div>
+          <div id="dialogueBox" class="dialogue-box">走近同事后按 E，就会像日常交流一样聊起来。</div>
+        </section>
+        <section class="panel memory-panel">
+          <div class="panel-head">
+            <h2>当前角色信息</h2>
+            <span class="panel-tag">点选查看</span>
+          </div>
+          <div id="memoryBox" class="memory-box">点击地图中的玩家或同事，这里会显示他的主要信息、状态、记忆和关系。</div>
+        </section>
+        <section class="panel event-panel">
+          <div class="panel-head">
+            <h2>最近事件</h2>
+            <span class="panel-tag">世界</span>
+          </div>
+          <div id="eventList" class="stack"></div>
+        </section>
+      </section>
+    </main>
+    <script src="/static/app.js?v=20260311j" type="module"></script>
+  </body>
+</html>
