@@ -36,7 +36,7 @@ const talkForm = document.getElementById("talkForm");
 const talkInput = document.getElementById("talkInput");
 const talkTarget = document.getElementById("talkTarget");
 const talkSendBtn = document.getElementById("talkSendBtn");
-const ASSET_VERSION = "20260311x";
+const ASSET_VERSION = "20260311z";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -68,6 +68,12 @@ const personaLabels = {
   engineering: "工程派",
   empathetic: "共情派",
   opportunist: "信号派",
+};
+
+const marketRegimeLabels = {
+  bull: "牛市",
+  sideways: "震荡市",
+  risk: "风险市",
 };
 
 const stanceLabels = {
@@ -326,12 +332,13 @@ function renderPanels() {
 
 function renderMetrics() {
   const teamCash = state.agents.reduce((sum, agent) => sum + (agent.cash || 0), 0);
+  const leader = state.market?.rotation_leader || "GEO";
   const marketMarkup = (state.market?.stocks || [])
     .map(
       (quote) => `
         <div class="metric-item">
           <strong>${quote.name}</strong>
-          <div class="metric-meta">${quote.symbol} · $${quote.price.toFixed(2)} · 日内 ${quote.day_change_pct >= 0 ? "+" : ""}${quote.day_change_pct.toFixed(2)}%</div>
+          <div class="metric-meta">${quote.symbol} · $${quote.price.toFixed(2)} · 日内 ${quote.day_change_pct >= 0 ? "+" : ""}${quote.day_change_pct.toFixed(2)}%${quote.symbol === leader ? " · 当前主线" : ""}</div>
         </div>
       `,
     )
@@ -377,7 +384,11 @@ function renderMetrics() {
       .join("")}
     <div class="metric-item">
       <strong>股市状态</strong>
-      <div class="metric-meta">${state.market?.is_open ? "开盘中" : "已收盘"} · 情绪 ${state.market?.sentiment ?? 0}</div>
+      <div class="metric-meta">${state.market?.is_open ? "开盘中" : "已收盘"} · ${marketRegimeLabels[state.market?.regime] || state.market?.regime || "牛市"} · 情绪 ${state.market?.sentiment ?? 0} · 已持续 ${state.market?.regime_age ?? 1} 天</div>
+    </div>
+    <div class="metric-item">
+      <strong>板块轮动</strong>
+      <div class="metric-meta">当前主线 ${leader} · 已持续 ${state.market?.rotation_age ?? 1} 天</div>
     </div>
     <div class="metric-item">
       <strong>活跃借款</strong>
@@ -494,8 +505,8 @@ function renderMarketChart() {
   if (marketMeta) {
     marketMeta.textContent =
       marketViewMode === "daily"
-        ? `近 ${candles.length} 天 · 最新第 ${latest.day} 天 · 指数 ${latest.close.toFixed(2)} · 相对首日 ${intradayPct >= 0 ? "+" : ""}${intradayPct.toFixed(2)}%`
-        : `第 ${latest.day} 天盘中 · ${candles.length} 个实时点位 · 指数 ${latest.close.toFixed(2)} · ${intradayPct >= 0 ? "+" : ""}${intradayPct.toFixed(2)}%`;
+        ? `近 ${candles.length} 天 · ${marketRegimeLabels[state.market?.regime] || state.market?.regime || "牛市"} · 当前主线 ${state.market?.rotation_leader || "GEO"} · 已持续 ${state.market?.rotation_age ?? 1} 天 · 指数 ${latest.close.toFixed(2)} · 相对首日 ${intradayPct >= 0 ? "+" : ""}${intradayPct.toFixed(2)}%`
+        : `第 ${latest.day} 天盘中 · ${marketRegimeLabels[state.market?.regime] || state.market?.regime || "牛市"} · 当前主线 ${state.market?.rotation_leader || "GEO"} · ${candles.length} 个实时点位 · 指数 ${latest.close.toFixed(2)} · ${intradayPct >= 0 ? "+" : ""}${intradayPct.toFixed(2)}%`;
   }
 }
 

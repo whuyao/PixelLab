@@ -318,6 +318,10 @@ def build_initial_world() -> WorldState:
         is_open=True,
         sentiment=6,
         tick=0,
+        regime="bull",
+        regime_age=1,
+        rotation_leader="GEO",
+        rotation_age=1,
         index_value=100.0,
         stocks=[
             StockQuote(symbol="GEO", name="GeoGrid", sector="geoai", price=24.0, open_price=24.0, last_reason="开盘平稳"),
@@ -328,7 +332,7 @@ def build_initial_world() -> WorldState:
         daily_index_history=[IndexCandle(day=1, open=100.0, high=100.0, low=100.0, close=100.0, limit_state="normal")],
     )
     return WorldState(
-        version=15,
+        version=17,
         world_width=44,
         world_height=26,
         day=1,

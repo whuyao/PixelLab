@@ -198,6 +198,10 @@ class MarketState(BaseModel):
     is_open: bool = True
     sentiment: int = 0
     tick: int = 0
+    regime: str = "bull"
+    regime_age: int = 1
+    rotation_leader: str = "GEO"
+    rotation_age: int = 1
     index_value: float = 100.0
     stocks: list[StockQuote] = Field(default_factory=list)
     index_history: list[IndexCandle] = Field(default_factory=list)
@@ -205,7 +209,7 @@ class MarketState(BaseModel):
 
 
 class WorldState(BaseModel):
-    version: int = 15
+    version: int = 17
     world_width: int = 44
     world_height: int = 26
     day: int

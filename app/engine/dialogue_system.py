@@ -81,6 +81,28 @@ AGENT_TEMPER_LABELS = {
     "kai": "急促敏锐",
 }
 
+DESIRE_LABELS = {
+    "rest": "恢复体力",
+    "money": "缓解钱压",
+    "control": "守住节奏",
+    "validation": "证明自己",
+    "bond": "获得连接",
+    "care": "照顾别人",
+    "clarity": "把事情说清",
+    "opportunity": "抓机会",
+}
+
+DESIRE_TOPIC_MAP = {
+    "rest": "今天要不要早点歇",
+    "money": "手头钱够不够",
+    "control": "现在最卡的地方",
+    "validation": "这条想法值不值",
+    "bond": "你今天到底怎么样",
+    "care": "谁这会儿最需要缓一下",
+    "clarity": "这事到底该怎么讲清",
+    "opportunity": "现在有没有值得追的动静",
+}
+
 
 def voice_style_for_agent(agent_id: str) -> str:
     return AGENT_STYLE_GUIDE.get(agent_id, "说话自然、简洁，像真实同事。")
@@ -88,6 +110,125 @@ def voice_style_for_agent(agent_id: str) -> str:
 
 def temper_label_for_agent(agent_id: str) -> str:
     return AGENT_TEMPER_LABELS.get(agent_id, "平稳")
+
+
+def dominant_desire_for_agent(world: WorldState, agent: Agent, player_text: str = "") -> tuple[str, str]:
+    topic = player_text or ""
+    topic_key = classify_topic(topic) if topic else "social"
+    if agent.is_resting or agent.state.energy <= 26:
+        return ("rest", "体力快见底了，最想先休息恢复。")
+    if agent.money_urgency >= 85 or agent.cash < 18:
+        return ("money", "现金太紧，最想先缓解眼前的钱压。")
+    if agent.state.stress >= 74:
+        return ("control", "压力偏高，最想先把节奏和边界守住。")
+    if agent.persona == "empathetic" and (agent.state.stress <= 42 or topic_key in {"social", "daily"}):
+        return ("care", "更在意谁状态快掉了，想先把人接住。")
+    if agent.persona == "creative" and (topic_key in {"geoai", "social"} or agent.state.curiosity >= 78):
+        return ("validation", "想确认自己的新想法有没有被认真接住。")
+    if agent.persona == "opportunist" and (world.lab.external_sensitivity >= 24 or topic_key in {"geoai", "social"}):
+        return ("opportunity", "在闻机会和风向，想先判断值不值得追。")
+    if agent.persona in {"rational", "engineering"} and topic_key in {"geoai", "social"}:
+        return ("clarity", "想把事情说实，不想再漂着。")
+    if agent.relations.get("player", 0) >= 18 or topic_key in {"daily", "weather", "rest"}:
+        return ("bond", "这会儿更想聊点人和状态，确认彼此是不是在一个频道。")
+    if agent.persona == "empathetic":
+        return ("care", "先照顾好眼前的人，比急着下判断重要。")
+    return ("bond", "想先用几句随口聊天试探彼此状态。")
+
+
+def desire_label_for_agent(world: WorldState, agent: Agent, player_text: str = "") -> str:
+    desire, _ = dominant_desire_for_agent(world, agent, player_text)
+    return DESIRE_LABELS.get(desire, "维持当前节奏")
+
+
+def desire_note_for_agent(world: WorldState, agent: Agent, player_text: str = "") -> str:
+    desire, reason = dominant_desire_for_agent(world, agent, player_text)
+    return f"当前主欲望：{DESIRE_LABELS.get(desire, desire)}。原因：{reason}"
+
+
+def desire_topic_for(world: WorldState, agent: Agent) -> str:
+    desire, _ = dominant_desire_for_agent(world, agent)
+    if desire in DESIRE_TOPIC_MAP:
+        return DESIRE_TOPIC_MAP[desire]
+    return everyday_topic_for(world, agent)
+
+
+def desire_seed(agent: Agent, desire: str) -> str:
+    lines = {
+        "rest": {
+            "lin": "我这会儿更想先缓一下。",
+            "mika": "我现在其实有点想发呆。",
+            "jo": "先喘口气，不然人会更硬。",
+            "rae": "这会儿先松一点比较重要。",
+            "kai": "我得先把自己按住一下。",
+        },
+        "money": {
+            "lin": "说实话，最近钱这块得算细一点。",
+            "mika": "我现在会先想，这事值不值那点预算。",
+            "jo": "先说清钱，不然都是空转。",
+            "rae": "最近大家都容易被钱压着情绪。",
+            "kai": "我现在会先盯一眼钱和盘面。",
+        },
+        "control": {
+            "lin": "我这会儿不想把话聊散。",
+            "mika": "你先别一下把我按回去。",
+            "jo": "先把重点收住。",
+            "rae": "我不想让这句又把气氛带歪。",
+            "kai": "我现在不想慢半拍。",
+        },
+        "validation": {
+            "lin": "我要先确认这句站不站得住。",
+            "mika": "我其实更想知道你有没有真接住这点。",
+            "jo": "你这句得先证明能落地。",
+            "rae": "我想先确认你不是在敷衍自己。",
+            "kai": "这句值不值得追，得先看你有多真。",
+        },
+        "bond": {
+            "lin": "我这会儿其实更想聊点人的状态。",
+            "mika": "比起任务，我更想听你这会儿真实一点的那层。",
+            "jo": "这次先不聊流程，聊你现在到底什么感觉。",
+            "rae": "我更在意你这会儿是不是还撑得住。",
+            "kai": "我现在比较想听点活人的话。",
+        },
+        "care": {
+            "lin": "我先看看你是不是已经有点累了。",
+            "mika": "你别又一个人硬扛着。",
+            "jo": "先说你现在人还行不行。",
+            "rae": "我先接住你，再说别的。",
+            "kai": "我先看你现在这口气稳不稳。",
+        },
+        "clarity": {
+            "lin": "这句得先讲直。",
+            "mika": "你先把真正那层说出来。",
+            "jo": "先把话说具体。",
+            "rae": "你把最在意的那句讲白一点。",
+            "kai": "你先别绕，直接说关键。",
+        },
+        "opportunity": {
+            "lin": "我先判断这是不是假动静。",
+            "mika": "这句里可能真有个口子。",
+            "jo": "如果有窗口，就直接说窗口在哪。",
+            "rae": "如果这真是机会，也别让人被它拖乱。",
+            "kai": "我先看这是不是个真机会。",
+        },
+    }
+    pool = lines.get(desire, lines["bond"])
+    return pool.get(agent.id, "我先听听你真正想说什么。")
+
+
+def desire_followup(agent: Agent, desire: str, topic: str) -> str:
+    followups = {
+        "rest": ["你这会儿还撑得住吗？", "要不要先慢一点？"],
+        "money": ["这事你想怎么撑过去？", "你是缺预算还是缺缓冲？"],
+        "control": ["你现在最不想被哪一件事打乱？", "你想先守住哪一步？"],
+        "validation": ["你是想让我认真听，还是想让我直接判断？", "你最怕别人忽略哪一层？"],
+        "bond": ["你今天最像自己的是哪一刻？", "你现在是真的想聊，还是只是想有人在？"],
+        "care": ["你这口气是憋了多久？", "你要不要先把最堵的那句说出来？"],
+        "clarity": ["那你最确定的一段到底是哪段？", "你要我听判断，还是听证据？"],
+        "opportunity": ["你觉得这口子会开多久？", "你想现在追，还是再看一眼？"],
+    }
+    pool = followups.get(desire, AGENT_FOLLOWUPS.get(agent.id, ["你准备怎么继续？"]))
+    return pool[(len(topic) + agent.state.focus + len(agent.id)) % len(pool)]
 
 
 def conversational_pressure(agent: Agent) -> str:
@@ -102,8 +243,6 @@ def conversational_pressure(agent: Agent) -> str:
 
 def self_reflection_for(agent: Agent) -> str:
     lines = list(AGENT_SELF_TALKS.get(agent.id, ["我再想想。"]))
-    if agent.immediate_intent:
-        lines.append(agent.immediate_intent[:14] + ("…" if len(agent.immediate_intent) > 14 else ""))
     index = (len(agent.short_term_memory) + len(agent.long_term_memory)) % len(lines)
     return lines[index]
 
@@ -228,25 +367,27 @@ def slot_name(slot: str) -> str:
 
 def build_dialogue(world: WorldState, agent: Agent) -> DialogueOutcome:
     last_event: LabEvent | None = world.events[0] if world.events else None
-    research_topic = bool(last_event and last_event.category in {"geoai", "tech"} and (world.day + len(agent.id) + agent.state.focus) % 5 == 0)
-    topic = last_event.title if research_topic and last_event else everyday_topic_for(world, agent)
-    lead = short_reply_seed(agent, topic)
+    desire, _ = dominant_desire_for_agent(world, agent)
+    research_topic = bool(
+        last_event
+        and last_event.category in {"geoai", "tech"}
+        and desire in {"clarity", "validation", "opportunity"}
+        and (world.day + len(agent.id) + agent.state.focus) % 4 == 0
+    )
+    topic = last_event.title if research_topic and last_event else desire_topic_for(world, agent)
+    lead = desire_seed(agent, desire)
     follow = ambient_line_for(agent, topic)
     bridge = casual_bridge(world, agent, topic)
-    memory_hint = ""
-    if agent.short_term_memory and classify_topic(topic) != "geoai" and (world.day + agent.state.mood) % 5 == 0:
-        memory_hint = f" 我刚还想到“{agent.short_term_memory[0].text[:12]}”。"
     pieces = [lead]
-    second = follow if (world.day + agent.state.energy + len(agent.id)) % 2 == 0 else short_reply_seed(agent, topic)
-    if second != lead:
-        pieces.append(second)
-    if bridge and (agent.state.energy + world.day) % 2 == 0:
+    if follow != lead:
+        pieces.append(follow)
+    if bridge and desire in {"bond", "care", "rest"}:
         pieces.append(bridge)
+    if desire in {"money", "control", "clarity", "opportunity"}:
+        pieces.append(desire_followup(agent, desire, topic))
     line = " ".join(piece for piece in pieces if piece)
-    if memory_hint:
-        line = f"{line}{memory_hint}"
     if research_topic and last_event:
-        line = f"{line} 不过“{last_event.title}”那条线我还是挂着。"
+        line = f"{line} “{last_event.title}”那条线我也还盯着。"
     bubble = lead[:18]
     effects = [
         f"{agent.name} 好感 +6",
@@ -265,17 +406,16 @@ def build_dialogue(world: WorldState, agent: Agent) -> DialogueOutcome:
 
 def build_dialogue_from_player(world: WorldState, agent: Agent, player_text: str) -> DialogueOutcome:
     base = build_dialogue(world, agent)
+    desire, _ = dominant_desire_for_agent(world, agent, player_text)
     prefixes = AGENT_REPLY_PREFIXES.get(agent.id, ["我听到了，"])
     prefix = prefixes[(len(player_text) + len(agent.id)) % len(prefixes)]
-    follow = short_reply_seed(agent, player_text)
-    followup = AGENT_FOLLOWUPS.get(agent.id, ["你准备怎么继续？"])[(len(player_text) + agent.state.focus) % len(AGENT_FOLLOWUPS.get(agent.id, ["你准备怎么继续？"]))]
+    follow = desire_seed(agent, desire)
+    followup = desire_followup(agent, desire, player_text)
     bridge = casual_bridge(world, agent, player_text)
     reply = f"{prefix}{follow}"
-    if bridge and (agent.state.energy + len(player_text)) % 2 == 0:
+    if bridge and desire in {"bond", "care", "rest"}:
         reply = f"{reply} {bridge}"
     reply = f"{reply} {followup}"
-    if agent.immediate_intent and classify_topic(player_text) != "geoai" and (agent.state.curiosity + len(player_text)) % 4 == 0:
-        reply = f"{reply} 我这会儿其实{agent.immediate_intent[:-1] if agent.immediate_intent.endswith('。') else agent.immediate_intent}"
     bubble = reply[:18] + ("…" if len(reply) > 18 else "")
     return DialogueOutcome(
         agent_id=agent.id,

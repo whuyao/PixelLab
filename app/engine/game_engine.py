@@ -5,7 +5,16 @@ import re
 from dataclasses import dataclass
 from uuid import uuid4
 
-from app.engine.dialogue_system import ambient_line_for, build_dialogue, build_dialogue_from_player, self_reflection_for, weather_label
+from app.engine.dialogue_system import (
+    DESIRE_LABELS,
+    ambient_line_for,
+    build_dialogue,
+    build_dialogue_from_player,
+    desire_label_for_agent,
+    dominant_desire_for_agent,
+    self_reflection_for,
+    weather_label,
+)
 from app.engine.event_system import build_internal_event
 from app.engine.task_system import apply_task_progress
 from app.engine.time_system import advance_time
@@ -124,6 +133,8 @@ class GameEngine:
     def get_state(self) -> WorldState:
         self._ensure_agent_runtime_fields()
         self._sync_market_clock()
+        self._refresh_market_regime(force_roll=False)
+        self._refresh_sector_rotation(force_roll=False)
         self._update_index_history(append=False)
         self._update_daily_index_history()
         self._refresh_tasks()
@@ -210,10 +221,14 @@ class GameEngine:
         return self._find_agent(agent_id)
 
     def inject_event(self, event: LabEvent) -> WorldState:
+        return self._ingest_event(event, player_injected=True)
+
+    def _ingest_event(self, event: LabEvent, player_injected: bool) -> WorldState:
         self.state.events.insert(0, event)
         self.state.events = self.state.events[:8]
-        self.state.player.injected_topics.insert(0, event.title)
-        self.state.player.injected_topics = self.state.player.injected_topics[:8]
+        if player_injected:
+            self.state.player.injected_topics.insert(0, event.title)
+            self.state.player.injected_topics = self.state.player.injected_topics[:8]
         self.state.lab.external_sensitivity = min(100, self.state.lab.external_sensitivity + 8)
         self.state.lab.collective_reasoning = min(100, self.state.lab.collective_reasoning + event.impacts.get("collective_reasoning", 0))
         self.state.lab.research_progress = min(100, self.state.lab.research_progress + event.impacts.get("research_progress", 0))
@@ -259,6 +274,7 @@ class GameEngine:
         self._sync_market_clock()
         self._refresh_agent_plans()
         self._update_market_intraday()
+        self._maybe_generate_system_news()
         self._move_agents_autonomously()
         self._trigger_market_activity()
         self._trigger_ambient_interaction()
@@ -368,12 +384,16 @@ class GameEngine:
         if self.random.random() > 0.65:
             return
         first, second = self.random.choice(pairs)
+        first_desire, _ = dominant_desire_for_agent(self.state, first)
+        second_desire, _ = dominant_desire_for_agent(self.state, second)
         thread = self._social_thread_for(first.id, second.id)
         if abs(first.position.x - second.position.x) + abs(first.position.y - second.position.y) > 2:
             second.position = self._room(second.current_location).clamp(first.position.x + 2, first.position.y)
         topic = thread.topic if thread and self.random.random() < 0.72 else self._pick_social_topic(first, second)
-        mood = self._thread_mood(first, second, topic, existing=thread)
-        line_a, line_b = self._ambient_pair_lines(first, second, topic, mood, continued=thread is not None)
+        if self.random.random() < 0.58:
+            topic = self._desire_topic_between(first, second, first_desire, second_desire)
+        mood = self._thread_mood(first, second, topic, existing=thread, first_desire=first_desire, second_desire=second_desire)
+        line_a, line_b = self._ambient_pair_lines(first, second, topic, mood, continued=thread is not None, first_desire=first_desire, second_desire=second_desire)
         first.current_bubble = line_a
         second.current_bubble = line_b
         self._remember(first, f"刚刚和 {second.name} 在{ROOM_LABELS.get(first.current_location, first.current_location)}聊了“{topic}”。", 2)
@@ -384,7 +404,7 @@ class GameEngine:
             self.state.lab.collective_reasoning = min(100, self.state.lab.collective_reasoning + 1)
             self.state.lab.geoai_progress = min(100, self.state.lab.geoai_progress + 1)
         self.state.lab.team_atmosphere = min(100, self.state.lab.team_atmosphere + 1)
-        relation_delta = 4 if mood in {"warm", "spark"} else (-3 if mood == "tense" else 2)
+        relation_delta = 4 if mood in {"warm", "spark"} else (-4 if mood == "tense" else 2)
         self._adjust_relation(first, second, relation_delta, f"在{ROOM_LABELS.get(first.current_location, first.current_location)}围绕“{topic}”持续聊了一会儿。")
         thread = self._advance_social_thread(first, second, topic, mood, line_a, line_b)
         ambient = DialogueOutcome(
@@ -398,6 +418,7 @@ class GameEngine:
         self.state.ambient_dialogues.insert(0, ambient)
         self.state.ambient_dialogues = self.state.ambient_dialogues[:6]
         self._apply_pair_dialogue_state(first, second, topic, mood)
+        self._apply_desire_pair_impact(first, second, first_desire, second_desire, mood)
         self._log(
             "ambient_dialogue",
             participants=[
@@ -433,6 +454,55 @@ class GameEngine:
         weather_cycle = ["sunny", "breezy", "cloudy", "drizzle"]
         seed = (self.state.day * 7) + len(self.state.events) + len(self.state.ambient_dialogues) + self.random.randint(0, 5)
         return weather_cycle[seed % len(weather_cycle)]
+
+    def _maybe_generate_system_news(self) -> None:
+        if not self.state.market.is_open or self.random.random() > 0.16:
+            return
+        target = self.random.choice(["broad", self.state.market.rotation_leader or "GEO", "GEO", "AGR", "SIG"])
+        regime = self.state.market.regime or "bull"
+        market_bias = 1 if self.state.market.sentiment >= -8 else -1
+        if self.random.random() < 0.26:
+            tone_hint = 0
+        else:
+            positive_rate = 0.72 if regime == "bull" else 0.5 if regime == "sideways" else 0.34
+            if market_bias < 0:
+                positive_rate -= 0.12
+            tone_hint = 1 if self.random.random() < positive_rate else -1
+        strength = 2 if self.random.random() < 0.54 else 3
+        title_bank = {
+            ("broad", 1): "宏观数据释放温和回暖信号",
+            ("broad", -1): "市场开始担心阶段性需求放缓",
+            ("broad", 0): "资金面对下一阶段政策判断分歧加大",
+            ("GEO", 1): "空间智能公司传出新订单增长",
+            ("GEO", -1): "GeoAI 项目预算审查趋严",
+            ("GEO", 0): "GeoAI 新项目落地节奏出现分歧",
+            ("AGR", 1): "农产品与消费链预期边际改善",
+            ("AGR", -1): "天气与运输扰动压住农业链情绪",
+            ("AGR", 0): "农业链对下一轮需求判断分化",
+            ("SIG", 1): "算力与信号服务板块获增量关注",
+            ("SIG", -1): "科技成长股承压，信号服务板块回撤",
+            ("SIG", 0): "科技资金轮动加快，短线分歧放大",
+        }
+        summary_bank = {
+            1: "系统监测到一条偏利好的外部经济新闻，市场风险偏好略有抬升。",
+            -1: "系统捕捉到一条偏利空的经济新闻，盘中避险情绪短暂升温。",
+            0: "系统捕捉到一条分歧型经济新闻，市场短线波动明显加大。",
+        }
+        category = "market" if target in {"broad", "SIG", "AGR"} else "tech"
+        event = LabEvent(
+            id=f"event-{uuid4().hex[:8]}",
+            category=category,
+            title=title_bank[(target, tone_hint)],
+            summary=summary_bank[tone_hint],
+            source="系统新闻台",
+            time_slot=self.state.time_slot,
+            impacts={"collective_reasoning": 1, "research_progress": 1 if tone_hint >= 0 else 0},
+            participants=[],
+            tone_hint=tone_hint,
+            market_target=target,
+            market_strength=strength,
+        )
+        self._ingest_event(event, player_injected=False)
 
     def _money_pressure(self, agent: Agent) -> int:
         pressure = agent.money_desire
@@ -511,6 +581,136 @@ class GameEngine:
         if limit_state != "normal":
             candle.limit_state = limit_state
 
+    def _recent_market_return(self) -> float:
+        history = self.state.market.daily_index_history or []
+        if len(history) < 2:
+            return 0.0
+        window = history[-3:]
+        start = window[0].open
+        end = window[-1].close
+        if not start:
+            return 0.0
+        return ((end - start) / start) * 100
+
+    def _refresh_market_regime(self, force_roll: bool) -> None:
+        market = self.state.market
+        current = market.regime or "bull"
+        age = max(1, market.regime_age or 1)
+        recent_return = self._recent_market_return()
+        sentiment = market.sentiment
+        next_regime = current
+
+        if current == "bull":
+            if sentiment <= -16 or recent_return <= -3.4:
+                next_regime = "risk"
+            elif age >= 3 and (abs(recent_return) <= 1.1 or -10 <= sentiment <= 10):
+                next_regime = "sideways"
+        elif current == "sideways":
+            if sentiment >= 18 or recent_return >= 2.6:
+                next_regime = "bull"
+            elif sentiment <= -18 or recent_return <= -2.8:
+                next_regime = "risk"
+        else:
+            if sentiment >= 18 and recent_return >= 3.2:
+                next_regime = "bull"
+            elif sentiment >= 6 or recent_return >= 1.0:
+                next_regime = "sideways"
+
+        if force_roll and next_regime == current:
+            roll = self.random.random()
+            if current == "bull" and age >= 4 and roll < 0.18:
+                next_regime = "sideways"
+            elif current == "sideways":
+                if roll < 0.14:
+                    next_regime = "bull"
+                elif roll > 0.88:
+                    next_regime = "risk"
+            elif current == "risk" and age >= 3 and roll < 0.22:
+                next_regime = "sideways"
+
+        if next_regime != current:
+            market.regime = next_regime
+            market.regime_age = 1
+            self.state.events.insert(
+                0,
+                build_internal_event(
+                    title=f"市场阶段切换为{self._market_regime_label(next_regime)}",
+                    summary=f"当前市场已经进入{self._market_regime_label(next_regime)}，盘面节奏和新闻反应会随之变化。",
+                    slot=self.state.time_slot,
+                    category="market",
+                ),
+            )
+            self.state.events = self.state.events[:8]
+        elif force_roll:
+            market.regime_age = age + 1
+
+    def _market_regime_label(self, regime: str) -> str:
+        return {
+            "bull": "牛市",
+            "sideways": "震荡市",
+            "risk": "风险市",
+        }.get(regime, regime)
+
+    def _rotation_label(self, symbol: str) -> str:
+        return {
+            "GEO": "GeoGrid",
+            "AGR": "AgriLoop",
+            "SIG": "SignalWorks",
+        }.get(symbol, symbol)
+
+    def _pick_rotation_target(self, regime: str) -> str:
+        weights = {
+            "bull": [("GEO", 0.44), ("SIG", 0.34), ("AGR", 0.22)],
+            "sideways": [("AGR", 0.38), ("GEO", 0.34), ("SIG", 0.28)],
+            "risk": [("AGR", 0.48), ("GEO", 0.30), ("SIG", 0.22)],
+        }[regime]
+        roll = self.random.random()
+        cursor = 0.0
+        for symbol, weight in weights:
+            cursor += weight
+            if roll <= cursor:
+                return symbol
+        return weights[-1][0]
+
+    def _refresh_sector_rotation(self, force_roll: bool) -> None:
+        market = self.state.market
+        current = market.rotation_leader or "GEO"
+        age = max(1, market.rotation_age or 1)
+        regime = market.regime or "bull"
+        desired = self._pick_rotation_target(regime)
+        if regime == "risk" and force_roll and current != "AGR":
+            desired = "AGR"
+        elif regime == "bull" and force_roll and age >= 2:
+            desired = "SIG" if current == "GEO" else "GEO"
+        elif regime == "sideways" and force_roll and age >= 2 and current == "SIG":
+            desired = "AGR"
+
+        current_quote = self._quote(current)
+        desired_quote = self._quote(desired)
+        should_rotate = False
+        if force_roll and age >= 2 and desired != current:
+            should_rotate = True
+        elif current_quote and current_quote.day_change_pct <= -4.2 and desired != current:
+            should_rotate = True
+        elif desired_quote and current_quote and desired_quote.day_change_pct - current_quote.day_change_pct >= 2.6:
+            should_rotate = True
+
+        if should_rotate:
+            market.rotation_leader = desired
+            market.rotation_age = 1
+            self.state.events.insert(
+                0,
+                build_internal_event(
+                    title=f"板块轮动切到 {self._rotation_label(desired)}",
+                    summary=f"当前市场主线开始偏向 {self._rotation_label(desired)}，其余板块可能进入跟涨或补跌阶段。",
+                    slot=self.state.time_slot,
+                    category="market",
+                ),
+            )
+            self.state.events = self.state.events[:8]
+        elif force_roll:
+            market.rotation_age = age + 1
+
     def _refresh_tasks(self) -> None:
         team_cash = self._team_cash_total()
         baseline = 500
@@ -574,6 +774,9 @@ class GameEngine:
         if quote is None:
             return
         next_price = max(4.0, round(quote.price * (1 + pct_delta / 100), 2))
+        daily_floor = round(quote.open_price * 0.88, 2)
+        if pct_delta < 0 and next_price < daily_floor:
+            next_price = daily_floor
         quote.price = next_price
         quote.change_pct = round(pct_delta, 2)
         quote.day_change_pct = round(((quote.price - quote.open_price) / quote.open_price) * 100, 2)
@@ -583,28 +786,47 @@ class GameEngine:
         if not self.state.market.is_open:
             return
         self.state.market.tick += 1
-        base_sentiment = self.state.market.sentiment / 70
+        regime = self.state.market.regime or "bull"
+        leader = self.state.market.rotation_leader or "GEO"
+        team_support = 0.22 if self._team_net_worth() <= 620 else 0.0
+        regime_bias = {
+            "bull": {"base": 0.34, "down_chance": 0.08, "down_range": (-1.8, -0.6), "up_chance": 0.22, "up_range": (1.1, 2.8)},
+            "sideways": {"base": 0.04, "down_chance": 0.12, "down_range": (-1.9, -0.7), "up_chance": 0.16, "up_range": (0.9, 2.0)},
+            "risk": {"base": -0.22, "down_chance": 0.22, "down_range": (-2.7, -1.1), "up_chance": 0.08, "up_range": (0.7, 1.8)},
+        }[regime]
+        base_sentiment = regime_bias["base"] + (self.state.market.sentiment / 85) + team_support
         weather_bias = {"sunny": 0.10, "breezy": 0.04, "cloudy": -0.06, "drizzle": -0.16}[self.state.weather]
         shock_roll = self.random.random()
-        if shock_roll < 0.18:
-            market_shock = self.random.uniform(-2.8, -1.2)
-        elif shock_roll > 0.88:
-            market_shock = self.random.uniform(1.0, 2.0)
+        if shock_roll < regime_bias["down_chance"]:
+            market_shock = self.random.uniform(*regime_bias["down_range"])
+        elif shock_roll > 1 - regime_bias["up_chance"]:
+            market_shock = self.random.uniform(*regime_bias["up_range"])
         else:
             market_shock = 0.0
         for quote in self.state.market.stocks:
             sector_bias = {
-                "GEO": 0.14 if self.state.lab.geoai_progress >= 30 else -0.16,
-                "AGR": 0.12 if self.state.weather in {"sunny", "breezy"} else -0.22,
-                "SIG": 0.14 if self.state.lab.external_sensitivity >= 25 else -0.18,
+                "GEO": 0.28 if self.state.lab.geoai_progress >= 30 else 0.04,
+                "AGR": 0.26 if self.state.weather in {"sunny", "breezy"} else -0.08,
+                "SIG": 0.24 if self.state.lab.external_sensitivity >= 25 else 0.02,
             }.get(quote.symbol, 0.0)
-            mean_reversion = -(quote.day_change_pct / 2.2)
+            rotation_bias = 0.62 if quote.symbol == leader else -0.18
+            if regime == "risk" and quote.symbol == "AGR":
+                rotation_bias += 0.22
+            if regime == "bull" and quote.symbol == "SIG" and leader != "SIG":
+                rotation_bias += 0.08
+            mean_reversion = -(quote.day_change_pct / 2.6)
             extension_pull = 0.0
             if quote.day_change_pct >= 5.5:
                 extension_pull -= self.random.uniform(1.0, 2.2)
             elif quote.day_change_pct <= -5.5:
-                extension_pull += self.random.uniform(0.6, 1.6)
-            drift = self.random.uniform(-2.2, 1.35) + market_shock + base_sentiment + weather_bias + sector_bias + mean_reversion + extension_pull
+                extension_pull += self.random.uniform(1.1, 2.4)
+            support_bid = 0.0
+            if self.state.market.index_value < 99:
+                support_bid += 0.35
+            if quote.day_change_pct <= -4.5:
+                support_bid += 0.95
+            regime_pull = 0.22 if regime == "bull" else (-0.28 if regime == "risk" else 0.0)
+            drift = self.random.uniform(-1.8, 1.55) + market_shock + base_sentiment + weather_bias + sector_bias + rotation_bias + mean_reversion + extension_pull + support_bid + regime_pull
             self._apply_quote_move(quote.symbol, max(-4.2, min(4.2, drift)), "白天盘中波动")
         self._update_index_history()
         self._update_daily_index_history()
@@ -617,6 +839,8 @@ class GameEngine:
 
     def _apply_event_to_market(self, event: LabEvent) -> None:
         self._sync_market_clock()
+        regime = self.state.market.regime or "bull"
+        leader = self.state.market.rotation_leader or "GEO"
         tone = event.tone_hint if event.tone_hint else self._event_tone(event)
         strength = max(1, min(5, getattr(event, "market_strength", 2)))
         target = getattr(event, "market_target", "broad")
@@ -637,13 +861,17 @@ class GameEngine:
         elif event.category == "gaming":
             deltas["SIG"] += 0.3 + tone * 0.5
         if tone < 0:
-            risk_off = abs(tone) * 0.45
+            risk_off = abs(tone) * 0.28
             deltas["GEO"] -= risk_off
             deltas["AGR"] -= risk_off * 0.75
             deltas["SIG"] -= risk_off * 0.95
         intensity_scale = 0.6 + (strength * 0.28)
         for symbol in deltas:
             deltas[symbol] *= intensity_scale
+            if deltas[symbol] > 0:
+                deltas[symbol] *= 1.18 if regime == "bull" else 0.94 if regime == "risk" else 1.02
+            elif deltas[symbol] < 0:
+                deltas[symbol] *= 0.92 if regime == "risk" else 0.68 if regime == "bull" else 0.8
         if target != "broad":
             for symbol in deltas:
                 if symbol == target:
@@ -655,9 +883,14 @@ class GameEngine:
             deltas["GEO"] += self.random.uniform(-swing, swing)
             deltas["AGR"] += self.random.uniform(-swing * 0.9, swing * 0.9)
             deltas["SIG"] += self.random.uniform(-swing * 1.1, swing * 1.1)
+        if leader in deltas:
+            if tone >= 0:
+                deltas[leader] += 0.8
+            else:
+                deltas[leader] *= 0.86
         strong_up = any(keyword in text for keyword in ["涨停", "爆单", "突破", "政策利好", "融资"])
         strong_down = any(keyword in text for keyword in ["跌停", "暴跌", "封禁", "监管", "收紧", "事故"])
-        if strong_up or strong_down or (abs(tone) >= 2 and self.random.random() < 0.18):
+        if strong_up or strong_down or (tone >= 2 and self.random.random() < 0.16) or (tone <= -2 and self.random.random() < 0.05):
             symbol = "SIG" if event.category in {"market", "tech"} else "GEO" if event.category == "geoai" else "AGR"
             deltas[symbol] = LIMIT_MOVE_PCT if (strong_up or tone > 0) and not strong_down else -LIMIT_MOVE_PCT
             limit_state = "up" if deltas[symbol] > 0 else "down"
@@ -1034,6 +1267,8 @@ class GameEngine:
 
     def _cooperation_score(self, first: Agent, second: Agent) -> int:
         score = 0
+        first_desire, _ = dominant_desire_for_agent(self.state, first)
+        second_desire, _ = dominant_desire_for_agent(self.state, second)
         if second.id in first.allies or first.id in second.allies:
             score += 3
         relation = (first.relations.get(second.id, 0) + second.relations.get(first.id, 0)) // 2
@@ -1047,6 +1282,10 @@ class GameEngine:
             score += 1
         if "mediate" in {first.social_stance, second.social_stance}:
             score += 1
+        if first_desire == second_desire:
+            score += 2
+        if {first_desire, second_desire} in [{"bond", "care"}, {"clarity", "validation"}, {"money", "opportunity"}]:
+            score += 1
         score += min(first.credit_score, second.credit_score) // 25
         if first.credit_score <= 35 or second.credit_score <= 35:
             score -= 4
@@ -1054,6 +1293,8 @@ class GameEngine:
 
     def _conflict_score(self, first: Agent, second: Agent) -> int:
         score = 0
+        first_desire, _ = dominant_desire_for_agent(self.state, first)
+        second_desire, _ = dominant_desire_for_agent(self.state, second)
         if second.id in first.rivals or first.id in second.rivals:
             score += 3
         relation = (first.relations.get(second.id, 0) + second.relations.get(first.id, 0)) // 2
@@ -1065,17 +1306,25 @@ class GameEngine:
             score += 1
         if first.state.stress + second.state.stress >= 105:
             score += 1
+        if self._desires_collide(first_desire, second_desire):
+            score += 3
+        if first.credit_score <= 35 or second.credit_score <= 35:
+            score += 1
         return score
 
     def _run_cooperation_event(self, first: Agent, second: Agent) -> None:
         location = first.current_location if self.random.random() < 0.6 else second.current_location
         topic = self._strategy_topic(first, second, cooperative=True)
+        first_desire = desire_label_for_agent(self.state, first)
+        second_desire = desire_label_for_agent(self.state, second)
         summary = f"{first.name} 主动拉上 {second.name}，想一起围绕“{topic}”推进 {RESOURCE_LABELS.get(first.desired_resource, first.desired_resource)}。"
         title = f"{first.name} 和 {second.name} 形成临时联盟"
         first.current_bubble = f"{second.name}，这轮一起上。"
         second.current_bubble = "行，我接着你往下做。"
         self._remember(first, f"你决定和 {second.name} 联手推进“{topic}”。", 3, long_term=True)
         self._remember(second, f"{first.name} 主动找你合作，想一起追“{topic}”。", 3, long_term=True)
+        self._remember(first, f"这次联盟背后，你更在意的是“{first_desire}”。", 2)
+        self._remember(second, f"这次联盟背后，你更在意的是“{second_desire}”。", 2)
         self._adjust_relation(first, second, 5, f"围绕“{topic}”站到了一边。")
         self._shift_agent_state(first, mood=3, stress=-2, focus=2, curiosity=2, geo_reasoning_skill=1 if self._is_geoai_topic(topic) else 0)
         self._shift_agent_state(second, mood=3, stress=-2, focus=2, curiosity=2, geo_reasoning_skill=1 if self._is_geoai_topic(topic) else 0)
@@ -1112,9 +1361,11 @@ class GameEngine:
             self._log("strategy_mediation", participants=[mediator.id, other.id], topic=topic, location=mediator.current_location)
             return
         topic = self._strategy_topic(first, second, cooperative=False)
+        first_desire = desire_label_for_agent(self.state, first)
+        second_desire = desire_label_for_agent(self.state, second)
         conflict_resource = RESOURCE_LABELS.get(first.desired_resource, first.desired_resource)
         title = f"{first.name} 和 {second.name} 为 {conflict_resource} 顶上了"
-        summary = f"{first.name} 和 {second.name} 都想主导“{topic}”，在 {conflict_resource} 的使用上谁也不肯先让。"
+        summary = f"{first.name} 和 {second.name} 都想主导“{topic}”，在 {conflict_resource} 的使用上谁也不肯先让。一个更想守住“{first_desire}”，另一个更想要“{second_desire}”。"
         first.current_bubble = "这轮不能再让了。"
         second.current_bubble = "你先别抢我的节奏。"
         self._adjust_relation(first, second, -5, f"为了 {conflict_resource} 的主导权围绕“{topic}”起了正面冲突。")
@@ -1131,6 +1382,36 @@ class GameEngine:
         self._upsert_story_beat("conflict", title, summary, [first.id, second.id], first.current_location)
         self._emit_strategy_event(title, summary, first.current_location)
         self._log("strategy_conflict", participants=[first.id, second.id], topic=topic, location=first.current_location)
+
+    def _desires_collide(self, first_desire: str, second_desire: str) -> bool:
+        colliding = {
+            frozenset({"money", "care"}),
+            frozenset({"money", "bond"}),
+            frozenset({"rest", "opportunity"}),
+            frozenset({"rest", "validation"}),
+            frozenset({"control", "bond"}),
+            frozenset({"control", "care"}),
+            frozenset({"clarity", "opportunity"}),
+            frozenset({"validation", "clarity"}),
+        }
+        return frozenset({first_desire, second_desire}) in colliding
+
+    def _desire_topic_between(self, first: Agent, second: Agent, first_desire: str, second_desire: str) -> str:
+        if first_desire == second_desire:
+            shared = {
+                "money": "最近谁手头更紧",
+                "rest": "今晚到底要不要回屋",
+                "bond": "今天谁最需要被接住",
+                "care": "谁现在快撑不住了",
+                "clarity": "这件事到底怎么讲清楚",
+                "validation": "这条想法到底值不值",
+                "opportunity": "眼前这波机会要不要追",
+                "control": "这轮谁该先把节奏收住",
+            }
+            return shared.get(first_desire, "这会儿最在意的事")
+        if self._desires_collide(first_desire, second_desire):
+            return f"{DESIRE_LABELS.get(first_desire, first_desire)}和{DESIRE_LABELS.get(second_desire, second_desire)}之间的拉扯"
+        return self._pick_social_topic(first, second)
 
     def _strategy_topic(self, first: Agent, second: Agent, cooperative: bool) -> str:
         if cooperative and self._is_geoai_topic(f"{first.current_plan} {second.current_plan}"):
@@ -1208,6 +1489,8 @@ class GameEngine:
                 quote.change_pct = 0.0
                 quote.last_reason = "新一天开盘"
             self.state.market.index_history = []
+            self._refresh_market_regime(force_roll=True)
+            self._refresh_sector_rotation(force_roll=True)
             self._update_index_history(append=True)
             self._update_daily_index_history()
         for agent in self.state.agents:
@@ -1650,8 +1933,26 @@ class GameEngine:
         first.last_interaction = f"刚在{ROOM_LABELS.get(first.current_location, first.current_location)}和 {second.name} 围绕“{topic}”聊了一轮。"
         second.last_interaction = f"刚在{ROOM_LABELS.get(second.current_location, second.current_location)}和 {first.name} 接着聊了“{topic}”。"
         transferred = self._resolve_pair_money_exchange(first, second, topic, mood)
-        if transferred > 0 and self.state.ambient_dialogues:
+        if transferred and self.state.ambient_dialogues:
             self.state.ambient_dialogues[0].effects.append(f"{transferred}")
+
+    def _apply_desire_pair_impact(self, first: Agent, second: Agent, first_desire: str, second_desire: str, mood: str) -> None:
+        if first_desire == second_desire and mood in {"warm", "spark"}:
+            if first_desire == "money":
+                self._shift_agent_state(first, focus=1, stress=-1)
+                self._shift_agent_state(second, focus=1, stress=-1)
+            elif first_desire == "rest":
+                self._shift_agent_state(first, energy=2, stress=-2)
+                self._shift_agent_state(second, energy=2, stress=-2)
+            elif first_desire in {"bond", "care"}:
+                self._shift_agent_state(first, mood=2, stress=-1)
+                self._shift_agent_state(second, mood=2, stress=-1)
+            elif first_desire in {"clarity", "validation", "opportunity"}:
+                self._shift_agent_state(first, focus=2, curiosity=1)
+                self._shift_agent_state(second, focus=2, curiosity=1)
+        elif self._desires_collide(first_desire, second_desire):
+            self._shift_agent_state(first, mood=-1, stress=2)
+            self._shift_agent_state(second, mood=-1, stress=2)
 
     def _resolve_pair_money_exchange(self, first: Agent, second: Agent, topic: str, mood: str) -> str | None:
         if not self.state.ambient_dialogues:
@@ -1854,6 +2155,14 @@ class GameEngine:
             self.state.market.index_history = []
         if self.state.market.daily_index_history is None:
             self.state.market.daily_index_history = []
+        if not self.state.market.regime:
+            self.state.market.regime = "bull"
+        if not self.state.market.regime_age:
+            self.state.market.regime_age = 1
+        if not self.state.market.rotation_leader:
+            self.state.market.rotation_leader = "GEO"
+        if not self.state.market.rotation_age:
+            self.state.market.rotation_age = 1
 
     def _pick_social_topic(self, first: Agent, second: Agent) -> str:
         daily_candidates = [
@@ -1893,11 +2202,15 @@ class GameEngine:
             candidates.extend(["谁最近有点太累了", "刚刚那次分歧", "谁该先退一步"])
         return self.random.choice(candidates)
 
-    def _thread_mood(self, first: Agent, second: Agent, topic: str, existing: SocialThread | None) -> str:
+    def _thread_mood(self, first: Agent, second: Agent, topic: str, existing: SocialThread | None, first_desire: str, second_desire: str) -> str:
         relation = (first.relations.get(second.id, 0) + second.relations.get(first.id, 0)) / 2
         stress = first.state.stress + second.state.stress
         if existing and existing.mood in {"warm", "spark"} and relation >= 45:
             return existing.mood
+        if self._desires_collide(first_desire, second_desire):
+            return "tense"
+        if first_desire == second_desire and relation >= 18:
+            return "warm" if first_desire in {"bond", "care", "rest"} else "spark"
         if stress >= 115 or relation <= -10 or "分歧" in topic:
             return "tense"
         if relation >= 70:
@@ -1906,7 +2219,7 @@ class GameEngine:
             return "spark"
         return "neutral"
 
-    def _ambient_pair_lines(self, first: Agent, second: Agent, topic: str, mood: str, continued: bool) -> tuple[str, str]:
+    def _ambient_pair_lines(self, first: Agent, second: Agent, topic: str, mood: str, continued: bool, first_desire: str, second_desire: str) -> tuple[str, str]:
         if any(keyword in topic for keyword in ["预算", "股票", "借点", "周转"]):
             amount = max(4, max(first.money_urgency, second.money_urgency) // 20)
             if first.money_urgency >= second.money_urgency:
@@ -1924,6 +2237,15 @@ class GameEngine:
             else:
                 response_line = "我先不借，今天更想自己扛一下。"
             return offer_line, response_line
+        if self._desires_collide(first_desire, second_desire):
+            left = f"我现在更想先顾“{DESIRE_LABELS.get(first_desire, first_desire)}”，你别总把话拽去“{DESIRE_LABELS.get(second_desire, second_desire)}”。"
+            right = f"可我眼下最在意的就是“{DESIRE_LABELS.get(second_desire, second_desire)}”，你别像没看见一样。"
+            return left, right
+        if first_desire == second_desire:
+            shared = DESIRE_LABELS.get(first_desire, first_desire)
+            left = f"我感觉你也在惦记“{shared}”。"
+            right = f"对，我这会儿也想先把“{shared}”稳住。"
+            return left, right
         left_seed = ambient_line_for(first, topic)
         right_seed = ambient_line_for(second, topic)
         if continued:
@@ -1952,6 +2274,36 @@ class GameEngine:
             right = f"{right_seed[:-1]}，这波动静我也想继续看。"
         left = left_seed
         return left, right
+
+    def _desires_collide(self, first_desire: str, second_desire: str) -> bool:
+        colliding = {
+            frozenset({"money", "care"}),
+            frozenset({"money", "bond"}),
+            frozenset({"rest", "opportunity"}),
+            frozenset({"rest", "validation"}),
+            frozenset({"control", "bond"}),
+            frozenset({"control", "care"}),
+            frozenset({"clarity", "opportunity"}),
+            frozenset({"validation", "clarity"}),
+        }
+        return frozenset({first_desire, second_desire}) in colliding
+
+    def _desire_topic_between(self, first: Agent, second: Agent, first_desire: str, second_desire: str) -> str:
+        if first_desire == second_desire:
+            shared = {
+                "money": "最近谁手头更紧",
+                "rest": "今晚到底要不要回屋",
+                "bond": "今天谁最需要被接住",
+                "care": "谁现在快撑不住了",
+                "clarity": "这件事到底怎么讲清楚",
+                "validation": "这条想法到底值不值",
+                "opportunity": "眼前这波机会要不要追",
+                "control": "这轮谁该先把节奏收住",
+            }
+            return shared.get(first_desire, "这会儿最在意的事")
+        if self._desires_collide(first_desire, second_desire):
+            return f"{DESIRE_LABELS.get(first_desire, first_desire)}和{DESIRE_LABELS.get(second_desire, second_desire)}之间的拉扯"
+        return self._pick_social_topic(first, second)
 
     def _social_thread_for(self, first_id: str, second_id: str) -> SocialThread | None:
         pair = {first_id, second_id}

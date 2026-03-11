@@ -18,6 +18,14 @@ KEYWORD_CATEGORY_MAP: dict[str, EventCategory] = {
     "steam": "gaming",
 }
 
+POSITIVE_MARKET_WORDS = ["增长", "回暖", "提振", "利好", "宽松", "支持", "修复", "上调", "复苏", "融资"]
+NEGATIVE_MARKET_WORDS = ["衰退", "收紧", "下滑", "风险", "抛售", "暴跌", "违约", "裁员", "承压", "监管"]
+TARGET_KEYWORDS = {
+    "GEO": ["geoai", "spatial", "mapping", "地图", "推理"],
+    "AGR": ["agri", "food", "farm", "消费", "农业", "天气"],
+    "SIG": ["signal", "chip", "tech", "cloud", "算力", "科技", "芯片"],
+}
+
 
 def infer_category(topic: str, default: EventCategory) -> EventCategory:
     topic_lower = topic.lower()
@@ -29,7 +37,23 @@ def infer_category(topic: str, default: EventCategory) -> EventCategory:
 
 def map_search_result_to_event(item: dict[str, str], topic: str, slot: TimeSlot, default_category: EventCategory) -> LabEvent:
     category = infer_category(topic, default_category)
-    tone_hint = 1 if category in {"geoai", "tech", "market"} else 0
+    combined_text = f"{topic} {item.get('title', '')} {item.get('description', '')}".lower()
+    positive_hits = sum(1 for keyword in POSITIVE_MARKET_WORDS if keyword in combined_text)
+    negative_hits = sum(1 for keyword in NEGATIVE_MARKET_WORDS if keyword in combined_text)
+    raw_tone = positive_hits - negative_hits
+    tone_hint = max(-2, min(2, raw_tone))
+    if tone_hint == 0 and category in {"geoai", "tech", "market"}:
+        tone_hint = 1
+    market_target = "broad"
+    for symbol, keywords in TARGET_KEYWORDS.items():
+        if any(keyword in combined_text for keyword in keywords):
+            market_target = symbol
+            break
+    market_strength = 2
+    if abs(raw_tone) >= 2:
+        market_strength = 4
+    elif positive_hits or negative_hits:
+        market_strength = 3
     impacts = {
         "geoai_progress": 6 if category == "geoai" else 2,
         "collective_reasoning": 5 if category in {"geoai", "tech"} else 2,
@@ -46,8 +70,8 @@ def map_search_result_to_event(item: dict[str, str], topic: str, slot: TimeSlot,
         impacts=impacts,
         participants=[],
         tone_hint=tone_hint,
-        market_target="broad",
-        market_strength=2,
+        market_target=market_target,
+        market_strength=market_strength,
     )
 
 

@@ -4,7 +4,7 @@ import json
 
 import httpx
 
-from app.engine.dialogue_system import conversational_pressure, temper_label_for_agent, voice_style_for_agent, weather_label
+from app.engine.dialogue_system import conversational_pressure, desire_note_for_agent, temper_label_for_agent, voice_style_for_agent, weather_label
 from app.models import Agent, DialogueOutcome, WorldState
 
 
@@ -117,6 +117,7 @@ class OpenAIDialogueService:
         core_needs = "；".join(agent.core_needs[:3]) or "暂无"
         speech_habits = "；".join(agent.speech_habits[:3]) or "暂无"
         holdings = "；".join(f"{symbol}×{shares}" for symbol, shares in sorted(agent.portfolio.items())) or "空仓"
+        desire_note = desire_note_for_agent(world, agent)
         debt_text = "；".join(
             f"{'欠' if loan.borrower_id == agent.id else '借出'} ${loan.amount_due}，到第 {loan.due_day} 天"
             for loan in world.loans
@@ -136,7 +137,9 @@ class OpenAIDialogueService:
             "除非玩家明确在聊科研、GeoAI、实验或数据，否则不要强行把话题拽回研究。"
             "回复不能停留在肤浅寒暄，必须正面回应玩家刚说的话，并至少做一件事：接住情绪、补一句观察、轻轻追问一句、或顺手给个很小的建议。"
             "如果角色脾气偏硬，就允许语气更直接；如果角色更温柔，也不要空泛安慰，仍然要把话往实处推。"
-            "先用 persona 约束自己，再用 memory stream 选择最自然的下一句，不要机械重复模板。"
+            "先判断自己这会儿最强的欲望是什么，再围绕那个欲望接话。欲望可能是：想休息、想守住边界、想被接住、想证明自己、想缓解钱压、想抓机会、想把事情讲清。"
+            "不要把“当前欲望”“即时意图”“memory stream”原样说出来，不要像在解释系统变量，而是要把它们翻译成人话。"
+            "先用 persona 约束自己，再用欲望和 memory stream 选择最自然的下一句，不要机械重复模板。"
             "涉及金钱时，只有在双方明确说出借、给、请、报销、赞助之类动作时，才会真的成交；否则最多只是试探或讨论。"
             "bubble 必须是适合头顶冒泡的中文短句，不超过 18 个字。"
             "topic 是这轮对话的话题，控制在 18 个字以内。"
@@ -144,6 +147,7 @@ class OpenAIDialogueService:
             f"角色名：{agent.name}；身份：{agent.role}；人格：{agent.persona}；专长：{agent.specialty}；脾气：{temper_label_for_agent(agent.id)}。"
             f"说话风格：{style_note}。{pressure_note}"
             f"核心需要：{core_needs}。公开事实：{public_facts}。隐藏心事：{hidden_facts}。口头习惯：{speech_habits}。"
+            f"{desire_note}"
             f"当前现金：${agent.cash}；金钱欲望：{agent.money_desire}；当前金钱压力：{agent.money_urgency}；信用值：{agent.credit_score}；慷慨度：{agent.generosity}；风险偏好：{agent.risk_appetite}；持仓：{holdings}；借款状态：{debt_text}。"
             f"当前时段：{world.time_slot}；天气：{weather_label(world.weather)}；当前位置：{agent.current_location}；最近事件：{latest_event}。"
             f"当前盘面：{market_board}。"

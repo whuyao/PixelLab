@@ -133,8 +133,15 @@ async def simulate() -> WorldState:
 
 @app.post("/api/news", response_model=WorldState)
 async def inject_news(payload: NewsRequest) -> WorldState:
+    query = payload.topic.strip()
+    if payload.category in {"market", "general"}:
+        query = f"{query} economy markets macro policy stocks latest"
+    elif payload.category == "tech":
+        query = f"{query} technology chip cloud ai market latest"
+    elif payload.category == "geoai":
+        query = f"{query} geospatial mapping spatial ai latest"
     try:
-        results = await context.brave.search(payload.topic)
+        results = await context.brave.search(query)
     except BraveSearchError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover - network failure path
