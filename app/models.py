@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 TimeSlot = Literal["morning", "noon", "afternoon", "evening", "night"]
 TaskCategory = Literal["main", "daily", "social", "external"]
 EventCategory = Literal["geoai", "tech", "market", "gaming", "general"]
+WeatherKind = Literal["sunny", "breezy", "cloudy", "drizzle"]
 
 
 class Point(BaseModel):
@@ -58,7 +59,18 @@ class Agent(BaseModel):
     current_bubble: str = ""
     status_summary: str = ""
     last_interaction: str = ""
+    goals: list[str] = Field(default_factory=list)
+    taboos: list[str] = Field(default_factory=list)
+    allies: list[str] = Field(default_factory=list)
+    rivals: list[str] = Field(default_factory=list)
+    desired_resource: str = ""
+    current_plan: str = ""
+    social_stance: str = "observe"
     sprite_style: str = "scientist_a"
+    home_position: Point | None = None
+    home_label: str = ""
+    is_resting: bool = False
+    rest_until_day: int | None = None
 
 
 class Task(BaseModel):
@@ -114,12 +126,24 @@ class SocialThread(BaseModel):
     location: str = ""
 
 
+class StoryBeat(BaseModel):
+    id: str
+    title: str
+    summary: str
+    kind: str
+    participants: list[str] = Field(default_factory=list)
+    stage: int = 1
+    momentum: int = 1
+    location: str = ""
+
+
 class WorldState(BaseModel):
-    version: int = 5
+    version: int = 8
     world_width: int = 44
     world_height: int = 26
     day: int
     time_slot: TimeSlot
+    weather: WeatherKind = "sunny"
     player: Player
     agents: list[Agent]
     tasks: list[Task]
@@ -128,6 +152,7 @@ class WorldState(BaseModel):
     latest_dialogue: DialogueOutcome | None = None
     ambient_dialogues: list[DialogueOutcome] = Field(default_factory=list)
     social_threads: list[SocialThread] = Field(default_factory=list)
+    story_beats: list[StoryBeat] = Field(default_factory=list)
 
 
 class MoveRequest(BaseModel):

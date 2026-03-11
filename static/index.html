@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>本地农夫实验室</title>
+    <title>GeoAI Pixel Lab Test (UrbanComp Lab)</title>
     <link rel="stylesheet" href="/static/styles.css?v=20260311i" />
   </head>
   <body>
@@ -12,19 +12,23 @@
         <section class="stage-panel main-stage">
           <header class="stage-header">
             <div>
-              <p class="eyebrow">GeoAI 田园研究站</p>
-              <h1>本地农夫研究站</h1>
+              <p class="eyebrow">GeoAI Pixel Lab Test (UrbanComp Lab)</p>
+              <h1>GeoAI Pixel Lab Test (UrbanComp Lab)</h1>
             </div>
             <div class="status-strip">
               <span id="dayLabel">第 1 天</span>
               <span id="timeLabel">上午</span>
+              <span id="weatherLabel">晴朗</span>
             </div>
           </header>
           <canvas id="labCanvas" width="1184" height="720"></canvas>
           <div class="controls">
             <span>移动：WASD / 方向键</span>
             <span>按 `E`：和身边的人说话</span>
+            <span>滚轮缩放 / 拖拽平移</span>
+            <button id="observerModeBtn" type="button">观察模式：关</button>
             <button id="autoExploreBtn" type="button">自动漫游：开</button>
+            <button id="resetCameraBtn" type="button">重置视角</button>
             <button id="advanceBtn" type="button">推进时段</button>
           </div>
         </section>
@@ -98,6 +102,6 @@
         </section>
       </section>
     </main>
-    <script src="/static/app.js?v=20260311j" type="module"></script>
+    <script src="/static/app.js?v=20260311o" type="module"></script>
   </body>
 </html>

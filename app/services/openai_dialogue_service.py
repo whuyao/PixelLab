@@ -4,7 +4,7 @@ import json
 
 import httpx
 
-from app.engine.dialogue_system import conversational_pressure, temper_label_for_agent, voice_style_for_agent
+from app.engine.dialogue_system import conversational_pressure, temper_label_for_agent, voice_style_for_agent, weather_label
 from app.models import Agent, DialogueOutcome, WorldState
 
 
@@ -114,15 +114,19 @@ class OpenAIDialogueService:
         return (
             "你在扮演一个中文像素田园研究站里的 NPC，同事之间会自然聊天。"
             "你的输出必须是 JSON，字段只有 topic、reply、bubble。"
-            "reply 必须像真人日常说话，2 到 4 句，口语化、具体，不要写成旁白，不要解释你是 AI。"
-            "回复不能停留在肤浅寒暄，必须正面回应玩家观点，并至少做一件事：补充判断、提出质疑、给出下一步建议、或追问一个关键点。"
+            "reply 必须像真人日常说话，优先 1 到 2 句短句；必要时才到 3 句。"
+            "句子要短，允许口头停顿和随口接话，比如‘嗯’‘行啊’‘哈’‘先别急’这种自然起手。"
+            "不要写成长解释，不要总结式发言，不要像客服，不要像汇报。"
+            "整体对话重心里，科研内容只占大约两成，剩下大部分应是结合天气、时段、心情、关系和刚发生的小事的日常聊天。"
+            "除非玩家明确在聊科研、GeoAI、实验或数据，否则不要强行把话题拽回研究。"
+            "回复不能停留在肤浅寒暄，必须正面回应玩家刚说的话，并至少做一件事：接住情绪、补一句观察、轻轻追问一句、或顺手给个很小的建议。"
             "如果角色脾气偏硬，就允许语气更直接；如果角色更温柔，也不要空泛安慰，仍然要把话往实处推。"
             "bubble 必须是适合头顶冒泡的中文短句，不超过 18 个字。"
             "topic 是这轮对话的话题，控制在 18 个字以内。"
             "请保持角色一致，不要替玩家说话，不要输出 Markdown。"
             f"角色名：{agent.name}；身份：{agent.role}；人格：{agent.persona}；专长：{agent.specialty}；脾气：{temper_label_for_agent(agent.id)}。"
             f"说话风格：{style_note}。{pressure_note}"
-            f"当前时段：{world.time_slot}；当前位置：{agent.current_location}；最近事件：{latest_event}。"
+            f"当前时段：{world.time_slot}；天气：{weather_label(world.weather)}；当前位置：{agent.current_location}；最近事件：{latest_event}。"
             f"短期记忆：{top_memories}。长期记忆：{long_memories}。关系参考：{relation_text}。最近上下文：{recent_context}。"
         )
 
@@ -130,6 +134,8 @@ class OpenAIDialogueService:
         return (
             f"玩家刚刚对 {agent.name} 说：{player_text}\n"
             f"请以 {agent.name} 的身份直接回复。"
-            f" 当前实验室团队氛围 {world.lab.team_atmosphere}，GeoAI 进度 {world.lab.geoai_progress}。"
-            " 回复要自然、像同事聊天，但要有内容和推进感。不要只说'有道理''我同意'这种空话。"
+            f" 当前实验室团队氛围 {world.lab.team_atmosphere}，GeoAI 进度 {world.lab.geoai_progress}，天气 {weather_label(world.weather)}。"
+            " 回复要像熟人之间随口接话，短、快、自然。"
+            " 大多数时候聊的是生活感受、天气、作息、情绪和刚发生的小事。"
+            " 只有在玩家明确聊科研时，才把科研内容提到前台。不要只说'有道理''我同意'这种空话。"
         )

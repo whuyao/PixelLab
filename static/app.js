@@ -6,6 +6,7 @@ const tile = 48;
 
 const dayLabel = document.getElementById("dayLabel");
 const timeLabel = document.getElementById("timeLabel");
+const weatherLabel = document.getElementById("weatherLabel");
 const metricsList = document.getElementById("metricsList");
 const taskList = document.getElementById("taskList");
 const eventList = document.getElementById("eventList");
@@ -15,11 +16,14 @@ const memoryBox = document.getElementById("memoryBox");
 const newsForm = document.getElementById("newsForm");
 const advanceBtn = document.getElementById("advanceBtn");
 const autoExploreBtn = document.getElementById("autoExploreBtn");
+const observerModeBtn = document.getElementById("observerModeBtn");
+const resetCameraBtn = document.getElementById("resetCameraBtn");
 const talkForm = document.getElementById("talkForm");
 const talkInput = document.getElementById("talkInput");
 const talkTarget = document.getElementById("talkTarget");
 const talkSendBtn = document.getElementById("talkSendBtn");
-const ASSET_VERSION = "20260311j";
+const ASSET_VERSION = "20260311o";
+const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
   morning: "上午",
@@ -27,6 +31,13 @@ const timeLabels = {
   afternoon: "下午",
   evening: "傍晚",
   night: "夜晚",
+};
+
+const weatherLabels = {
+  sunny: "晴朗",
+  breezy: "有风",
+  cloudy: "多云",
+  drizzle: "小雨",
 };
 
 const categoryLabels = {
@@ -43,6 +54,22 @@ const personaLabels = {
   engineering: "工程派",
   empathetic: "共情派",
   opportunist: "信号派",
+};
+
+const stanceLabels = {
+  cooperate: "合作",
+  compete: "竞争",
+  mediate: "调停",
+  defensive: "防守",
+  observe: "观察",
+};
+
+const resourceLabels = {
+  compute: "算力窗口",
+  evidence: "证据链",
+  attention: "团队注意力",
+  signal: "外部信号窗口",
+  calm: "缓冲空间",
 };
 
 const roomNames = {
@@ -116,12 +143,26 @@ let state = null;
 let busy = false;
 let assetsReady = false;
 let autoExplore = true;
+let observerMode = false;
 let lastFrame = performance.now();
 let lastManualInput = Date.now();
 const MANUAL_LOCK_MS = 2200;
 let pendingDialogue = null;
 let draftTalkText = "";
 let selectedActorId = null;
+let composerPending = false;
+let observerStepCount = 0;
+const cameraState = {
+  zoom: 1,
+  manual: false,
+  x: 0,
+  y: 0,
+  dragging: false,
+  moved: false,
+  pointerId: null,
+  lastScreenX: 0,
+  lastScreenY: 0,
+};
 
 const agentVisuals = {
   player: { coat: "#4f8ab8", hair: "#4d6e89", accent: "#8bc0d9", skin: "#f0c49a" },
@@ -130,6 +171,14 @@ const agentVisuals = {
   jo: { coat: "#6f9362", hair: "#2f3348", accent: "#dcead7", skin: "#e8bc95" },
   rae: { coat: "#9a6289", hair: "#5b3a72", accent: "#f0d8ef", skin: "#f0c3a4" },
   kai: { coat: "#c18f32", hair: "#c26a45", accent: "#ffe4ab", skin: "#efc099" },
+};
+
+const cottageOffsets = {
+  lin: { dx: -10, dy: -34 },
+  mika: { dx: -10, dy: -34 },
+  jo: { dx: -10, dy: -34 },
+  rae: { dx: -10, dy: -34 },
+  kai: { dx: -10, dy: -34 },
 };
 
 const sceneEntities = {
@@ -209,8 +258,11 @@ function renderPanels() {
   if (!state) return;
   dayLabel.textContent = `第 ${state.day} 天`;
   timeLabel.textContent = timeLabels[state.time_slot];
+  weatherLabel.textContent = weatherLabels[state.weather] || state.weather || "晴朗";
+  observerModeBtn.textContent = `观察模式：${observerMode ? "开" : "关"}`;
   autoExploreBtn.textContent = `自动漫游：${autoExplore ? "开" : "关"}`;
   updateTalkTarget();
+  refreshComposerAvailability();
   renderMetrics();
   renderTasks();
   renderEvents();
@@ -257,7 +309,19 @@ function renderTasks() {
 }
 
 function renderEvents() {
-  eventList.innerHTML = state.events
+  const storyMarkup = (state.story_beats || [])
+    .slice(0, 3)
+    .map(
+      (beat) => `
+        <article class="event-card story-card">
+          <strong>${beat.title}</strong>
+          <div>${beat.summary}</div>
+          <div class="event-meta">故事线 · ${beat.kind} · 第 ${beat.stage} 段</div>
+        </article>
+      `,
+    )
+    .join("");
+  const eventMarkup = state.events
     .map(
       (event) => `
         <article class="event-card">
@@ -268,6 +332,7 @@ function renderEvents() {
       `,
     )
     .join("");
+  eventList.innerHTML = `${storyMarkup}${eventMarkup}`;
 }
 
 function renderDialogue() {
@@ -358,6 +423,16 @@ function renderMemory() {
       return `<div class="relation-item"><span>${name} · ${relationLabel(value)}</span><span class="relation-value">${value}</span></div>`;
     })
     .join("");
+  const goals = (agent.goals || []).map((item) => `<span class="memory-chip">${item}</span>`).join("") || '<span class="memory-meta">暂无目标。</span>';
+  const taboos = (agent.taboos || []).map((item) => `<span class="memory-chip">${item}</span>`).join("") || '<span class="memory-meta">暂无底线设定。</span>';
+  const allies = (agent.allies || [])
+    .map((id) => state.agents.find((item) => item.id === id)?.name || id)
+    .map((name) => `<span class="memory-chip">${name}</span>`)
+    .join("") || '<span class="memory-meta">暂无固定盟友。</span>';
+  const rivals = (agent.rivals || [])
+    .map((id) => state.agents.find((item) => item.id === id)?.name || id)
+    .map((name) => `<span class="memory-chip">${name}</span>`)
+    .join("") || '<span class="memory-meta">暂无明确对手。</span>';
   memoryBox.innerHTML = `
     <h3>${agent.name}</h3>
     <div class="memory-meta">${agent.role} · ${agent.current_activity}</div>
@@ -365,12 +440,20 @@ function renderMemory() {
     <div class="status-grid">
       <div class="status-pill"><strong>坐标</strong><span>${agent.position.x}, ${agent.position.y}</span></div>
       <div class="status-pill"><strong>区域</strong><span>${roomNames[agent.current_location] || agent.current_location}</span></div>
+      <div class="status-pill"><strong>小屋</strong><span>${agent.home_label || "未设置"}</span></div>
+      <div class="status-pill"><strong>休息状态</strong><span>${agent.is_resting ? "休息中" : "在外活动"}</span></div>
       <div class="status-pill"><strong>心情</strong><span>${agent.state.mood}</span></div>
       <div class="status-pill"><strong>压力</strong><span>${agent.state.stress}</span></div>
       <div class="status-pill"><strong>专注</strong><span>${agent.state.focus}</span></div>
       <div class="status-pill"><strong>体力</strong><span>${agent.state.energy}</span></div>
       <div class="status-pill"><strong>好奇心</strong><span>${agent.state.curiosity}</span></div>
       <div class="status-pill"><strong>GeoAI 推理</strong><span>${agent.state.geo_reasoning_skill}</span></div>
+      <div class="status-pill"><strong>社交姿态</strong><span>${stanceLabels[agent.social_stance] || agent.social_stance || "观察"}</span></div>
+      <div class="status-pill"><strong>争夺资源</strong><span>${resourceLabels[agent.desired_resource] || agent.desired_resource || "无"}</span></div>
+    </div>
+    <div class="memory-section">
+      <strong>当前计划</strong>
+      <div>${agent.current_plan || "这会儿还没有明确行动计划。"}</div>
     </div>
     <div class="memory-section">
       <strong>状态摘要</strong>
@@ -389,6 +472,22 @@ function renderMemory() {
       <div class="relation-list">${relations || '<span class="memory-meta">暂无关系记录。</span>'}</div>
     </div>
     <div class="memory-section">
+      <strong>主要目标</strong>
+      <div>${goals}</div>
+    </div>
+    <div class="memory-section">
+      <strong>底线</strong>
+      <div>${taboos}</div>
+    </div>
+    <div class="memory-section">
+      <strong>盟友</strong>
+      <div>${allies}</div>
+    </div>
+    <div class="memory-section">
+      <strong>对手</strong>
+      <div>${rivals}</div>
+    </div>
+    <div class="memory-section">
       <strong>短期记忆</strong>
       <div>${shortTerm}</div>
     </div>
@@ -404,26 +503,44 @@ function drawWorld(now) {
   const camera = getCamera();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.save();
+  ctx.scale(camera.zoom, camera.zoom);
   ctx.translate(-camera.x, -camera.y);
   drawBackground(now);
   drawRooms(now);
   drawDecorations(now);
+  drawCottages(now);
   drawCharacters(now);
   drawBubbles();
   ctx.restore();
-  drawMiniMap();
+  drawMiniMap(camera);
+  drawWeatherOverlay(now);
   ctx.fillStyle = lightingBySlot[state.time_slot];
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
 
 function getCamera() {
+  const viewport = getViewport();
   const px = sceneEntities.player.x;
   const py = sceneEntities.player.y;
   const worldWidthPx = state.world_width * tile;
   const worldHeightPx = state.world_height * tile;
-  const x = clamp(px - canvas.width / 2, 0, Math.max(0, worldWidthPx - canvas.width));
-  const y = clamp(py - canvas.height / 2, 0, Math.max(0, worldHeightPx - canvas.height));
-  return { x, y };
+  const followX = clamp(px - viewport.width / 2, 0, Math.max(0, worldWidthPx - viewport.width));
+  const followY = clamp(py - viewport.height / 2, 0, Math.max(0, worldHeightPx - viewport.height));
+  if (!cameraState.manual) {
+    cameraState.x = followX;
+    cameraState.y = followY;
+  } else {
+    cameraState.x = clamp(cameraState.x, 0, Math.max(0, worldWidthPx - viewport.width));
+    cameraState.y = clamp(cameraState.y, 0, Math.max(0, worldHeightPx - viewport.height));
+  }
+  return { x: cameraState.x, y: cameraState.y, zoom: cameraState.zoom, viewportWidth: viewport.width, viewportHeight: viewport.height };
+}
+
+function getViewport() {
+  return {
+    width: canvas.width / cameraState.zoom,
+    height: canvas.height / cameraState.zoom,
+  };
 }
 
 function drawBackground(now) {
@@ -486,6 +603,44 @@ function drawDecorations(now) {
       ctx.lineWidth = 1;
       ctx.strokeRect(x, y, tile, tile);
     }
+  }
+}
+
+function drawCottages(now) {
+  state.agents.forEach((agent) => {
+    if (!agent.home_position) return;
+    const point = gridToPixels(agent.home_position);
+    const offset = cottageOffsets[agent.id] || { dx: -10, dy: -34 };
+    drawCottage(point.x + offset.dx, point.y + offset.dy, agent, now);
+  });
+}
+
+function drawCottage(x, y, agent, now) {
+  const visual = agentVisuals[agent.id] || agentVisuals.player;
+  const glow = agent.is_resting ? 0.1 + (Math.sin(now / 420) + 1) * 0.06 : 0;
+  ctx.fillStyle = `rgba(255, 235, 180, ${glow})`;
+  ctx.fillRect(x - 6, y - 4, 60, 54);
+  ctx.fillStyle = "#8f6545";
+  ctx.fillRect(x, y + 16, 48, 30);
+  ctx.fillStyle = "#c79b73";
+  ctx.fillRect(x + 3, y + 18, 42, 26);
+  ctx.fillStyle = "#6f4f35";
+  ctx.beginPath();
+  ctx.moveTo(x - 2, y + 18);
+  ctx.lineTo(x + 24, y - 1);
+  ctx.lineTo(x + 50, y + 18);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#f7ead2";
+  ctx.fillRect(x + 8, y + 24, 8, 8);
+  ctx.fillRect(x + 32, y + 24, 8, 8);
+  ctx.fillStyle = shadeColor(visual.coat, -14);
+  ctx.fillRect(x + 18, y + 26, 12, 18);
+  ctx.fillRect(x + 20, y + 8, 8, 7);
+  if (agent.is_resting) {
+    ctx.fillStyle = "rgba(247, 230, 164, 0.9)";
+    ctx.fillRect(x + 10, y + 26, 4, 4);
+    ctx.fillRect(x + 34, y + 26, 4, 4);
   }
 }
 
@@ -683,7 +838,7 @@ function roundRect(x, y, width, height, radius, fill) {
   }
 }
 
-function drawMiniMap() {
+function drawMiniMap(camera) {
   const width = 180;
   const height = 100;
   const x = canvas.width - width - 18;
@@ -717,6 +872,14 @@ function drawMiniMap() {
   state.agents.forEach((agent) => {
     ctx.fillRect(x + (agent.position.x - 1) * scaleX - 1, y + (agent.position.y - 1) * scaleY - 1, 4, 4);
   });
+  ctx.strokeStyle = "rgba(255, 248, 226, 0.92)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(
+    x + (camera.x / tile) * scaleX,
+    y + (camera.y / tile) * scaleY,
+    (camera.viewportWidth / tile) * scaleX,
+    (camera.viewportHeight / tile) * scaleY,
+  );
 }
 
 function drawSkyDetails(now, worldWidthPx) {
@@ -744,6 +907,39 @@ function drawSkyDetails(now, worldWidthPx) {
     ctx.arc(cloudX + 20, cloudY - 6, 18, 0, Math.PI * 2);
     ctx.arc(cloudX + 40, cloudY, 20, 0, Math.PI * 2);
     ctx.fill();
+  }
+}
+
+function drawWeatherOverlay(now) {
+  if (!state) return;
+  if (state.weather === "cloudy") {
+    ctx.fillStyle = "rgba(112, 128, 138, 0.08)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    return;
+  }
+  if (state.weather === "breezy") {
+    ctx.strokeStyle = "rgba(255,255,255,0.12)";
+    ctx.lineWidth = 2;
+    for (let index = 0; index < 10; index += 1) {
+      const y = (index * 73 + now / 14) % canvas.height;
+      ctx.beginPath();
+      ctx.moveTo(20 + index * 12, y);
+      ctx.quadraticCurveTo(120 + index * 20, y - 8, 220 + index * 16, y + 4);
+      ctx.stroke();
+    }
+    return;
+  }
+  if (state.weather === "drizzle") {
+    ctx.strokeStyle = "rgba(198, 220, 238, 0.28)";
+    ctx.lineWidth = 2;
+    for (let index = 0; index < 70; index += 1) {
+      const x = (index * 27 + now / 9) % canvas.width;
+      const y = (index * 41 + now / 6) % canvas.height;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - 6, y + 14);
+      ctx.stroke();
+    }
   }
 }
 
@@ -994,13 +1190,43 @@ function getSelectedCharacter() {
 
 function updateTalkTarget() {
   const target = getNearbyAgent();
+  if (observerMode) {
+    talkTarget.textContent = target ? `观察模式：自动接近 ${target.name}` : "观察模式：玩家自动行动中";
+    return;
+  }
   talkTarget.textContent = target ? `当前对象：${target.name}` : "当前对象：未靠近任何同事";
 }
 
 function setComposerPending(pending, targetName = "") {
-  talkInput.disabled = pending;
-  talkSendBtn.disabled = pending;
-  talkSendBtn.textContent = pending ? `${targetName || "对方"}思考中…` : "发送";
+  composerPending = pending;
+  talkSendBtn.dataset.pendingName = targetName;
+  refreshComposerAvailability();
+}
+
+function refreshComposerAvailability() {
+  const locked = observerMode || composerPending;
+  talkInput.disabled = locked;
+  talkSendBtn.disabled = locked;
+  advanceBtn.disabled = observerMode || composerPending;
+  if (composerPending) {
+    talkSendBtn.textContent = `${talkSendBtn.dataset.pendingName || "对方"}思考中…`;
+    talkInput.placeholder = TALK_PLACEHOLDER;
+    return;
+  }
+  if (observerMode) {
+    talkSendBtn.textContent = "观察中";
+    talkInput.placeholder = "观察模式下玩家会自动行动，你只需要注入外部信息。";
+    return;
+  }
+  talkSendBtn.textContent = "发送";
+  talkInput.placeholder = TALK_PLACEHOLDER;
+}
+
+function resetCamera() {
+  cameraState.manual = false;
+  cameraState.x = 0;
+  cameraState.y = 0;
+  cameraState.zoom = 1;
 }
 
 function buildPendingDialogue(target, text) {
@@ -1020,6 +1246,29 @@ function buildPendingDialogue(target, text) {
       }[target.id] || "我想一下",
     effects: [],
   };
+}
+
+function buildObserverUtterance(target) {
+  const weather = weatherLabels[state.weather] || "天气";
+  const slot = timeLabels[state.time_slot] || "这会儿";
+  if (target.is_resting) {
+    return `${target.name}，你先慢慢休息，我路过看看你。`;
+  }
+  const generic = [
+    `${slot}的${weather}挺舒服的，你现在状态怎么样？`,
+    "我刚从旁边走过，感觉这里气氛还不错。",
+    "你现在看起来像想说点什么，我在听。",
+    "今天大家都慢下来了，你这会儿最想聊什么？",
+  ];
+  const byAgent = {
+    lin: ["你刚才那句我记住了，要不要把思路再讲直一点？", "你今天看起来比上午稳一点，现在最卡哪儿？"],
+    mika: ["你是不是又想到一个怪点子了？", "刚才那阵风一吹，我感觉你又要开始发散了。"],
+    jo: ["你别一直绷着，这会儿先当随便聊两句。", "如果不想聊系统，也可以直接说点今天的心情。"],
+    rae: ["你一直在接大家的话，你自己现在还好吗？", "这会儿节奏挺慢的，你也可以只聊聊今天心情。"],
+    kai: ["外面的风向归风向，你现在自己在想什么？", "今天这天气挺适合聊点轻松的，你先来一句。"],
+  };
+  const pool = [...generic, ...(byAgent[target.id] || [])];
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 function normalizeError(message) {
@@ -1101,6 +1350,10 @@ async function move(dx, dy, manual = false) {
 }
 
 async function interact() {
+  if (observerMode) {
+    signalStatus.textContent = "观察模式已开启，玩家会自己接近并和别人互动。";
+    return;
+  }
   const target = getNearbyAgent();
   if (!target) {
     signalStatus.textContent = "先靠近一位同事，再按 E 打开对话输入框。";
@@ -1114,6 +1367,10 @@ async function interact() {
 }
 
 async function submitTalk() {
+  if (observerMode) {
+    signalStatus.textContent = "观察模式下玩家由系统自动行动，你只需要注入外部信息。";
+    return;
+  }
   const target = getNearbyAgent();
   if (!target) {
     signalStatus.textContent = "附近没有可对话的同事。";
@@ -1185,6 +1442,30 @@ function chooseAutoMove() {
   return chooseWalkableStep(state.player.position, target);
 }
 
+async function autoInteract(target) {
+  if (!target || busy) return;
+  busy = true;
+  const observerText = buildObserverUtterance(target);
+  try {
+    pendingDialogue = buildPendingDialogue(target, observerText);
+    renderPanels();
+    state = await api(`/api/auto-speak/${target.id}`, {
+      method: "POST",
+      body: JSON.stringify({ text: observerText }),
+    });
+    pendingDialogue = null;
+    syncSceneEntities();
+    renderPanels();
+    signalStatus.textContent = `观察模式下，玩家刚主动和 ${target.name} 聊了一句。`;
+  } catch (error) {
+    pendingDialogue = null;
+    renderPanels();
+    signalStatus.textContent = error.message;
+  } finally {
+    busy = false;
+  }
+}
+
 function stepToward(from, to) {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
@@ -1222,7 +1503,7 @@ function isBlocked(x, y) {
 function scheduleSimulation() {
   setInterval(async () => {
     if (busy || !state) return;
-    if (Date.now() - lastManualInput < MANUAL_LOCK_MS) return;
+    if (!observerMode && Date.now() - lastManualInput < MANUAL_LOCK_MS) return;
     try {
       state = await api("/api/simulate", { method: "POST" });
       syncSceneEntities();
@@ -1235,12 +1516,44 @@ function scheduleSimulation() {
 
 function scheduleAutoExplore() {
   setInterval(async () => {
-    if (!autoExplore || busy || !state) return;
+    if (observerMode || !autoExplore || busy || !state) return;
     if (Date.now() - lastManualInput < 7000) return;
     const step = chooseAutoMove();
     if (!step || (step.dx === 0 && step.dy === 0)) return;
     await move(step.dx, step.dy, false);
   }, 1400);
+}
+
+function scheduleObserverMode() {
+  setInterval(async () => {
+    if (!observerMode || busy || !state) return;
+    observerStepCount += 1;
+    const nearby = getNearbyAgent();
+    if (nearby && Math.random() < 0.72) {
+      await autoInteract(nearby);
+      return;
+    }
+    if (observerStepCount % 9 === 0) {
+      busy = true;
+      try {
+        state = await api("/api/advance", {
+          method: "POST",
+          body: JSON.stringify({ reason: "观察模式自动推进" }),
+        });
+        syncSceneEntities();
+        renderPanels();
+        signalStatus.textContent = "观察模式下，实验室自动进入了下一个时段。";
+      } catch (error) {
+        signalStatus.textContent = error.message;
+      } finally {
+        busy = false;
+      }
+      return;
+    }
+    const step = chooseAutoMove();
+    if (!step || (step.dx === 0 && step.dy === 0)) return;
+    await move(step.dx, step.dy, false);
+  }, 1800);
 }
 
 document.addEventListener("keydown", async (event) => {
@@ -1257,6 +1570,10 @@ document.addEventListener("keydown", async (event) => {
   if (handledKeys.includes(event.key)) {
     event.preventDefault();
   }
+  if (observerMode) {
+    signalStatus.textContent = "观察模式已开启，玩家行动交给系统，你只需要注入外部信息。";
+    return;
+  }
   if (["ArrowUp", "w", "W"].includes(event.key)) await move(0, -1, true);
   if (["ArrowDown", "s", "S"].includes(event.key)) await move(0, 1, true);
   if (["ArrowLeft", "a", "A"].includes(event.key)) await move(-1, 0, true);
@@ -1264,7 +1581,23 @@ document.addEventListener("keydown", async (event) => {
   if (["e", "E"].includes(event.key)) await interact();
 });
 
+observerModeBtn.addEventListener("click", () => {
+  observerMode = !observerMode;
+  if (observerMode) {
+    autoExplore = true;
+    lastManualInput = 0;
+    signalStatus.textContent = "观察模式已开启。玩家会自动移动、自动互动、自动推进时段。";
+  } else {
+    signalStatus.textContent = "观察模式已关闭。你可以重新手动控制玩家。";
+  }
+  renderPanels();
+});
+
 autoExploreBtn.addEventListener("click", () => {
+  if (observerMode) {
+    signalStatus.textContent = "观察模式下自动移动由系统接管。";
+    return;
+  }
   autoExplore = !autoExplore;
   if (autoExplore) {
     lastManualInput = 0;
@@ -1336,8 +1669,8 @@ function getCanvasWorldPoint(event) {
   const scaleY = canvas.height / rect.height;
   const camera = getCamera();
   return {
-    x: (event.clientX - rect.left) * scaleX + camera.x,
-    y: (event.clientY - rect.top) * scaleY + camera.y,
+    x: ((event.clientX - rect.left) * scaleX) / camera.zoom + camera.x,
+    y: ((event.clientY - rect.top) * scaleY) / camera.zoom + camera.y,
   };
 }
 
@@ -1352,16 +1685,78 @@ function pickActorAt(worldX, worldY) {
 
 canvas.addEventListener("click", (event) => {
   if (!state) return;
+  if (cameraState.moved) {
+    cameraState.moved = false;
+    return;
+  }
   const point = getCanvasWorldPoint(event);
   const picked = pickActorAt(point.x, point.y);
   selectedActorId = picked?.id || null;
   renderPanels();
 });
 
+canvas.addEventListener("wheel", (event) => {
+  if (!state) return;
+  event.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const screenX = ((event.clientX - rect.left) * canvas.width) / rect.width;
+  const screenY = ((event.clientY - rect.top) * canvas.height) / rect.height;
+  const before = getCamera();
+  const worldX = screenX / before.zoom + before.x;
+  const worldY = screenY / before.zoom + before.y;
+  const nextZoom = clamp(cameraState.zoom + (event.deltaY < 0 ? 0.12 : -0.12), 0.7, 2.2);
+  cameraState.zoom = nextZoom;
+  cameraState.manual = true;
+  cameraState.x = worldX - screenX / nextZoom;
+  cameraState.y = worldY - screenY / nextZoom;
+}, { passive: false });
+
+canvas.addEventListener("pointerdown", (event) => {
+  if (!state) return;
+  canvas.setPointerCapture(event.pointerId);
+  cameraState.dragging = true;
+  cameraState.moved = false;
+  cameraState.pointerId = event.pointerId;
+  cameraState.lastScreenX = event.clientX;
+  cameraState.lastScreenY = event.clientY;
+});
+
+canvas.addEventListener("pointermove", (event) => {
+  if (!cameraState.dragging || cameraState.pointerId !== event.pointerId || !state) return;
+  const dx = event.clientX - cameraState.lastScreenX;
+  const dy = event.clientY - cameraState.lastScreenY;
+  if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+    cameraState.moved = true;
+  }
+  cameraState.manual = true;
+  cameraState.x -= dx / cameraState.zoom;
+  cameraState.y -= dy / cameraState.zoom;
+  cameraState.lastScreenX = event.clientX;
+  cameraState.lastScreenY = event.clientY;
+});
+
+canvas.addEventListener("pointerup", (event) => {
+  if (cameraState.pointerId === event.pointerId) {
+    cameraState.dragging = false;
+    cameraState.pointerId = null;
+  }
+});
+
+canvas.addEventListener("pointercancel", () => {
+  cameraState.dragging = false;
+  cameraState.pointerId = null;
+});
+
+resetCameraBtn.addEventListener("click", () => {
+  resetCamera();
+  signalStatus.textContent = observerMode ? "视角已重置为自动跟随，继续观察模式。" : "视角已重置为自动跟随玩家。";
+});
+
 Promise.all([loadAssets(), loadState()])
   .then(() => {
     scheduleSimulation();
     scheduleAutoExplore();
+    scheduleObserverMode();
     requestAnimationFrame(loop);
   })
   .catch((error) => {

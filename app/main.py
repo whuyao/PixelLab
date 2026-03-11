@@ -104,6 +104,19 @@ async def speak(agent_id: str, payload: SpeakRequest) -> WorldState:
     return state
 
 
+@app.post("/api/auto-speak/{agent_id}", response_model=WorldState)
+async def auto_speak(agent_id: str, payload: SpeakRequest) -> WorldState:
+    try:
+        context.engine.speak_to_agent(agent_id, payload.text)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    state = context.engine.get_state()
+    context.repository.save(state)
+    return state
+
+
 @app.post("/api/advance", response_model=WorldState)
 async def advance(payload: AdvanceRequest) -> WorldState:
     state = context.engine.advance_for_reflection(payload.reason)

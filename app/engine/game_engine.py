@@ -4,12 +4,12 @@ import random
 from dataclasses import dataclass
 from uuid import uuid4
 
-from app.engine.dialogue_system import ambient_line_for, build_dialogue, build_dialogue_from_player, self_reflection_for
+from app.engine.dialogue_system import ambient_line_for, build_dialogue, build_dialogue_from_player, self_reflection_for, weather_label
 from app.engine.event_system import build_internal_event
 from app.engine.task_system import apply_task_progress
 from app.engine.time_system import advance_time
 from app.engine.world_state import build_initial_world
-from app.models import Agent, DialogueOutcome, LabEvent, MemoryEntry, Point, SocialThread, WorldState
+from app.models import Agent, DialogueOutcome, LabEvent, MemoryEntry, Point, SocialThread, StoryBeat, WorldState
 from app.services.activity_logger import ActivityLogger
 
 
@@ -76,6 +76,24 @@ ROOM_LABELS = {
     "meeting": "麦田广场",
     "lounge": "湖畔营地",
 }
+
+RESOURCE_LABELS = {
+    "compute": "算力窗口",
+    "evidence": "证据链",
+    "attention": "团队注意力",
+    "signal": "外部信号窗口",
+    "calm": "团队缓冲空间",
+}
+
+HOME_SPOTS = {
+    "lin": (9, 3, "Lin 的木屋"),
+    "mika": (11, 23, "Mika 的木屋"),
+    "jo": (21, 3, "Jo 的木屋"),
+    "rae": (29, 23, "Rae 的木屋"),
+    "kai": (38, 3, "Kai 的木屋"),
+}
+
+FORCED_REST_THRESHOLD = 8
 
 
 class GameEngine:
@@ -203,9 +221,12 @@ class GameEngine:
         return self.state
 
     def simulate_world(self) -> WorldState:
+        self._refresh_agent_plans()
         self._move_agents_autonomously()
         self._trigger_ambient_interaction()
+        self._trigger_strategy_event()
         self._age_social_threads()
+        self._age_story_beats()
         self._soft_shift_player_pressure()
         self._log("world_simulation_tick")
         return self.state
@@ -214,6 +235,36 @@ class GameEngine:
         moved_agents: list[dict[str, object]] = []
         for agent in self.state.agents:
             previous = agent.position.model_copy()
+            if agent.is_resting:
+                self._keep_agent_resting(agent)
+                continue
+            if agent.state.energy <= FORCED_REST_THRESHOLD:
+                self._send_agent_home(agent, "体力已经见底，得先回去睡一觉。", forced=True)
+                moved_agents.append(
+                    {
+                        "id": agent.id,
+                        "name": agent.name,
+                        "from": previous.model_dump(),
+                        "to": agent.position.model_dump(),
+                        "location": agent.current_location,
+                        "resting": agent.is_resting,
+                    }
+                )
+                continue
+            if self.state.time_slot == "night" and self._night_returns_home(agent):
+                self._send_agent_home(agent, "夜里差不多该回小屋休息了。")
+                if agent.position != previous:
+                    moved_agents.append(
+                        {
+                            "id": agent.id,
+                            "name": agent.name,
+                            "from": previous.model_dump(),
+                            "to": agent.position.model_dump(),
+                            "location": agent.current_location,
+                            "resting": agent.is_resting,
+                        }
+                    )
+                continue
             hub_x, hub_y = HUBS[agent.id][self.state.time_slot]
             room = self._room(agent.current_location)
             target_x = hub_x + self.random.randint(-2, 2)
@@ -237,10 +288,15 @@ class GameEngine:
             )
             agent.position = self._move_in_room(agent.position, room, options)
             agent.current_location = self._room_for(agent.position.x, agent.position.y)
-            agent.state.energy = max(18, agent.state.energy - 1)
+            drain = 3 if self.state.time_slot == "night" else 1
+            agent.state.energy = max(0, agent.state.energy - drain)
             agent.state.focus = max(25, min(96, agent.state.focus + self.random.choice([-1, 0, 1])))
+            if self.state.time_slot == "night":
+                agent.state.stress = min(100, agent.state.stress + 1)
             if self.random.random() < 0.25:
                 agent.current_bubble = self._ambient_bubble_for(agent)
+            if agent.state.energy <= FORCED_REST_THRESHOLD:
+                self._send_agent_home(agent, "体力已经见底，得先回去睡一觉。", forced=True)
             if agent.position != previous:
                 moved_agents.append(
                     {
@@ -249,6 +305,7 @@ class GameEngine:
                         "from": previous.model_dump(),
                         "to": agent.position.model_dump(),
                         "location": agent.current_location,
+                        "resting": agent.is_resting,
                     }
                 )
         if moved_agents:
@@ -257,7 +314,11 @@ class GameEngine:
     def _trigger_ambient_interaction(self) -> None:
         pairs: list[tuple[Agent, Agent]] = []
         for index, first in enumerate(self.state.agents):
+            if first.is_resting:
+                continue
             for second in self.state.agents[index + 1 :]:
+                if second.is_resting:
+                    continue
                 distance = abs(first.position.x - second.position.x) + abs(first.position.y - second.position.y)
                 if distance <= 4 and first.current_location == second.current_location:
                     pairs.append((first, second))
@@ -327,21 +388,262 @@ class GameEngine:
             if thread.momentum <= 0:
                 self.state.social_threads.remove(thread)
 
+    def _roll_weather(self) -> str:
+        weather_cycle = ["sunny", "breezy", "cloudy", "drizzle"]
+        seed = (self.state.day * 7) + len(self.state.events) + len(self.state.ambient_dialogues) + self.random.randint(0, 5)
+        return weather_cycle[seed % len(weather_cycle)]
+
+    def _refresh_agent_plans(self) -> None:
+        latest_event = self.state.events[0].title if self.state.events else "今天的研究安排"
+        for agent in self.state.agents:
+            if agent.is_resting:
+                agent.social_stance = "observe"
+                agent.current_plan = f"先在{agent.home_label or '小屋'}补觉，等明早再出来。"
+                continue
+            partner_name = self._agent_name(agent.allies[0]) if agent.allies else "别人"
+            rival_name = self._agent_name(agent.rivals[0]) if agent.rivals else "阻力"
+            resource_name = RESOURCE_LABELS.get(agent.desired_resource, agent.desired_resource)
+            if agent.state.stress >= 68:
+                agent.social_stance = "defensive"
+                agent.current_plan = f"先守住{resource_name}，不想被 {rival_name} 再打乱节奏。"
+            elif agent.persona == "empathetic":
+                agent.social_stance = "mediate"
+                agent.current_plan = f"准备观察谁快顶不住了，必要时去替 {partner_name} 缓一口气。"
+            elif agent.persona in {"rational", "engineering"} and ("GeoAI" in latest_event or "复盘" in latest_event):
+                agent.social_stance = "cooperate"
+                agent.current_plan = f"想拉 {partner_name} 一起围绕“{latest_event}”把{resource_name}做扎实。"
+            elif agent.persona in {"creative", "opportunist"} and self.state.lab.external_sensitivity >= 24:
+                agent.social_stance = "compete"
+                agent.current_plan = f"想抢在 {rival_name} 前把新的{resource_name}推进到台面上。"
+            else:
+                agent.social_stance = "observe"
+                agent.current_plan = f"继续盯着{resource_name}，看谁值得合作、谁可能挡路。"
+
+    def _trigger_strategy_event(self) -> None:
+        if self.random.random() > 0.58:
+            return
+        pairs = [
+            (first, second)
+            for index, first in enumerate(self.state.agents)
+            for second in self.state.agents[index + 1 :]
+            if not first.is_resting and not second.is_resting
+        ]
+        if not pairs:
+            return
+        scored_pairs = []
+        for first, second in pairs:
+            coop_score = self._cooperation_score(first, second)
+            conflict_score = self._conflict_score(first, second)
+            score = max(coop_score, conflict_score)
+            if score > 0:
+                scored_pairs.append((score, coop_score, conflict_score, first, second))
+        if not scored_pairs:
+            return
+        _, coop_score, conflict_score, first, second = max(scored_pairs, key=lambda item: item[0])
+        if coop_score >= conflict_score and coop_score >= 3:
+            self._run_cooperation_event(first, second)
+        elif conflict_score >= 3:
+            self._run_conflict_event(first, second)
+
+    def _cooperation_score(self, first: Agent, second: Agent) -> int:
+        score = 0
+        if second.id in first.allies or first.id in second.allies:
+            score += 3
+        relation = (first.relations.get(second.id, 0) + second.relations.get(first.id, 0)) // 2
+        if relation >= 30:
+            score += 2
+        if first.desired_resource == second.desired_resource:
+            score += 1
+        if "GeoAI" in first.current_plan and "GeoAI" in second.current_plan:
+            score += 2
+        if "cooperate" in {first.social_stance, second.social_stance}:
+            score += 1
+        if "mediate" in {first.social_stance, second.social_stance}:
+            score += 1
+        return score
+
+    def _conflict_score(self, first: Agent, second: Agent) -> int:
+        score = 0
+        if second.id in first.rivals or first.id in second.rivals:
+            score += 3
+        relation = (first.relations.get(second.id, 0) + second.relations.get(first.id, 0)) // 2
+        if relation <= 10:
+            score += 2
+        if first.desired_resource == second.desired_resource:
+            score += 3
+        if {"compete", "defensive"} & {first.social_stance, second.social_stance}:
+            score += 1
+        if first.state.stress + second.state.stress >= 105:
+            score += 1
+        return score
+
+    def _run_cooperation_event(self, first: Agent, second: Agent) -> None:
+        location = first.current_location if self.random.random() < 0.6 else second.current_location
+        topic = self._strategy_topic(first, second, cooperative=True)
+        summary = f"{first.name} 主动拉上 {second.name}，想一起围绕“{topic}”推进 {RESOURCE_LABELS.get(first.desired_resource, first.desired_resource)}。"
+        title = f"{first.name} 和 {second.name} 形成临时联盟"
+        first.current_bubble = f"{second.name}，这轮一起上。"
+        second.current_bubble = "行，我接着你往下做。"
+        self._remember(first, f"你决定和 {second.name} 联手推进“{topic}”。", 3, long_term=True)
+        self._remember(second, f"{first.name} 主动找你合作，想一起追“{topic}”。", 3, long_term=True)
+        self._adjust_relation(first, second, 5, f"围绕“{topic}”站到了一边。")
+        self._shift_agent_state(first, mood=3, stress=-2, focus=2, curiosity=2, geo_reasoning_skill=1 if self._is_geoai_topic(topic) else 0)
+        self._shift_agent_state(second, mood=3, stress=-2, focus=2, curiosity=2, geo_reasoning_skill=1 if self._is_geoai_topic(topic) else 0)
+        first.current_activity = f"正和 {second.name} 联手推进“{topic}”。"
+        second.current_activity = f"正和 {first.name} 一起把“{topic}”往前顶。"
+        first.status_summary = self._build_status_summary(first, first.relations.get(second.id, 0), topic, counterpart=second.name)
+        second.status_summary = self._build_status_summary(second, second.relations.get(first.id, 0), topic, counterpart=first.name)
+        first.last_interaction = f"刚和 {second.name} 约好一起推进“{topic}”。"
+        second.last_interaction = f"刚接下 {first.name} 的合作邀请，要一起追“{topic}”。"
+        self.state.lab.collective_reasoning = min(100, self.state.lab.collective_reasoning + 2)
+        self.state.lab.research_progress = min(100, self.state.lab.research_progress + 2)
+        self._upsert_story_beat("alliance", title, summary, [first.id, second.id], location)
+        self._emit_strategy_event(title, summary, location)
+        self._log("strategy_alliance", participants=[first.id, second.id], topic=topic, location=location)
+
+    def _run_conflict_event(self, first: Agent, second: Agent) -> None:
+        if "mediate" in {first.social_stance, second.social_stance}:
+            mediator = first if first.social_stance == "mediate" else second
+            other = second if mediator is first else first
+            topic = self._strategy_topic(mediator, other, cooperative=False)
+            title = f"{mediator.name} 出面压住一场争执"
+            summary = f"{other.name} 的节奏已经有点冲，{mediator.name} 主动站出来，把“{topic}”从情绪边缘拉回可谈状态。"
+            mediator.current_bubble = "先别顶着冲。"
+            other.current_bubble = "行，我先把话说清楚。"
+            self._shift_agent_state(mediator, mood=2, stress=-1, focus=1)
+            self._shift_agent_state(other, mood=1, stress=-2, focus=1)
+            mediator.current_activity = f"正在调停围绕“{topic}”的拉扯。"
+            other.current_activity = f"被 {mediator.name} 拉住后，重新整理“{topic}”。"
+            mediator.last_interaction = f"刚把 {other.name} 从一场快升级的争执里拉了回来。"
+            other.last_interaction = f"刚被 {mediator.name} 按住节奏，没让争执失控。"
+            self.state.lab.team_atmosphere = min(100, self.state.lab.team_atmosphere + 2)
+            self._upsert_story_beat("mediation", title, summary, [mediator.id, other.id], mediator.current_location)
+            self._emit_strategy_event(title, summary, mediator.current_location)
+            self._log("strategy_mediation", participants=[mediator.id, other.id], topic=topic, location=mediator.current_location)
+            return
+        topic = self._strategy_topic(first, second, cooperative=False)
+        conflict_resource = RESOURCE_LABELS.get(first.desired_resource, first.desired_resource)
+        title = f"{first.name} 和 {second.name} 为 {conflict_resource} 顶上了"
+        summary = f"{first.name} 和 {second.name} 都想主导“{topic}”，在 {conflict_resource} 的使用上谁也不肯先让。"
+        first.current_bubble = "这轮不能再让了。"
+        second.current_bubble = "你先别抢我的节奏。"
+        self._adjust_relation(first, second, -5, f"为了 {conflict_resource} 的主导权围绕“{topic}”起了正面冲突。")
+        self._shift_agent_state(first, mood=-3, stress=3, focus=2, energy=-1)
+        self._shift_agent_state(second, mood=-3, stress=3, focus=2, energy=-1)
+        first.current_activity = f"正在和 {second.name} 为“{topic}”争主导。"
+        second.current_activity = f"正和 {first.name} 围绕“{topic}”僵持不下。"
+        first.status_summary = self._build_status_summary(first, first.relations.get(second.id, 0), topic, counterpart=second.name)
+        second.status_summary = self._build_status_summary(second, second.relations.get(first.id, 0), topic, counterpart=first.name)
+        first.last_interaction = f"刚因为“{topic}”和 {second.name} 起了冲突。"
+        second.last_interaction = f"刚在“{topic}”上和 {first.name} 顶了起来。"
+        self.state.lab.team_atmosphere = max(0, self.state.lab.team_atmosphere - 2)
+        self.state.lab.research_progress = max(0, self.state.lab.research_progress - 1)
+        self._upsert_story_beat("conflict", title, summary, [first.id, second.id], first.current_location)
+        self._emit_strategy_event(title, summary, first.current_location)
+        self._log("strategy_conflict", participants=[first.id, second.id], topic=topic, location=first.current_location)
+
+    def _strategy_topic(self, first: Agent, second: Agent, cooperative: bool) -> str:
+        if cooperative and self._is_geoai_topic(f"{first.current_plan} {second.current_plan}"):
+            return "GeoAI 主线推进"
+        if first.desired_resource == second.desired_resource:
+            return f"{RESOURCE_LABELS.get(first.desired_resource, first.desired_resource)}分配"
+        return "今天的优先级安排" if not cooperative else "下一轮共同推进"
+
+    def _upsert_story_beat(self, kind: str, title: str, summary: str, participants: list[str], location: str) -> None:
+        pair = set(participants)
+        existing = None
+        for beat in self.state.story_beats:
+            if set(beat.participants) == pair and beat.kind == kind:
+                existing = beat
+                break
+        if existing:
+            existing.title = title
+            existing.summary = summary
+            existing.stage = min(5, existing.stage + 1)
+            existing.momentum = min(5, existing.momentum + 1)
+            existing.location = location
+        else:
+            self.state.story_beats.insert(
+                0,
+                StoryBeat(
+                    id=f"beat-{uuid4().hex[:8]}",
+                    title=title,
+                    summary=summary,
+                    kind=kind,
+                    participants=participants,
+                    stage=1,
+                    momentum=3,
+                    location=location,
+                ),
+            )
+        self.state.story_beats = self.state.story_beats[:8]
+
+    def _age_story_beats(self) -> None:
+        kept: list[StoryBeat] = []
+        for beat in self.state.story_beats:
+            beat.momentum -= 1
+            if beat.momentum > 0:
+                kept.append(beat)
+        self.state.story_beats = kept[:8]
+
+    def _emit_strategy_event(self, title: str, summary: str, location: str) -> None:
+        self.state.events.insert(
+            0,
+            build_internal_event(
+                title=title,
+                summary=f"{summary} 地点在{ROOM_LABELS.get(location, location)}。",
+                slot=self.state.time_slot,
+                category="general",
+            ),
+        )
+        self.state.events = self.state.events[:8]
+
+    def _agent_name(self, agent_id: str) -> str:
+        try:
+            return self._find_agent(agent_id).name
+        except KeyError:
+            return agent_id
+
     def _advance_world(self) -> None:
         day, slot = advance_time(self.state.day, self.state.time_slot)
         self.state.day = day
         self.state.time_slot = slot
+        self.state.weather = self._roll_weather()
         for agent in self.state.agents:
+            if agent.is_resting:
+                if slot == "morning" and day >= (agent.rest_until_day or day):
+                    self._wake_agent_for_day(agent)
+                else:
+                    self._keep_agent_resting(agent, recovery_full=True)
+                continue
+            if slot == "night":
+                if self._night_returns_home(agent):
+                    self._send_agent_home(agent, "夜里差不多该回小屋休息了。")
+                    agent.state.energy = min(100, agent.state.energy + 10)
+                    agent.state.stress = max(0, agent.state.stress - 6)
+                else:
+                    x, y = HUBS[agent.id][slot]
+                    agent.position = Point(x=x, y=y)
+                    agent.current_location = self._room_for(x, y)
+                    agent.state.energy = max(0, agent.state.energy - 12)
+                    agent.state.focus = max(30, min(95, agent.state.focus - 3))
+                    agent.state.stress = min(100, agent.state.stress + 4)
+                    agent.current_activity = f"夜里还没回{agent.home_label or '小屋'}，继续在外面晃。"
+                    agent.current_bubble = "今晚我先不回去。"
+                    agent.status_summary = f"夜里还在外面，体力掉得更快；现在更需要休息，不太想被打断。"
+                    agent.last_interaction = f"今晚还没回{agent.home_label or '小屋'}，想再拖一会儿。"
+                    if agent.state.energy <= FORCED_REST_THRESHOLD:
+                        self._send_agent_home(agent, "体力已经见底，得先回去睡一觉。", forced=True)
+                continue
             x, y = HUBS[agent.id][slot]
             agent.position = Point(x=x, y=y)
             agent.current_location = self._room_for(x, y)
-            energy_cost = 8 if slot in {"afternoon", "night"} else 5
-            agent.state.energy = max(18, agent.state.energy - energy_cost)
+            energy_cost = 8 if slot in {"afternoon", "evening"} else 5
+            agent.state.energy = max(0, agent.state.energy - energy_cost)
             agent.state.focus = max(30, min(95, agent.state.focus + (4 if agent.persona == "engineering" and slot == "morning" else -2)))
-            if slot == "night":
-                agent.state.stress = max(0, agent.state.stress - 4)
-            else:
-                agent.state.stress = min(100, agent.state.stress + 1)
+            agent.state.stress = min(100, agent.state.stress + 1)
+            if agent.state.energy <= FORCED_REST_THRESHOLD:
+                self._send_agent_home(agent, "体力已经见底，得先回去睡一觉。", forced=True)
         self._refresh_presence()
         if slot == "morning" and day > 1:
             self.state.player.daily_actions = []
@@ -361,6 +663,73 @@ class GameEngine:
             if agent.id == agent_id:
                 return agent
         raise KeyError(f"未知角色：{agent_id}")
+
+    def _night_returns_home(self, agent: Agent) -> bool:
+        preference = 0.7
+        if agent.persona in {"empathetic", "engineering"}:
+            preference += 0.1
+        if agent.persona in {"creative", "opportunist"}:
+            preference -= 0.08
+        if agent.state.energy <= 36:
+            preference += 0.12
+        if agent.state.stress >= 60:
+            preference += 0.08
+        return self.random.random() < max(0.15, min(0.95, preference))
+
+    def _at_home(self, agent: Agent) -> bool:
+        return agent.home_position is not None and agent.position == agent.home_position
+
+    def _keep_agent_resting(self, agent: Agent, recovery_full: bool = False) -> None:
+        if agent.home_position is not None:
+            agent.position = agent.home_position.model_copy()
+            agent.current_location = self._room_for(agent.position.x, agent.position.y)
+        if recovery_full:
+            agent.state.energy = 100
+            agent.state.stress = max(0, agent.state.stress - 6)
+            agent.state.mood = min(100, agent.state.mood + 3)
+        agent.current_activity = f"正在{agent.home_label or '小屋'}里休息。"
+        agent.current_bubble = "先回屋歇一会。"
+        agent.status_summary = f"这会儿不在外面活动，正在{agent.home_label or '小屋'}休息；只要完整待过一个时段，体力就会回满。"
+        agent.last_interaction = f"已经回到{agent.home_label or '小屋'}休息，等明早再出来。"
+        agent.current_plan = f"先把体力补回来，明早再出门。"
+        agent.social_stance = "observe"
+
+    def _send_agent_home(self, agent: Agent, reason: str, forced: bool = False) -> None:
+        if agent.is_resting:
+            self._keep_agent_resting(agent)
+            return
+        agent.is_resting = True
+        agent.rest_until_day = self.state.day + 1
+        if forced:
+            agent.state.mood = max(0, agent.state.mood - 2)
+            agent.state.stress = min(100, agent.state.stress + 2)
+        self._keep_agent_resting(agent)
+        self._remember(agent, reason, 3, long_term=forced)
+        if forced:
+            self.state.events.insert(
+                0,
+                build_internal_event(
+                    title=f"{agent.name} 体力见底回屋休息",
+                    summary=f"{agent.name} 今天已经撑不住了，先回到{agent.home_label or '小屋'}睡一觉，准备明早再出来。",
+                    slot=self.state.time_slot,
+                    category="general",
+                ),
+            )
+            self.state.events = self.state.events[:8]
+
+    def _wake_agent_for_day(self, agent: Agent) -> None:
+        agent.is_resting = False
+        agent.rest_until_day = None
+        x, y = HUBS[agent.id]["morning"]
+        agent.position = Point(x=x, y=y)
+        agent.current_location = self._room_for(x, y)
+        agent.state.energy = 100
+        agent.state.stress = max(0, agent.state.stress - 8)
+        agent.state.mood = min(100, agent.state.mood + 3)
+        agent.current_activity = f"一早从{agent.home_label or '小屋'}出来，准备开始今天的活动。"
+        agent.current_bubble = "先出来走走。"
+        agent.status_summary = f"昨晚在{agent.home_label or '小屋'}里补过觉了，现在体力回来了，准备重新加入大家。"
+        agent.last_interaction = f"今早从{agent.home_label or '小屋'}出来了，状态比昨晚稳。"
 
     def _apply_event_to_agent(self, agent: Agent, event: LabEvent) -> None:
         category_bias = {
@@ -641,42 +1010,52 @@ class GameEngine:
     def _refresh_presence(self) -> None:
         activity_by_agent = {
             "lin": {
-                "morning": ("正在果园坡地核对空间样本", "先把证据链压实。"),
-                "noon": ("在麦田广场和大家比对判断", "中午正适合核对观点。"),
-                "afternoon": ("沿着果树间的小路重新检查假设", "下午最容易看出破绽。"),
-                "evening": ("在湖畔边走边复盘今天的推理", "傍晚适合慢慢收束。"),
-                "night": ("夜里还在木桌前写空间推理笔记", "这条推理链今晚得记下来。"),
+                "morning": ("靠着果园边慢慢醒神", "今早风挺轻。"),
+                "noon": ("在麦田广场边晒太阳边说话", "中午适合慢慢聊。"),
+                "afternoon": ("沿着果树间的小路散步", "下午脑子会慢一点。"),
+                "evening": ("在湖畔边走边收心", "傍晚说话最不费劲。"),
+                "night": ("夜里还在木桌前磨时间", "夜里人会更诚实一点。"),
             },
             "mika": {
-                "morning": ("蹲在麦田边写灵感草图", "这里一定还有别的角度。"),
-                "noon": ("抱着便签在广场上串联想法", "先把怪点子都说出来。"),
-                "afternoon": ("沿着果园来回踱步", "也许答案藏在奇怪细节里。"),
-                "evening": ("傍晚在湖边整理灵感", "这会儿最适合拼接灵感。"),
+                "morning": ("蹲在麦田边发呆和乱想", "今天天气有点适合走神。"),
+                "noon": ("抱着便签在广场上乱晃", "先聊点轻松的也挺好。"),
+                "afternoon": ("沿着果园来回踱步", "下午最适合想到些怪东西。"),
+                "evening": ("傍晚在湖边整理碎念", "这会儿聊闲话最顺。"),
                 "night": ("坐在营地木箱上继续发散", "夜里脑子反而更跳。"),
             },
             "jo": {
-                "morning": ("正在石径工坊检查设备和流水线", "先把 pipeline 跑稳。"),
-                "noon": ("中午在苗圃边补监控脚本", "日志没问题我才放心。"),
-                "afternoon": ("回到工坊盯着终端和齿轮台", "这轮实验别再报错了。"),
-                "evening": ("在广场上讲系统瓶颈", "复杂问题也得落到实现上。"),
-                "night": ("晚上还在木棚下清理任务单", "能今天修掉的别拖到明天。"),
+                "morning": ("靠在石径工坊门口醒脑子", "先把人调到在线状态。"),
+                "noon": ("中午在苗圃边透气", "晒会儿太阳也算维护。"),
+                "afternoon": ("回到工坊边忙边发呆", "下午容易烦，先顺顺气。"),
+                "evening": ("在广场上边走边说话", "复杂问题可以晚点再聊。"),
+                "night": ("晚上还在木棚下磨时间", "夜里更适合聊人，不是聊系统。"),
             },
             "rae": {
                 "morning": ("正在湖畔营地整理茶点和便签", "先让大家缓一口气。"),
-                "noon": ("在广场上照看午间同步", "轮到你说的时候慢一点也没事。"),
-                "afternoon": ("回营地给大家留纸条和花茶", "状态稳住，效率自然会回来。"),
-                "evening": ("在湖边陪人复盘一天", "傍晚最适合把情绪放下来。"),
-                "night": ("夜里轻声收尾今天的讨论", "别急着下结论，先休息。"),
+                "noon": ("在广场上照看午间闲聊", "轮到你说的时候慢一点也没事。"),
+                "afternoon": ("回营地给大家留纸条和花茶", "状态稳住，日常就会顺很多。"),
+                "evening": ("在湖边陪人散步和复盘一天", "傍晚最适合把情绪放下来。"),
+                "night": ("夜里轻声收尾今天的闲话", "别急着下结论，先休息。"),
             },
             "kai": {
-                "morning": ("正在果园坡地刷 Brave 信号", "今天外部风向有点意思。"),
-                "noon": ("抱着终端去湖边聊热点", "这条新闻会不会带偏节奏？"),
-                "afternoon": ("回果园继续筛外部信息", "下午的突发消息得盯住。"),
-                "evening": ("傍晚在营地讲市场和新闻", "今天的信号还没消化完。"),
+                "morning": ("正在果园坡地看风和消息", "今早空气有点意思。"),
+                "noon": ("抱着终端去湖边聊热点和琐事", "这种天气最适合瞎聊。"),
+                "afternoon": ("回果园继续晃和看消息", "下午的风向最会变。"),
+                "evening": ("傍晚在营地讲外面的新鲜事", "今天的信号还没消化完。"),
                 "night": ("夜里还在看外部趋势图", "晚上常常会冒出新线索。"),
             },
         }
         for agent in self.state.agents:
+            if agent.is_resting:
+                self._keep_agent_resting(agent)
+                continue
+            if "小屋" in agent.current_activity:
+                if not agent.status_summary:
+                    topic = agent.current_activity or "当前状态"
+                    agent.status_summary = self._build_status_summary(agent, agent.relations.get("player", 0), topic, from_player=True)
+                if not agent.last_interaction:
+                    agent.last_interaction = "这一时段还没有发生新的深聊。"
+                continue
             activity, bubble = activity_by_agent[agent.id][self.state.time_slot]
             agent.current_activity = activity
             if not self.state.latest_dialogue or self.state.latest_dialogue.agent_id != agent.id:
@@ -688,6 +1067,25 @@ class GameEngine:
 
     def _ensure_agent_runtime_fields(self) -> None:
         for agent in self.state.agents:
+            if agent.home_position is None:
+                home = HOME_SPOTS.get(agent.id)
+                if home is not None:
+                    agent.home_position = Point(x=home[0], y=home[1])
+                    agent.home_label = home[2]
+            if not agent.home_label and agent.id in HOME_SPOTS:
+                agent.home_label = HOME_SPOTS[agent.id][2]
+            if not agent.current_plan:
+                agent.current_plan = "继续观察当前局面，等待合适的合作或冲突时机。"
+            if not agent.social_stance:
+                agent.social_stance = "observe"
+            if not agent.goals:
+                agent.goals = ["把今天的任务往前推一步"]
+            if agent.taboos is None:
+                agent.taboos = []
+            if agent.allies is None:
+                agent.allies = []
+            if agent.rivals is None:
+                agent.rivals = []
             if not agent.status_summary:
                 topic = agent.current_activity or "当前工作"
                 agent.status_summary = self._build_status_summary(agent, agent.relations.get("player", 0), topic, from_player=True)
@@ -695,18 +1093,30 @@ class GameEngine:
                 agent.last_interaction = "这一时段还没有发生新的深聊。"
 
     def _pick_social_topic(self, first: Agent, second: Agent) -> str:
-        candidates = [
+        daily_candidates = [
+            f"{weather_label(self.state.weather)}天气",
+            "午饭想吃什么",
+            "昨晚有没有睡好",
+            "湖边散步时想到的事",
+            "今天谁看起来最累",
+            "要不要晚点一起走走",
+            "刚刚路过听到的话",
+            "最近的作息有点乱",
+            "今天心情为什么这样",
+            "傍晚适不适合去湖边吹风",
+        ]
+        research_candidates = [
             "新的 GeoAI 线索",
             "午间实验安排",
             "一条外部热点",
             "今天的实验瓶颈",
-            "湖边散步时想到的事",
             "下一轮合作分工",
         ]
+        candidates = daily_candidates if self.random.random() < 0.8 else research_candidates
         if abs(first.relations.get(second.id, 0)) >= 55:
-            candidates.extend(["昨晚没说完的话", "要不要一起继续做下去"])
+            candidates.extend(["昨晚没说完的话", "要不要晚点一起坐会儿"])
         if first.state.stress + second.state.stress >= 105:
-            candidates.extend(["刚刚那次分歧", "谁该先退一步"])
+            candidates.extend(["谁最近有点太累了", "刚刚那次分歧", "谁该先退一步"])
         return self.random.choice(candidates)
 
     def _thread_mood(self, first: Agent, second: Agent, topic: str, existing: SocialThread | None) -> str:
@@ -788,6 +1198,8 @@ class GameEngine:
             frozenset((first.id, second.id))
             for index, first in enumerate(self.state.agents)
             for second in self.state.agents[index + 1 :]
+            if not first.is_resting
+            and not second.is_resting
             if abs(first.position.x - second.position.x) + abs(first.position.y - second.position.y) <= 4
             and first.current_location == second.current_location
         }

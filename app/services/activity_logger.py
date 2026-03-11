@@ -40,6 +40,8 @@ class ActivityLogger:
                     "x": agent.position.x,
                     "y": agent.position.y,
                     "location": agent.current_location,
+                    "home": agent.home_label,
+                    "is_resting": agent.is_resting,
                     "activity": agent.current_activity,
                     "bubble": agent.current_bubble,
                 }
