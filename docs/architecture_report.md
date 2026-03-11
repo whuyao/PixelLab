@@ -19,6 +19,8 @@
 flowchart LR
     UI["静态前端\nstatic/index.html + static/app.js + static/styles.css"] --> API["FastAPI\napp/main.py"]
     API --> Engine["GameEngine\napp/engine/game_engine.py"]
+    Engine --> Market["MarketEngine\napp/engine/market_engine.py"]
+    Engine --> Social["SocialEngine\napp/engine/social_engine.py"]
     Engine --> Models["状态模型\napp/models.py"]
     Engine --> Init["初始世界构造\napp/engine/world_state.py"]
     Engine --> Repo["SnapshotRepository\napp/storage/repository.py"]
@@ -64,6 +66,8 @@ flowchart LR
 - `POST /api/macro-news`
 - `POST /api/player/trade`
 - `POST /api/player/auto-trade`
+- `POST /api/bank/borrow`
+- `POST /api/bank/repay/{loan_id}`
 - `POST /api/gray-cases/{case_id}/action`
 
 ### 3.2 领域模型层
@@ -83,6 +87,8 @@ flowchart LR
 - `MarketState`
 - `IndexCandle`
 - `LoanRecord`
+- `BankState`
+- `BankLoanRecord`
 - `GrayCase`
 - `SocialThread`
 - `StoryBeat`
@@ -106,6 +112,20 @@ flowchart LR
 - 地下案件升级、曝光与玩家处置
 - 任务更新、研究里程碑、晨报生成
 - 快照和日志写出
+
+当前 `GameEngine` 已不再独占所有业务逻辑，而是主要承担编排职责，并把两块高频子域拆给：
+
+- [app/engine/market_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/market_engine.py)
+  - 市场视图准备
+  - 盘中 tick
+  - 玩家交易与自动交易
+  - 市场事件冲击
+
+- [app/engine/social_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/social_engine.py)
+  - 玩家对话
+  - NPC 互聊
+  - 社交视图准备
+  - 晨报与记忆同步
 
 ### 3.4 对话层
 
@@ -323,11 +343,17 @@ flowchart LR
 市场中心当前包含：
 
 - 大盘 `时K / 日K`
+- 宏观调控台
 - 板块轮动说明
 - 个股卡片
 - 玩家交易
-- 宏观调控台
+- 银行借贷
 - 玩家与智能体持仓 / 资金分布
+
+当前布局已经被重新整理为：
+
+- 左侧主列：K 线、宏观调控台、持仓与资金分布
+- 右侧操作列：盘面总览、玩家交易、银行借贷
 
 ### 7.3 实时对话区
 
@@ -359,8 +385,9 @@ flowchart LR
 2. 市场阶段
 3. 板块轮动
 4. 玩家 / Agent 交易
-5. 借贷与信用
-6. 地下案件与实验室口碑
+5. 银行借贷与信用
+6. 人际借贷
+7. 地下案件与实验室口碑
 
 这些层不是彼此独立的，而是共同作用于 `MarketState`、团队现金、角色欲望和社交结构。
 
@@ -531,7 +558,83 @@ flowchart LR
 - 合作与信息支持
 - 事件冲击的市场放大方式
 
-### 8.10 地下案件系统
+### 8.10 银行借贷系统
+
+除了人与人之间的借贷，系统还引入了一个显式机构：`青松合作银行`。
+
+核心对象：
+
+- `BankState`
+- `BankLoanRecord`
+
+银行侧维护：
+
+- 流动性 `liquidity`
+- 基准日利率 `base_daily_rate_pct`
+- 风险溢价 `risk_spread_pct`
+- 累计放款
+- 累计回款
+- 历史违约次数
+
+借款侧维护：
+
+- 借款人类型：`player / agent`
+- 本金
+- 日利率
+- 总利率
+- 应还金额
+- 起始日
+- 到期日
+- 天期
+- 状态：`active / overdue / repaid`
+
+#### 银行利率形成
+
+银行当前报价不是固定常数，而是由以下因素叠加：
+
+1. 基准日利率
+2. 市场阶段调整
+3. 借款天数溢价
+4. 个人信用溢价
+5. 实验室口碑调整
+6. 银行自身流动性与违约压力形成的风险溢价
+
+这意味着：
+
+- 牛市和高信用时，报价更低
+- 风险市、低口碑、低流动性和高违约时，报价更高
+
+#### 银行授信
+
+系统当前按信用值给出授信上限，大致分层为：
+
+- 高信用：更高额度
+- 中信用：中等额度
+- 低信用：明显收紧
+
+同时银行限制同一借款人并发未结清贷款数量，并会在存在逾期时直接拒绝继续放款。
+
+#### 银行自动行为
+
+智能体不只是被动展示数字，而会真实参与银行系统：
+
+- 现金和体力都偏紧时，可能主动向银行借款
+- 有逾期时，在现金允许下会尝试补还
+
+#### 银行与其它系统的耦合
+
+银行借贷会继续影响：
+
+- 玩家和智能体现金
+- 信用值
+- 实验室口碑
+- 金钱欲望和即时意图
+- 对话记录
+- 市场中心前端展示
+
+提前部分还款会保持贷款为正常 `active` 状态，不会错误进入逾期分支；真正逾期时才会触发罚息和信用惩罚。
+
+### 8.11 地下案件系统
 
 地下案件不是一次性标签，而是带生命周期的对象。
 
@@ -566,7 +669,7 @@ flowchart LR
 - 拉低实验室口碑
 - 写入角色长期记忆
 
-### 8.11 系统新闻与随机实验室事件
+### 8.12 系统新闻与随机实验室事件
 
 系统每天并不完全依赖玩家输入。
 

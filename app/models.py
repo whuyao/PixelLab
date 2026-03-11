@@ -21,6 +21,7 @@ class Player(BaseModel):
     name: str
     position: Point
     cash: int = 100
+    credit_score: int = 72
     risk_appetite: int = 52
     portfolio: dict[str, int] = Field(default_factory=dict)
     short_positions: dict[str, int] = Field(default_factory=dict)
@@ -195,6 +196,32 @@ class LoanRecord(BaseModel):
     reason: str = ""
 
 
+class BankLoanRecord(BaseModel):
+    id: str
+    borrower_type: Literal["player", "agent"]
+    borrower_id: str
+    borrower_name: str
+    principal: int
+    daily_rate_pct: float
+    total_rate_pct: float
+    amount_due: int
+    start_day: int
+    due_day: int
+    term_days: int = 1
+    status: str = "active"
+    reason: str = ""
+
+
+class BankState(BaseModel):
+    name: str = "青松合作银行"
+    liquidity: int = 1800
+    base_daily_rate_pct: float = 2.0
+    risk_spread_pct: float = 0.0
+    total_issued: int = 0
+    total_repaid: int = 0
+    defaults_count: int = 0
+
+
 class GrayCase(BaseModel):
     id: str
     case_type: str
@@ -251,6 +278,15 @@ class DailyBriefing(BaseModel):
     title: str
     lead: str = ""
     items: list[str] = Field(default_factory=list)
+    entries: list["DailyBriefItem"] = Field(default_factory=list)
+
+
+class DailyBriefItem(BaseModel):
+    id: str
+    text: str
+    target_kind: str = ""
+    target_id: str = ""
+    target_filter: str = ""
 
 
 class WorldState(BaseModel):
@@ -275,6 +311,8 @@ class WorldState(BaseModel):
     social_threads: list[SocialThread] = Field(default_factory=list)
     story_beats: list[StoryBeat] = Field(default_factory=list)
     loans: list[LoanRecord] = Field(default_factory=list)
+    bank: BankState = Field(default_factory=BankState)
+    bank_loans: list[BankLoanRecord] = Field(default_factory=list)
     gray_cases: list[GrayCase] = Field(default_factory=list)
 
 
@@ -309,6 +347,15 @@ class TradeRequest(BaseModel):
     symbol: str
     side: Literal["buy", "sell"]
     shares: int = 1
+
+
+class BankBorrowRequest(BaseModel):
+    amount: int
+    term_days: Literal[1, 2, 3]
+
+
+class BankRepayRequest(BaseModel):
+    amount: int | None = None
 
 
 class GrayCaseActionRequest(BaseModel):

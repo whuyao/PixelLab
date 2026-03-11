@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.models import Agent, AgentState, IndexCandle, LabEvent, LabMetrics, MarketState, MemoryEntry, Player, Point, StockQuote, Task, WorldState
+from app.models import Agent, AgentState, BankState, IndexCandle, LabEvent, LabMetrics, MarketState, MemoryEntry, Player, Point, StockQuote, Task, WorldState
 
 
 def _memory(text: str, day: int, slot: str, importance: int = 1) -> MemoryEntry:
@@ -331,6 +331,15 @@ def build_initial_world() -> WorldState:
         index_history=[IndexCandle(day=1, open=100.0, high=100.0, low=100.0, close=100.0, limit_state="normal")],
         daily_index_history=[IndexCandle(day=1, open=100.0, high=100.0, low=100.0, close=100.0, limit_state="normal")],
     )
+    bank = BankState(
+        name="青松合作银行",
+        liquidity=1800,
+        base_daily_rate_pct=2.0,
+        risk_spread_pct=0.2,
+        total_issued=0,
+        total_repaid=0,
+        defaults_count=0,
+    )
     return WorldState(
         version=22,
         world_width=44,
@@ -344,6 +353,7 @@ def build_initial_world() -> WorldState:
         events=events,
         lab=lab,
         market=market,
+        bank=bank,
         archived_tasks=[],
         ambient_dialogues=[],
         dialogue_history=[],
@@ -352,5 +362,6 @@ def build_initial_world() -> WorldState:
         social_threads=[],
         story_beats=[],
         loans=[],
+        bank_loans=[],
         gray_cases=[],
     )

@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import Settings, load_settings
 from app.engine.game_engine import GameEngine
-from app.models import AdvanceRequest, GrayCaseActionRequest, MacroNewsRequest, MoveRequest, NewsRequest, SpeakRequest, TradeRequest, WorldState
+from app.models import AdvanceRequest, BankBorrowRequest, BankRepayRequest, GrayCaseActionRequest, MacroNewsRequest, MoveRequest, NewsRequest, SpeakRequest, TradeRequest, WorldState
 from app.services.activity_logger import ActivityLogger
 from app.services.openai_dialogue_service import OpenAIDialogueError, OpenAIDialogueService
 from app.services.brave_service import BraveSearchError, BraveService
@@ -184,6 +184,28 @@ async def player_trade(payload: TradeRequest) -> WorldState:
 @app.post("/api/player/auto-trade", response_model=WorldState)
 async def player_auto_trade() -> WorldState:
     state = context.engine.auto_trade_player()
+    context.repository.save(state)
+    return state
+
+
+@app.post("/api/bank/borrow", response_model=WorldState)
+async def bank_borrow(payload: BankBorrowRequest) -> WorldState:
+    try:
+        state = context.engine.player_bank_borrow(payload.amount, payload.term_days)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    context.repository.save(state)
+    return state
+
+
+@app.post("/api/bank/repay/{loan_id}", response_model=WorldState)
+async def bank_repay(loan_id: str, payload: BankRepayRequest) -> WorldState:
+    try:
+        state = context.engine.player_bank_repay(loan_id, payload.amount)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     context.repository.save(state)
     return state
 

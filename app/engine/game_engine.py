@@ -8,18 +8,18 @@ from uuid import uuid4
 from app.engine.dialogue_system import (
     DESIRE_LABELS,
     ambient_line_for,
-    build_dialogue,
-    build_dialogue_from_player,
     desire_label_for_agent,
     dominant_desire_for_agent,
     self_reflection_for,
     weather_label,
 )
 from app.engine.event_system import build_internal_event
+from app.engine.market_engine import MarketEngine
+from app.engine.social_engine import SocialEngine
 from app.engine.task_system import apply_task_progress
 from app.engine.time_system import advance_time
 from app.engine.world_state import build_initial_world
-from app.models import Agent, DailyBriefing, DialogueOutcome, DialogueRecord, GrayCase, IndexCandle, LabEvent, LoanRecord, MemoryEntry, Point, SocialThread, StoryBeat, WorldState
+from app.models import Agent, BankLoanRecord, DailyBriefItem, DailyBriefing, DialogueOutcome, DialogueRecord, GrayCase, IndexCandle, LabEvent, LoanRecord, MemoryEntry, Point, SocialThread, StoryBeat, WorldState
 from app.services.activity_logger import ActivityLogger
 
 
@@ -137,6 +137,8 @@ class GameEngine:
         self.activity_logger = activity_logger
         is_new_world = state is None
         self.state = state or build_initial_world()
+        self.market_engine = MarketEngine(self)
+        self.social_engine = SocialEngine(self)
         self.state.world_width = WORLD_WIDTH
         self.state.world_height = WORLD_HEIGHT
         if is_new_world:
@@ -149,14 +151,10 @@ class GameEngine:
 
     def get_state(self) -> WorldState:
         self._ensure_agent_runtime_fields()
-        self._sync_market_clock()
-        self._refresh_market_regime(force_roll=False)
-        self._refresh_sector_rotation(force_roll=False)
-        self._update_index_history(append=False)
-        self._update_daily_index_history()
+        self._refresh_bank_state()
+        self.market_engine.prepare_view()
         self._refresh_tasks()
-        self._refresh_agent_plans()
-        self._refresh_memory_streams()
+        self.social_engine.prepare_view()
         return self.state
 
     def log_world_snapshot(self, event_type: str, details: dict[str, object] | None = None) -> None:
@@ -179,60 +177,19 @@ class GameEngine:
         return self.state
 
     def interact_with_agent(self, agent_id: str) -> DialogueOutcome:
-        agent = self._find_agent(agent_id)
-        dialogue = build_dialogue(self.state, agent)
-        return self._commit_dialogue(agent, dialogue, reason="和玩家单独聊了一次。")
+        return self.social_engine.interact_with_agent(agent_id)
 
     def player_trade(self, symbol: str, side: str, shares: int) -> WorldState:
-        self._sync_market_clock()
-        if not self.state.market.is_open:
-            raise ValueError("现在已经收盘了，等白天再交易。")
-        self._execute_trade_for_player(symbol.upper(), side, shares, manual=True)
-        self._refresh_tasks()
-        return self.state
+        return self.market_engine.player_trade(symbol, side, shares)
 
     def auto_trade_player(self) -> WorldState:
-        self._sync_market_clock()
-        if not self.state.market.is_open:
-            return self.state
-        symbol, side, shares, reason = self._decide_player_trade()
-        self._execute_trade_for_player(symbol, side, shares, manual=False, reason=reason)
-        self._refresh_tasks()
-        return self.state
+        return self.market_engine.auto_trade_player()
 
     def speak_to_agent(self, agent_id: str, player_text: str) -> DialogueOutcome:
-        agent = self._find_agent(agent_id)
-        distance = abs(agent.position.x - self.state.player.position.x) + abs(agent.position.y - self.state.player.position.y)
-        if distance > 2:
-            raise ValueError(f"{agent.name} 离你有点远，先靠近再聊天。")
-        text = player_text.strip()
-        if not text:
-            raise ValueError("先输入一句你想说的话。")
-        dialogue = build_dialogue_from_player(self.state, agent, text)
-        return self._commit_dialogue(agent, dialogue, reason=f"玩家主动说了：{text}")
+        return self.social_engine.speak_to_agent(agent_id, player_text)
 
     def commit_external_dialogue(self, agent_id: str, dialogue: DialogueOutcome, player_text: str) -> DialogueOutcome:
-        agent = self._find_agent(agent_id)
-        distance = abs(agent.position.x - self.state.player.position.x) + abs(agent.position.y - self.state.player.position.y)
-        if distance > 2:
-            raise ValueError(f"{agent.name} 离你有点远，先靠近再聊天。")
-        text = player_text.strip()
-        if not text:
-            raise ValueError("先输入一句你想说的话。")
-        dialogue.player_text = text
-        dialogue.agent_id = agent.id
-        dialogue.agent_name = agent.name
-        if not dialogue.topic:
-            dialogue.topic = text[:36]
-        if not dialogue.bubble_text:
-            dialogue.bubble_text = dialogue.line[:18]
-        if not dialogue.effects:
-            dialogue.effects = [
-                f"{agent.name} 好感 +6",
-                "GeoAI 进度 +3",
-                "知识库 +2",
-            ]
-        return self._commit_dialogue(agent, dialogue, reason=f"玩家主动说了：{text}")
+        return self.social_engine.commit_external_dialogue(agent_id, dialogue, player_text)
 
     def get_agent(self, agent_id: str) -> Agent:
         return self._find_agent(agent_id)
@@ -254,11 +211,9 @@ class GameEngine:
         elif event.tone_hint <= -2:
             self.state.lab.reputation = self._bounded(self.state.lab.reputation - 1)
         self._advance_geoai_progress(event.impacts.get("geoai_progress", 0), reason=event.title)
-        for agent in self.state.agents:
-            self._apply_event_to_agent(agent, event)
-        self._apply_event_to_market(event)
+        self.social_engine.handle_event(event)
+        self.market_engine.handle_event(event)
         apply_task_progress(self.state.tasks, "news")
-        self._propagate_shared_signal_relationships(event)
         self._refresh_presence()
         self._log(
             "external_event",
@@ -292,19 +247,17 @@ class GameEngine:
         return self.state
 
     def simulate_world(self) -> WorldState:
-        self._sync_market_clock()
-        self._refresh_agent_plans()
-        self._update_market_intraday()
+        self.market_engine.prepare_view()
+        self.social_engine.prepare_view()
+        self.market_engine.run_intraday_tick()
         self._maybe_generate_system_news()
         self._maybe_trigger_random_lab_event()
         self._move_agents_autonomously()
-        self._trigger_market_activity()
-        self._trigger_ambient_interaction()
-        self._trigger_strategy_event()
+        self._trigger_bank_activity()
+        self.social_engine.run_tick()
         self._advance_gray_cases(daily_roll=False)
         self._settle_due_loans()
-        self._age_social_threads()
-        self._age_story_beats()
+        self._settle_due_bank_loans()
         self._soft_shift_player_pressure()
         self._refresh_tasks()
         self._refresh_memory_streams()
@@ -756,13 +709,33 @@ class GameEngine:
             quote = self._quote(symbol)
             if quote is not None:
                 holdings_value += int(round(quote.price * shares))
-        return agent.cash + holdings_value
+        return agent.cash + holdings_value - self._bank_liability_for("agent", agent.id)
+
+    def _player_net_worth(self) -> int:
+        holdings_value = 0
+        for symbol, shares in self.state.player.portfolio.items():
+            quote = self._quote(symbol)
+            if quote is not None:
+                holdings_value += int(round(quote.price * shares))
+        return self.state.player.cash + holdings_value - self._bank_liability_for("player", self.state.player.id)
 
     def _team_net_worth(self) -> int:
         return sum(self._agent_net_worth(agent) for agent in self.state.agents)
 
     def _team_cash_total(self) -> int:
         return sum(agent.cash for agent in self.state.agents)
+
+    def _bank_liability_for(self, borrower_type: str, borrower_id: str) -> int:
+        return sum(
+            loan.amount_due
+            for loan in self.state.bank_loans
+            if loan.borrower_type == borrower_type and loan.borrower_id == borrower_id and loan.status in {"active", "overdue"}
+        )
+
+    def _team_liquid_capital(self) -> int:
+        team_cash = self._team_cash_total()
+        outstanding_bank = sum(loan.amount_due for loan in self.state.bank_loans if loan.borrower_type == "agent" and loan.status in {"active", "overdue"})
+        return team_cash - outstanding_bank
 
     def _market_index_from_quotes(self) -> float:
         if not self.state.market.stocks:
@@ -948,14 +921,14 @@ class GameEngine:
             market.rotation_age = age + 1
 
     def _refresh_tasks(self) -> None:
-        team_cash = self._team_cash_total()
+        team_cash = self._team_liquid_capital()
         baseline = 500
         target_total = 650
         for task in self.state.tasks:
             if task.id == "task-geo-baseline":
                 progress = int(max(0, min(100, ((team_cash - baseline) / max(1, target_total - baseline)) * 100)))
                 task.progress = progress
-                task.description = f"把团队总现金从 $500 慢慢推到 $650。当前团队现金约 ${team_cash}，重点靠明确借贷回款、白天兑现收益和稳健协作。"
+                task.description = f"把团队净流动资金从 $500 慢慢推到 $650。当前净流动资金约 ${team_cash}，重点靠明确借贷回款、白天兑现收益和稳健协作。"
             elif task.id == "task-news":
                 task.description = "注入一条真正会影响市场或团队情绪的外部信息，让股价和大家的判断发生波动。"
         self._archive_completed_tasks()
@@ -1028,6 +1001,20 @@ class GameEngine:
         if any(brief.day == self.state.day for brief in self.state.daily_briefings):
             return
         items: list[str] = []
+        entries: list[DailyBriefItem] = []
+
+        def add_entry(text: str, target_kind: str = "", target_id: str = "", target_filter: str = "") -> None:
+            items.append(text)
+            entries.append(
+                DailyBriefItem(
+                    id=f"brief-item-{uuid4().hex[:8]}",
+                    text=text,
+                    target_kind=target_kind,
+                    target_id=target_id,
+                    target_filter=target_filter,
+                )
+            )
+
         yesterday_dialogues = [record for record in self.state.dialogue_history if record.day == previous_day]
         conflict = next((record for record in yesterday_dialogues if record.mood == "tense"), None)
         gray_trade = next((record for record in yesterday_dialogues if record.gray_trade), None)
@@ -1038,34 +1025,65 @@ class GameEngine:
         if previous_candle is not None:
             day_change = ((previous_candle.close - previous_candle.open) / max(1, previous_candle.open)) * 100
             market_tone = "大盘走强" if day_change >= 1.2 else "大盘承压" if day_change <= -1.2 else "大盘震荡"
-            items.append(f"股市速写：{market_tone}，指数收在 {previous_candle.close:.2f}，昨日日内 {day_change:+.2f}%。")
+            add_entry(f"股市速写：{market_tone}，指数收在 {previous_candle.close:.2f}，昨日日内 {day_change:+.2f}%。", target_kind="market")
         leader = self.state.market.rotation_leader or "GEO"
-        items.append(f"板块主线：{leader} 仍是大家盯得最紧的方向，轮动已经持续 {self.state.market.rotation_age} 天。")
+        add_entry(f"板块主线：{leader} 仍是大家盯得最紧的方向，轮动已经持续 {self.state.market.rotation_age} 天。", target_kind="market")
         if geoai_milestone is not None:
-            items.append(f"研究头条：{geoai_milestone.title}，实验室里已经有人开始押注 GEO 继续被重估。")
+            add_entry(
+                f"研究头条：{geoai_milestone.title}，实验室里已经有人开始押注 GEO 继续被重估。",
+                target_kind="event",
+                target_id=geoai_milestone.id,
+            )
         else:
-            items.append(f"研究头条：空间智能累计推进到 {self.state.lab.geoai_progress} 点，GeoAI 主线还在缓慢发酵。")
+            add_entry(f"研究头条：空间智能累计推进到 {self.state.lab.geoai_progress} 点，GeoAI 主线还在缓慢发酵。", target_kind="market")
         if loan_record is not None:
-            items.append(f"借贷消息：{loan_record.financial_note or loan_record.key_point}")
+            add_entry(
+                f"借贷消息：{loan_record.financial_note or loan_record.key_point}",
+                target_kind="dialogue",
+                target_id=loan_record.id,
+                target_filter="loan",
+            )
         else:
             active_loans = [loan for loan in self.state.loans if loan.status in {'active', 'overdue'}]
             if active_loans:
-                items.append(f"借贷消息：实验室里还有 {len(active_loans)} 笔借款挂着，口碑和现金流都在被盯。")
+                add_entry(
+                    f"借贷消息：实验室里还有 {len(active_loans)} 笔借款挂着，口碑和现金流都在被盯。",
+                    target_kind="dialogue",
+                    target_filter="loan",
+                )
         if gray_trade is not None:
-            items.append(f"小道消息：{gray_trade.key_point}")
+            add_entry(
+                f"小道消息：{gray_trade.key_point}",
+                target_kind="dialogue",
+                target_id=gray_trade.id,
+                target_filter="gray",
+            )
         if conflict is not None:
-            items.append(f"关系风波：{conflict.key_point}")
+            add_entry(
+                f"关系风波：{conflict.key_point}",
+                target_kind="dialogue",
+                target_id=conflict.id,
+                target_filter="desire",
+            )
         if warm_pair is not None:
-            items.append(f"八卦速递：{warm_pair.participant_names[0]} 和 {warm_pair.participant_names[1]} 昨天聊得很顺，圈子里都看出来了。")
+            add_entry(
+                f"八卦速递：{warm_pair.participant_names[0]} 和 {warm_pair.participant_names[1]} 昨天聊得很顺，圈子里都看出来了。",
+                target_kind="dialogue",
+                target_id=warm_pair.id,
+            )
         if self.state.story_beats:
             lead_story = self.state.story_beats[0]
-            items.append(f"故事线更新：{lead_story.title}，已经推进到第 {lead_story.stage} 段。")
-        event_titles = [event.title for event in self.state.events[:6] if event.time_slot != "morning" or event.category != "general"]
-        for title in event_titles:
+            add_entry(
+                f"故事线更新：{lead_story.title}，已经推进到第 {lead_story.stage} 段。",
+                target_kind="story",
+                target_id=lead_story.id,
+            )
+        recent_events = [event for event in self.state.events[:6] if event.time_slot != "morning" or event.category != "general"]
+        for event in recent_events:
             if len(items) >= 9:
                 break
-            if title not in "".join(items):
-                items.append(f"新闻摘录：{title} 还在被大家反复提起。")
+            if event.title not in "".join(items):
+                add_entry(f"新闻摘录：{event.title} 还在被大家反复提起。", target_kind="event", target_id=event.id)
         while len(items) < 5:
             fallback = [
                 f"日常杂闻：昨天是{weather_label(self.state.weather)}的一天，大家整体节奏比前天更慢一点。",
@@ -1074,13 +1092,14 @@ class GameEngine:
                 "情绪观察：高压的人昨天明显更想谈钱和体力，而不是谈理想。",
             ][len(items) % 4]
             if fallback not in items:
-                items.append(fallback)
+                add_entry(fallback)
         briefing = DailyBriefing(
             id=f"brief-{uuid4().hex[:8]}",
             day=self.state.day,
             title=f"Lab Daily · 第 {self.state.day} 天晨报",
             lead=f"给第 {self.state.day} 天开场的晨间简报，回看第 {previous_day} 天的重要动静。",
             items=items[:10],
+            entries=entries[:10],
         )
         self.state.daily_briefings.insert(0, briefing)
         self.state.daily_briefings = self.state.daily_briefings[:7]
@@ -1548,6 +1567,307 @@ class GameEngine:
                 )
                 self.state.events = self.state.events[:8]
 
+    def _bank_regime_adjustment(self) -> float:
+        regime = self.state.market.regime or "bull"
+        return {"bull": -0.25, "sideways": 0.35, "risk": 1.1}.get(regime, 0.2)
+
+    def _refresh_bank_state(self) -> None:
+        active_loans = [loan for loan in self.state.bank_loans if loan.status in {"active", "overdue"}]
+        overdue_count = sum(1 for loan in active_loans if loan.status == "overdue")
+        liquidity_pressure = 0.9 if self.state.bank.liquidity <= 420 else 0.45 if self.state.bank.liquidity <= 820 else 0.0
+        default_pressure = min(2.6, overdue_count * 0.65 + self.state.bank.defaults_count * 0.08)
+        reputation_tilt = 0.35 if self.state.lab.reputation <= 18 else -0.15 if self.state.lab.reputation >= 62 else 0.0
+        self.state.bank.risk_spread_pct = round(max(0.0, min(4.5, 0.2 + liquidity_pressure + default_pressure + reputation_tilt)), 2)
+
+    def _bank_offer_rate(self, credit_score: int, term_days: int) -> tuple[float, float]:
+        base_daily = self.state.bank.base_daily_rate_pct + self.state.bank.risk_spread_pct + self._bank_regime_adjustment()
+        term_premium = {1: 0.2, 2: 0.45, 3: 0.8}.get(term_days, 0.8)
+        if credit_score >= 85:
+            credit_premium = -0.55
+        elif credit_score >= 70:
+            credit_premium = 0.0
+        elif credit_score >= 55:
+            credit_premium = 0.9
+        elif credit_score >= 40:
+            credit_premium = 2.2
+        else:
+            credit_premium = 4.0
+        reputation_premium = 0.45 if self.state.lab.reputation <= 22 else 0.0
+        daily_rate = max(0.8, min(9.5, round(base_daily + term_premium + credit_premium + reputation_premium, 2)))
+        total_rate = round(daily_rate * term_days, 2)
+        return daily_rate, total_rate
+
+    def _bank_credit_line(self, credit_score: int) -> int:
+        if credit_score >= 85:
+            return 96
+        if credit_score >= 70:
+            return 72
+        if credit_score >= 55:
+            return 52
+        if credit_score >= 40:
+            return 32
+        return 14
+
+    def _borrower_bank_loans(self, borrower_type: str, borrower_id: str) -> list[BankLoanRecord]:
+        return [
+            loan
+            for loan in self.state.bank_loans
+            if loan.borrower_type == borrower_type and loan.borrower_id == borrower_id and loan.status in {"active", "overdue"}
+        ]
+
+    def _bank_borrower_cash_ref(self, borrower_type: str, borrower_id: str) -> tuple[str, int]:
+        if borrower_type == "player":
+            return self.state.player.name, self.state.player.cash
+        borrower = self._find_agent(borrower_id)
+        return borrower.name, borrower.cash
+
+    def _adjust_bank_borrower_cash(self, borrower_type: str, borrower_id: str, delta: int) -> None:
+        if borrower_type == "player":
+            self.state.player.cash = max(0, self.state.player.cash + delta)
+            return
+        borrower = self._find_agent(borrower_id)
+        borrower.cash = max(0, borrower.cash + delta)
+
+    def _adjust_bank_borrower_credit(self, borrower_type: str, borrower_id: str, delta: int) -> None:
+        if borrower_type == "player":
+            self.state.player.credit_score = self._bounded(self.state.player.credit_score + delta)
+            return
+        borrower = self._find_agent(borrower_id)
+        borrower.credit_score = self._bounded(borrower.credit_score + delta)
+
+    def _bank_borrower_display_name(self, borrower_type: str, borrower_id: str) -> str:
+        if borrower_type == "player":
+            return self.state.player.name
+        return self._find_agent(borrower_id).name
+
+    def _bank_can_lend(self, borrower_type: str, borrower_id: str, credit_score: int, amount: int) -> None:
+        if amount <= 0:
+            raise ValueError("借款金额至少要大于 0。")
+        active = self._borrower_bank_loans(borrower_type, borrower_id)
+        if any(loan.status == "overdue" for loan in active):
+            raise ValueError("你当前有逾期银行贷款，银行不会继续放款。")
+        if len(active) >= 2:
+            raise ValueError("当前银行只允许你同时持有最多 2 笔未结清贷款。")
+        limit = self._bank_credit_line(credit_score)
+        if amount > limit:
+            raise ValueError(f"按当前信用，这次最多只能向银行借 ${limit}。")
+        if amount > self.state.bank.liquidity:
+            raise ValueError("银行当前流动性不够，这笔暂时批不下来。")
+
+    def _create_bank_loan(self, borrower_type: str, borrower_id: str, borrower_name: str, principal: int, term_days: int, reason: str, credit_score: int) -> BankLoanRecord:
+        daily_rate, total_rate = self._bank_offer_rate(credit_score, term_days)
+        amount_due = principal + max(1, round(principal * total_rate / 100))
+        loan = BankLoanRecord(
+            id=f"bank-{uuid4().hex[:8]}",
+            borrower_type=borrower_type,
+            borrower_id=borrower_id,
+            borrower_name=borrower_name,
+            principal=principal,
+            daily_rate_pct=daily_rate,
+            total_rate_pct=total_rate,
+            amount_due=amount_due,
+            start_day=self.state.day,
+            due_day=self.state.day + term_days,
+            term_days=term_days,
+            status="active",
+            reason=reason,
+        )
+        self.state.bank_loans.insert(0, loan)
+        self.state.bank_loans = self.state.bank_loans[:40]
+        self.state.bank.liquidity = max(0, self.state.bank.liquidity - principal)
+        self.state.bank.total_issued += principal
+        self._refresh_bank_state()
+        return loan
+
+    def _append_bank_dialogue_record(self, loan: BankLoanRecord, summary: str, key_point: str, mood: str, transcript: list[str], amount_paid: int = 0) -> None:
+        self._append_dialogue_record(
+            DialogueRecord(
+                id=f"dialogue-{uuid4().hex[:8]}",
+                kind="bank_loan",
+                day=self.state.day,
+                time_slot=self.state.time_slot,
+                participants=[loan.borrower_id],
+                participant_names=[loan.borrower_name, self.state.bank.name],
+                topic="银行借贷",
+                summary=summary,
+                key_point=key_point,
+                transcript=transcript,
+                desire_labels={
+                    loan.borrower_name: "缓解钱压",
+                    self.state.bank.name: "按信用定价",
+                },
+                mood=mood,
+                financial_note=f"本金 ${loan.principal}，日利率 {loan.daily_rate_pct:.2f}%，总利率 {loan.total_rate_pct:.2f}%，剩余 ${loan.amount_due}，本次处理 ${amount_paid}",
+                interest_rate=int(round(loan.total_rate_pct)),
+                gray_trade=False,
+            )
+        )
+
+    def _bank_borrow(self, borrower_type: str, borrower_id: str, amount: int, term_days: int, reason: str, manual: bool = False) -> BankLoanRecord:
+        credit_score = self.state.player.credit_score if borrower_type == "player" else self._find_agent(borrower_id).credit_score
+        borrower_name = self._bank_borrower_display_name(borrower_type, borrower_id)
+        self._bank_can_lend(borrower_type, borrower_id, credit_score, amount)
+        loan = self._create_bank_loan(borrower_type, borrower_id, borrower_name, amount, term_days, reason, credit_score)
+        self._adjust_bank_borrower_cash(borrower_type, borrower_id, amount)
+        self._adjust_bank_borrower_credit(borrower_type, borrower_id, 1 if credit_score >= 70 else 0)
+        if borrower_type == "player":
+            self.state.player.last_trade_summary = f"从{self.state.bank.name}借入 ${amount}，{term_days} 天后还 ${loan.amount_due}。"
+        else:
+            borrower = self._find_agent(borrower_id)
+            borrower.last_trade_summary = f"向{self.state.bank.name}借入 ${amount}，{term_days} 天后应还 ${loan.amount_due}。"
+            borrower.current_bubble = "我先去银行周转一下。"
+            self._remember(borrower, f"你刚从{self.state.bank.name}借入 ${amount}，{term_days} 天后要还 ${loan.amount_due}。", 2)
+        self.state.events.insert(
+            0,
+            build_internal_event(
+                title=f"{borrower_name} 向银行借了一笔钱",
+                summary=f"{borrower_name} 刚从{self.state.bank.name}借到 ${amount}，期限 {term_days} 天，总利率 {loan.total_rate_pct:.2f}%。",
+                slot=self.state.time_slot,
+                category="market",
+            ),
+        )
+        self.state.events = self.state.events[:8]
+        self._append_bank_dialogue_record(
+            loan,
+            summary=f"{borrower_name} 刚向{self.state.bank.name}借到 ${amount}，准备在 {term_days} 天后归还 ${loan.amount_due}。",
+            key_point=f"银行按当前信用给出 {loan.total_rate_pct:.2f}% 总利率，借款已经到账。",
+            mood="warm" if credit_score >= 70 else "neutral",
+            transcript=[f"{self.state.bank.name}：这笔可以批，按 {loan.total_rate_pct:.2f}% 总利率走。"] if borrower_type == "player" else [f"{borrower_name}：先借 ${amount} 周转。"],
+        )
+        self._log(
+            "bank_loan_created",
+            loan={"id": loan.id, "borrower_type": borrower_type, "borrower_id": borrower_id, "principal": amount, "term_days": term_days, "amount_due": loan.amount_due},
+            manual=manual,
+        )
+        self._refresh_bank_state()
+        return loan
+
+    def player_bank_borrow(self, amount: int, term_days: int) -> WorldState:
+        self._bank_borrow("player", self.state.player.id, amount, term_days, "玩家主动申请银行贷款", manual=True)
+        self._refresh_tasks()
+        self._refresh_memory_streams()
+        return self.state
+
+    def _settle_bank_loan(self, loan: BankLoanRecord, payment_limit: int | None = None) -> int:
+        borrower_name, borrower_cash = self._bank_borrower_cash_ref(loan.borrower_type, loan.borrower_id)
+        payment = min(payment_limit if payment_limit is not None else borrower_cash, borrower_cash, loan.amount_due)
+        if payment > 0:
+            self._adjust_bank_borrower_cash(loan.borrower_type, loan.borrower_id, -payment)
+            self.state.bank.liquidity += payment
+            self.state.bank.total_repaid += payment
+            loan.amount_due -= payment
+        if loan.amount_due <= 0:
+            loan.amount_due = 0
+            loan.status = "repaid"
+            self._adjust_bank_borrower_credit(loan.borrower_type, loan.borrower_id, 4)
+            self.state.lab.reputation = self._bounded(self.state.lab.reputation + 1)
+            summary = f"{borrower_name} 已经把这笔银行贷款还清。"
+            key_point = "按时还清后，信用略有回升。"
+            mood = "warm"
+        elif loan.status == "overdue":
+            summary = f"{borrower_name} 先补还了一部分逾期银行贷款。"
+            key_point = f"还剩 ${loan.amount_due}，逾期状态还没完全解除。"
+            mood = "tense"
+        elif self.state.day < loan.due_day:
+            loan.status = "active"
+            summary = f"{borrower_name} 先提前归还了一部分银行贷款。"
+            key_point = f"还剩 ${loan.amount_due}，这笔贷款还没到期。"
+            mood = "neutral"
+        else:
+            penalty = max(1, round(loan.amount_due * 0.06))
+            loan.amount_due += penalty
+            loan.due_day = self.state.day + 1
+            loan.status = "overdue"
+            self._adjust_bank_borrower_credit(loan.borrower_type, loan.borrower_id, -10)
+            self.state.bank.defaults_count += 1
+            self.state.lab.reputation = self._bounded(self.state.lab.reputation - 1)
+            summary = f"{borrower_name} 没能按时还清银行贷款，银行把剩余欠款滚到了明天。"
+            key_point = f"还剩 ${loan.amount_due}，逾期后又加了一层罚息。"
+            mood = "tense"
+        self._append_bank_dialogue_record(
+            loan,
+            summary=summary,
+            key_point=key_point,
+            mood=mood,
+            transcript=[f"{borrower_name}：这次先还 ${payment}。", f"{self.state.bank.name}：{'这笔已经结清。' if loan.status == 'repaid' else f'剩余 ${loan.amount_due}，已记逾期。'}"],
+            amount_paid=payment,
+        )
+        self._log(
+            "bank_loan_repayment",
+            loan={"id": loan.id, "status": loan.status, "remaining_due": loan.amount_due, "payment": payment},
+        )
+        self._refresh_bank_state()
+        return payment
+
+    def player_bank_repay(self, loan_id: str, amount: int | None = None) -> WorldState:
+        loan = next((item for item in self.state.bank_loans if item.id == loan_id and item.borrower_type == "player"), None)
+        if loan is None:
+            raise KeyError(loan_id)
+        if loan.status not in {"active", "overdue"}:
+            raise ValueError("这笔银行贷款已经结清了。")
+        if amount is not None and amount <= 0:
+            raise ValueError("还款金额必须大于 0。")
+        if self.state.player.cash <= 0:
+            raise ValueError("你手头没有可用于归还银行贷款的现金。")
+        payment_limit = amount if amount is not None else None
+        paid = self._settle_bank_loan(loan, payment_limit=payment_limit)
+        if paid <= 0:
+            raise ValueError("这次没有成功归还任何金额。")
+        self.state.player.last_trade_summary = f"你刚向{self.state.bank.name}归还了 ${paid}。"
+        self._refresh_tasks()
+        self._refresh_memory_streams()
+        return self.state
+
+    def _settle_due_bank_loans(self) -> None:
+        if self.state.time_slot != "morning":
+            return
+        for loan in self.state.bank_loans:
+            if loan.status not in {"active", "overdue"} or loan.due_day > self.state.day:
+                continue
+            previous_status = loan.status
+            self._settle_bank_loan(loan)
+            if previous_status != loan.status or loan.status == "repaid":
+                borrower_name = self._bank_borrower_display_name(loan.borrower_type, loan.borrower_id)
+                summary = (
+                    f"{borrower_name} 今早处理了一笔来自{self.state.bank.name}的贷款。"
+                    if loan.status == "repaid"
+                    else f"{borrower_name} 今早没能按时还清银行贷款，剩余 ${loan.amount_due}。"
+                )
+                self.state.events.insert(
+                    0,
+                    build_internal_event(
+                        title=f"{borrower_name} 处理了一笔银行借款",
+                        summary=summary,
+                        slot=self.state.time_slot,
+                        category="general",
+                    ),
+                )
+                self.state.events = self.state.events[:8]
+
+    def _trigger_bank_activity(self) -> None:
+        if not self.state.market.is_open:
+            return
+        for agent in self.state.agents:
+            active_loans = self._borrower_bank_loans("agent", agent.id)
+            overdue = next((loan for loan in active_loans if loan.status == "overdue"), None)
+            if overdue is not None and agent.cash >= max(8, overdue.amount_due // 3) and self.random.random() < 0.42:
+                self._settle_bank_loan(overdue, payment_limit=min(agent.cash, overdue.amount_due))
+                agent.current_bubble = "先把银行那边补一点。"
+                agent.last_trade_summary = f"刚向{self.state.bank.name}补还了一笔贷款。"
+                continue
+            if active_loans:
+                continue
+            if agent.cash > 34 and agent.money_urgency < 84:
+                continue
+            if self.random.random() > 0.16:
+                continue
+            amount = min(self._bank_credit_line(agent.credit_score), max(8, min(42, 10 + agent.money_urgency // 3)))
+            term_days = 1 if agent.credit_score >= 70 else 2 if agent.credit_score >= 50 else 3
+            try:
+                self._bank_borrow("agent", agent.id, amount, term_days, "现金和体力都偏紧，先从银行周转。")
+            except ValueError:
+                continue
+
     def _refresh_agent_plans(self) -> None:
         latest_event = self.state.events[0].title if self.state.events else "今天的研究安排"
         for agent in self.state.agents:
@@ -1610,6 +1930,9 @@ class GameEngine:
                     items.append(f"借款：明天前要还 ${debt.amount_due}")
                 else:
                     items.append(f"借款：明天等着收回 ${debt.amount_due}")
+            bank_debt = next((loan for loan in self.state.bank_loans if loan.borrower_type == "agent" and loan.borrower_id == agent.id and loan.status in {"active", "overdue"}), None)
+            if bank_debt is not None:
+                items.append(f"银行贷款：剩余 ${bank_debt.amount_due}，第 {bank_debt.due_day} 天前处理")
             if agent.short_term_memory:
                 items.append(f"刚记住：{agent.short_term_memory[0].text}")
             if agent.long_term_memory:
@@ -1917,11 +2240,11 @@ class GameEngine:
             if agent.state.energy <= FORCED_REST_THRESHOLD:
                 self._send_agent_home(agent, "体力已经见底，得先回去睡一觉。", forced=True)
         self._settle_due_loans()
+        self._settle_due_bank_loans()
         self._refresh_presence()
         if slot == "morning" and day > 1:
             self.state.player.daily_actions = []
-            self._refresh_agents_for_new_day()
-            self._generate_lab_daily(previous_day)
+            self.social_engine.run_new_day_briefing(previous_day)
             self.state.events.insert(
                 0,
                 build_internal_event(
@@ -3240,6 +3563,8 @@ class GameEngine:
                 memory.text = self._localized_text(memory.text)
         if self.state.player.portfolio is None:
             self.state.player.portfolio = {}
+        if not self.state.player.credit_score:
+            self.state.player.credit_score = 72
         if self.state.player.short_positions is None:
             self.state.player.short_positions = {}
         if self.state.player.short_average_price is None:
@@ -3248,6 +3573,10 @@ class GameEngine:
             self.state.player.last_trade_summary = ""
         if not self.state.player.risk_appetite:
             self.state.player.risk_appetite = 52
+        if self.state.bank is None:
+            self.state.bank = build_initial_world().bank
+        if self.state.bank_loans is None:
+            self.state.bank_loans = []
         if self.state.market.index_history is None:
             self.state.market.index_history = []
         if self.state.market.daily_index_history is None:
@@ -3279,10 +3608,54 @@ class GameEngine:
             brief.title = self._localized_text(brief.title)
             brief.lead = self._localized_text(brief.lead)
             brief.items = [self._localized_text(item) for item in brief.items or []]
+            if not brief.entries:
+                brief.entries = self._build_brief_entries_from_items(brief.items or [])
+            for entry in brief.entries:
+                entry.text = self._localized_text(entry.text)
         for case in self.state.gray_cases or []:
             case.participant_names = [self._localized_text(name) for name in case.participant_names or []]
             case.topic = self._localized_text(case.topic)
             case.summary = self._localized_text(case.summary)
+
+    def _build_brief_entries_from_items(self, items: list[str]) -> list[DailyBriefItem]:
+        entries: list[DailyBriefItem] = []
+        for item in items:
+            target_kind = ""
+            target_id = ""
+            target_filter = ""
+            if item.startswith(("股市速写", "板块主线", "研究头条")):
+                target_kind = "market"
+            elif item.startswith("借贷消息"):
+                target_kind = "dialogue"
+                target_filter = "loan"
+            elif item.startswith("小道消息"):
+                target_kind = "dialogue"
+                target_filter = "gray"
+            elif item.startswith("关系风波"):
+                target_kind = "dialogue"
+                target_filter = "desire"
+            elif item.startswith("八卦速递"):
+                target_kind = "dialogue"
+            elif item.startswith("故事线更新"):
+                target_kind = "story"
+                title = item.split("：", 1)[-1].split("，", 1)[0]
+                story = next((beat for beat in self.state.story_beats if title and title in beat.title), None)
+                target_id = story.id if story else ""
+            elif item.startswith("新闻摘录"):
+                target_kind = "event"
+                title = item.split("：", 1)[-1].split(" 还在被", 1)[0]
+                event = next((entry for entry in self.state.events if title and title in entry.title), None)
+                target_id = event.id if event else ""
+            entries.append(
+                DailyBriefItem(
+                    id=f"brief-item-{uuid4().hex[:8]}",
+                    text=item,
+                    target_kind=target_kind,
+                    target_id=target_id,
+                    target_filter=target_filter,
+                )
+            )
+        return entries
 
     def _pick_social_topic(self, first: Agent, second: Agent) -> str:
         daily_candidates = [

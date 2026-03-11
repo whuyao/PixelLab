@@ -17,6 +17,7 @@ const dialogueFilterLoan = document.getElementById("dialogueFilterLoan");
 const dialogueFilterGray = document.getElementById("dialogueFilterGray");
 const dialogueFilterDesire = document.getElementById("dialogueFilterDesire");
 const signalStatus = document.getElementById("signalStatus");
+const macroStatus = document.getElementById("macroStatus");
 const dailyBriefBox = document.getElementById("dailyBriefBox");
 const grayCaseActionBox = document.getElementById("grayCaseActionBox");
 const memoryBox = document.getElementById("memoryBox");
@@ -29,6 +30,13 @@ const tradeShares = document.getElementById("tradeShares");
 const tradeSubmitBtn = document.getElementById("tradeSubmitBtn");
 const sellAllBtn = document.getElementById("sellAllBtn");
 const tradeMeta = document.getElementById("tradeMeta");
+const bankBorrowForm = document.getElementById("bankBorrowForm");
+const bankBorrowAmount = document.getElementById("bankBorrowAmount");
+const bankBorrowTerm = document.getElementById("bankBorrowTerm");
+const bankBorrowBtn = document.getElementById("bankBorrowBtn");
+const bankBorrowHint = document.getElementById("bankBorrowHint");
+const bankStatusBox = document.getElementById("bankStatusBox");
+const bankLoanList = document.getElementById("bankLoanList");
 const marketCanvas = document.getElementById("marketCanvas");
 const marketCtx = marketCanvas.getContext("2d");
 const marketMeta = document.getElementById("marketMeta");
@@ -45,7 +53,8 @@ const talkForm = document.getElementById("talkForm");
 const talkInput = document.getElementById("talkInput");
 const talkTarget = document.getElementById("talkTarget");
 const talkSendBtn = document.getElementById("talkSendBtn");
-const ASSET_VERSION = "20260311ak";
+const macroSubmitBtn = document.getElementById("macroSubmitBtn");
+const ASSET_VERSION = "20260311ap";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -104,6 +113,7 @@ const dialogueKindLabels = {
   player_dialogue: "玩家对话",
   ambient_dialogue: "同事互聊",
   loan: "借贷结算",
+  bank_loan: "银行借贷",
   gray_trade: "灰色交易",
 };
 
@@ -138,6 +148,38 @@ function moneyUrgencyLabel(value) {
   return "轻松";
 }
 
+function estimateBankCreditLine(creditScore) {
+  if (creditScore >= 85) return 96;
+  if (creditScore >= 70) return 72;
+  if (creditScore >= 55) return 52;
+  if (creditScore >= 40) return 32;
+  return 14;
+}
+
+function estimateBankOffer(creditScore, termDays) {
+  const bank = state?.bank || { base_daily_rate_pct: 2.0, risk_spread_pct: 0.2 };
+  const regime = state?.market?.regime || "bull";
+  const regimeAdjustment = { bull: -0.25, sideways: 0.35, risk: 1.1 }[regime] ?? 0.2;
+  const termPremium = { 1: 0.2, 2: 0.45, 3: 0.8 }[termDays] ?? 0.8;
+  let creditPremium = 4.0;
+  if (creditScore >= 85) creditPremium = -0.55;
+  else if (creditScore >= 70) creditPremium = 0.0;
+  else if (creditScore >= 55) creditPremium = 0.9;
+  else if (creditScore >= 40) creditPremium = 2.2;
+  const reputationPremium = (state?.lab?.reputation || 0) <= 22 ? 0.45 : 0.0;
+  const dailyRate = Math.max(0.8, Math.min(9.5, Number((bank.base_daily_rate_pct + bank.risk_spread_pct + regimeAdjustment + termPremium + creditPremium + reputationPremium).toFixed(2))));
+  return {
+    dailyRate,
+    totalRate: Number((dailyRate * termDays).toFixed(2)),
+  };
+}
+
+function activeBankLoansFor(borrowerType, borrowerId) {
+  return (state?.bank_loans || []).filter(
+    (loan) => loan.borrower_type === borrowerType && loan.borrower_id === borrowerId && ["active", "overdue"].includes(loan.status),
+  );
+}
+
 function formatPortfolio(portfolio) {
   const entries = Object.entries(portfolio || {}).filter(([, shares]) => shares > 0);
   if (!entries.length) return "空仓";
@@ -170,6 +212,29 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function serializeSignature(value) {
+  return JSON.stringify(value);
+}
+
+function renderIfChanged(key, signatureValue, renderer) {
+  const signature = typeof signatureValue === "string" ? signatureValue : serializeSignature(signatureValue);
+  if (renderCache.get(key) === signature) return;
+  renderCache.set(key, signature);
+  renderer();
+}
+
+function clearJumpHighlights() {
+  highlightedEventId = "";
+  highlightedStoryId = "";
+  highlightedDialogueId = "";
+  highlightedGrayCaseId = "";
+}
+
+function scrollToElement(selector, container = document) {
+  const target = container.querySelector(selector);
+  target?.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 function formatDialogueTime(record) {
@@ -214,7 +279,7 @@ function renderDialogueCard(record) {
     .filter(Boolean)
     .join("");
   return `
-    <article class="dialogue-card ${record.gray_trade ? "gray-trade-card" : ""}" data-record-id="${escapeHtml(record.id)}">
+    <article class="dialogue-card ${record.gray_trade ? "gray-trade-card" : ""} ${highlightedDialogueId === record.id ? "is-highlighted" : ""}" data-record-id="${escapeHtml(record.id)}">
       <div class="dialogue-card-head">
         <strong>${escapeHtml((record.participant_names || []).join(" × ") || "匿名对话")}</strong>
         <span class="dialogue-time">${escapeHtml(formatDialogueTime(record))}</span>
@@ -352,11 +417,11 @@ let state = null;
 let busy = false;
 let assetsReady = false;
 let autoExplore = true;
-let observerMode = false;
+let observerMode = true;
 let systemRunning = true;
 let marketViewMode = "intraday";
 let lastFrame = performance.now();
-let lastManualInput = Date.now();
+let lastManualInput = 0;
 const MANUAL_LOCK_MS = 2200;
 let pendingDialogue = null;
 let draftTalkText = "";
@@ -366,6 +431,11 @@ let observerStepCount = 0;
 let dialogueFilterMode = "all";
 let dialogueFilterActor = "all";
 const expandedDialogueIds = new Set();
+const renderCache = new Map();
+let highlightedEventId = "";
+let highlightedStoryId = "";
+let highlightedDialogueId = "";
+let highlightedGrayCaseId = "";
 const cameraState = {
   zoom: 1,
   manual: false,
@@ -480,17 +550,66 @@ function renderPanels() {
   marketDailyBtn.classList.toggle("active", marketViewMode === "daily");
   updateTalkTarget();
   refreshComposerAvailability();
-  renderMetrics();
-  renderTasks();
-  renderEvents();
-  renderDialogueFilterControls();
-  renderDialogue();
-  renderDailyBrief();
-  renderGrayCaseActions();
-  renderMemory();
-  renderMarketModule();
-  renderMarketChart();
-  renderTradeMeta();
+  renderIfChanged(
+    "metrics",
+    [state.day, state.time_slot, state.weather, state.lab, state.geoai_milestones],
+    () => renderMetrics(),
+  );
+  renderIfChanged(
+    "tasks",
+    [state.tasks, state.archived_tasks],
+    () => renderTasks(),
+  );
+  renderIfChanged(
+    "events",
+    [state.gray_cases, state.story_beats, state.events, highlightedEventId, highlightedStoryId, highlightedGrayCaseId],
+    () => renderEvents(),
+  );
+  renderIfChanged(
+    "dialogue-filters",
+    [state.agents.map((agent) => [agent.id, agent.name]), dialogueFilterMode, dialogueFilterActor],
+    () => renderDialogueFilterControls(),
+  );
+  renderIfChanged(
+    "dialogue",
+    [state.latest_dialogue, state.dialogue_history?.slice(0, 200), state.loans, pendingDialogue, dialogueFilterMode, dialogueFilterActor, highlightedDialogueId],
+    () => renderDialogue(),
+  );
+  renderIfChanged(
+    "daily",
+    [state.daily_briefings?.[0]],
+    () => renderDailyBrief(),
+  );
+  renderIfChanged(
+    "gray-cases",
+    [state.gray_cases, highlightedGrayCaseId],
+    () => renderGrayCaseActions(),
+  );
+  renderIfChanged(
+    "memory",
+    [selectedActorId, state.player, state.agents, state.loans, state.time_slot, state.day],
+    () => renderMemory(),
+  );
+  renderIfChanged(
+    "market-module",
+    [state.market, state.player, state.agents, state.bank, state.bank_loans, busy],
+    () => renderMarketModule(),
+  );
+  renderIfChanged(
+    "bank-module",
+    [state.bank, state.bank_loans, state.player.cash, state.player.credit_score, state.agents, bankBorrowAmount?.value, bankBorrowTerm?.value, busy],
+    () => renderBankModule(),
+  );
+  renderIfChanged(
+    "market-chart",
+    [marketViewMode, state.market?.index_history, state.market?.daily_index_history, state.market?.regime, state.market?.rotation_leader, state.market?.rotation_age],
+    () => renderMarketChart(),
+  );
+  renderIfChanged(
+    "trade-meta",
+    [tradeSymbol?.value, state.player, state.market?.stocks, state.bank_loans, busy],
+    () => renderTradeMeta(),
+  );
 }
 
 function renderDailyBrief() {
@@ -505,13 +624,29 @@ function renderDailyBrief() {
     `;
     return;
   }
-  const items = (latestBrief.items || [])
+  const entryMarkup = (latestBrief.entries?.length ? latestBrief.entries : (latestBrief.items || []).map((text, index) => ({
+    id: `fallback-${index}`,
+    text,
+    target_kind: "",
+    target_id: "",
+    target_filter: "",
+  })))
     .slice(0, 10)
     .map(
       (item, index) => `
         <li class="daily-brief-item">
           <span class="daily-brief-index">${index + 1}</span>
-          <span>${escapeHtml(item)}</span>
+          ${
+            item.target_kind
+              ? `<button
+                  type="button"
+                  class="daily-brief-link"
+                  data-brief-target-kind="${escapeHtml(item.target_kind)}"
+                  data-brief-target-id="${escapeHtml(item.target_id || "")}"
+                  data-brief-target-filter="${escapeHtml(item.target_filter || "")}"
+                >${escapeHtml(item.text)}</button>`
+              : `<span>${escapeHtml(item.text)}</span>`
+          }
         </li>
       `,
     )
@@ -523,10 +658,10 @@ function renderDailyBrief() {
           <strong>${escapeHtml(latestBrief.title || "Lab Daily")}</strong>
           <div class="daily-brief-meta">最新晨报 · 第 ${escapeHtml(latestBrief.day)} 天</div>
         </div>
-        <span class="panel-tag">${Math.min((latestBrief.items || []).length, 10)} 条摘要</span>
+        <span class="panel-tag">${Math.min((latestBrief.entries?.length || latestBrief.items?.length || 0), 10)} 条摘要</span>
       </div>
       <p class="daily-brief-lead">${escapeHtml(latestBrief.lead || "昨夜的重要变化已经汇总到这里。")}</p>
-      <ol class="daily-brief-list">${items}</ol>
+      <ol class="daily-brief-list">${entryMarkup}</ol>
     </article>
   `;
 }
@@ -546,7 +681,7 @@ function renderGrayCaseActions() {
   grayCaseActionBox.innerHTML = activeCases
     .map(
       (item) => `
-        <article class="gray-case-card">
+        <article class="gray-case-card ${highlightedGrayCaseId === item.id ? "is-highlighted" : ""}" data-gray-case-id="${escapeHtml(item.id)}">
           <div class="daily-brief-head">
             <div>
               <strong>${escapeHtml(grayTradeTypeLabels[item.case_type] || item.case_type)}</strong>
@@ -647,12 +782,17 @@ function renderMarketModule() {
   }
   if (marketPositions) {
     const teamCash = state.agents.reduce((sum, agent) => sum + (agent.cash || 0), 0);
+    const teamBankDebt = (state.bank_loans || [])
+      .filter((loan) => loan.borrower_type === "agent" && ["active", "overdue"].includes(loan.status))
+      .reduce((sum, loan) => sum + (loan.amount_due || 0), 0);
+    const playerBankDebt = activeBankLoansFor("player", state.player.id).reduce((sum, loan) => sum + (loan.amount_due || 0), 0);
     const playerPosition = `
       <article class="position-card">
         <strong>玩家账户</strong>
-        <div class="metric-meta">现金 $${state.player.cash}</div>
+        <div class="metric-meta">现金 $${state.player.cash} · 信用 ${state.player.credit_score}</div>
         <div class="metric-meta">持仓 ${formatPortfolio(state.player.portfolio)}</div>
         <div class="metric-meta">空仓 ${formatShortPortfolio(state.player.short_positions)}</div>
+        <div class="metric-meta">银行待还 $${playerBankDebt}</div>
         <div class="metric-meta">${state.player.last_trade_summary || "今天还没有执行交易。"}</div>
       </article>
     `;
@@ -660,22 +800,97 @@ function renderMarketModule() {
       <article class="position-card">
         <strong>团队资金分布</strong>
         <div class="metric-meta">团队总现金 $${teamCash}</div>
+        <div class="metric-meta">团队银行待还 $${teamBankDebt}</div>
         <div class="metric-meta">有持仓的成员 ${(state.agents || []).filter((agent) => Object.values(agent.portfolio || {}).some((shares) => shares > 0)).length} 人</div>
       </article>
     `;
     const agentPositions = state.agents
       .map(
-        (agent) => `
+        (agent) => {
+          const debt = activeBankLoansFor("agent", agent.id).reduce((sum, loan) => sum + (loan.amount_due || 0), 0);
+          return `
           <article class="position-card">
             <strong>${agent.name}</strong>
             <div class="metric-meta">现金 $${agent.cash} · 信用 ${agent.credit_score}</div>
             <div class="metric-meta">持仓 ${formatPortfolio(agent.portfolio)}</div>
+            <div class="metric-meta">银行待还 $${debt}</div>
             <div class="metric-meta">${agent.last_trade_summary || "今天还没有明确买卖。"}</div>
           </article>
-        `,
+        `;
+        },
       )
       .join("");
     marketPositions.innerHTML = `<div class="position-grid">${playerPosition}${teamPosition}${agentPositions}</div>`;
+  }
+}
+
+function renderBankModule() {
+  if (!state) return;
+  const bank = state.bank || {};
+  const playerLoans = activeBankLoansFor("player", state.player.id);
+  const activeAgentLoans = (state.bank_loans || []).filter((loan) => loan.borrower_type === "agent" && ["active", "overdue"].includes(loan.status));
+  const termDays = Number(bankBorrowTerm?.value || 1);
+  const amount = Number(bankBorrowAmount?.value || 0);
+  const limit = estimateBankCreditLine(state.player.credit_score || 0);
+  const offer = estimateBankOffer(state.player.credit_score || 0, termDays);
+  const projectedRepayment = amount > 0 ? amount + Math.max(1, Math.round((amount * offer.totalRate) / 100)) : 0;
+  if (bankStatusBox) {
+    bankStatusBox.innerHTML = `
+      <article class="position-card">
+        <strong>${escapeHtml(bank.name || "青松合作银行")}</strong>
+        <div class="metric-meta">流动性 $${bank.liquidity ?? 0} · 基准日利率 ${(bank.base_daily_rate_pct ?? 0).toFixed(2)}%</div>
+        <div class="metric-meta">当前风险溢价 ${(bank.risk_spread_pct ?? 0).toFixed(2)}% · 历史违约 ${bank.defaults_count ?? 0}</div>
+      </article>
+      <article class="position-card">
+        <strong>你的授信</strong>
+        <div class="metric-meta">信用 ${state.player.credit_score} · 当前上限 $${limit}</div>
+        <div class="metric-meta">${termDays} 天期估算：日利率 ${offer.dailyRate.toFixed(2)}% · 总利率 ${offer.totalRate.toFixed(2)}%</div>
+        <div class="metric-meta">${amount > 0 ? `若借 $${amount}，预计应还 $${projectedRepayment}` : "输入金额后会显示预计应还。"} </div>
+      </article>
+    `;
+  }
+  if (bankBorrowHint) {
+    bankBorrowHint.textContent =
+      amount > limit
+        ? `按当前信用，这次最多建议申请 $${limit}。`
+        : `银行会结合信用、市场阶段和实验室口碑动态定价；${termDays} 天期总利率约 ${offer.totalRate.toFixed(2)}%。`;
+  }
+  if (bankLoanList) {
+    const playerLoanMarkup = playerLoans.length
+      ? playerLoans
+          .map(
+            (loan) => `
+              <article class="position-card bank-loan-card">
+                <strong>玩家贷款 · ${loan.id}</strong>
+                <div class="metric-meta">本金 $${loan.principal} · 剩余应还 $${loan.amount_due}</div>
+                <div class="metric-meta">到期日 第 ${loan.due_day} 天 · ${loan.term_days} 天期 · 总利率 ${loan.total_rate_pct.toFixed(2)}%</div>
+                <div class="metric-meta">${loan.status === "overdue" ? "已逾期，银行已抬高罚息压力。" : "仍在正常期限内。"}</div>
+                <div class="bank-loan-actions">
+                  <button type="button" class="bank-repay-btn" data-bank-loan-id="${escapeHtml(loan.id)}">全部归还</button>
+                </div>
+              </article>
+            `,
+          )
+          .join("")
+      : '<article class="position-card"><strong>玩家贷款</strong><div class="metric-meta">当前没有未结清的银行贷款。</div></article>';
+    const agentLoanMarkup = activeAgentLoans.length
+      ? activeAgentLoans
+          .slice(0, 6)
+          .map(
+            (loan) => `
+              <article class="position-card bank-loan-card">
+                <strong>${escapeHtml(loan.borrower_name)}</strong>
+                <div class="metric-meta">剩余应还 $${loan.amount_due} · 第 ${loan.due_day} 天前处理</div>
+                <div class="metric-meta">${loan.status === "overdue" ? "逾期中" : "正常"} · 日利率 ${loan.daily_rate_pct.toFixed(2)}% · ${escapeHtml(loan.reason || "资金周转")}</div>
+              </article>
+            `,
+          )
+          .join("")
+      : '<article class="position-card"><strong>智能体银行借贷</strong><div class="metric-meta">目前还没有人挂着银行贷款。</div></article>';
+    bankLoanList.innerHTML = `${playerLoanMarkup}${agentLoanMarkup}`;
+  }
+  if (bankBorrowBtn) {
+    bankBorrowBtn.disabled = busy;
   }
 }
 
@@ -796,11 +1011,57 @@ function renderTradeMeta() {
   const quote = (state.market?.stocks || []).find((item) => item.symbol === symbol);
   const held = state.player.portfolio?.[symbol] || 0;
   const shortHeld = state.player.short_positions?.[symbol] || 0;
+  const bankDebt = activeBankLoansFor("player", state.player.id).reduce((sum, loan) => sum + (loan.amount_due || 0), 0);
   if (tradeMeta) {
-    tradeMeta.textContent = `可用资金：$${state.player.cash} · ${symbol} 持仓：${held} 股 · 空仓：${shortHeld} 股 · 现价：${quote ? `$${quote.price.toFixed(2)}` : "--"}`;
+    tradeMeta.textContent = `可用资金：$${state.player.cash} · ${symbol} 持仓：${held} 股 · 空仓：${shortHeld} 股 · 现价：${quote ? `$${quote.price.toFixed(2)}` : "--"} · 银行待还 $${bankDebt}`;
   }
   if (sellAllBtn) {
     sellAllBtn.disabled = held <= 0 || busy;
+  }
+}
+
+function jumpFromDailyBrief(targetKind, targetId, targetFilter) {
+  clearJumpHighlights();
+  if (targetKind === "market") {
+    document.querySelector(".market-hub-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  if (targetKind === "dialogue") {
+    if (targetFilter) {
+      dialogueFilterMode = targetFilter;
+      renderCache.delete("dialogue-filters");
+    }
+    highlightedDialogueId = targetId || "";
+    renderCache.delete("dialogue");
+    renderCache.delete("dialogue-filters");
+    renderPanels();
+    scrollToElement(targetId ? `.dialogue-card[data-record-id="${CSS.escape(targetId)}"]` : ".dialogue-timeline", dialogueBox);
+    document.querySelector(".rail-dialogue-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  if (targetKind === "event") {
+    highlightedEventId = targetId || "";
+    renderCache.delete("events");
+    renderPanels();
+    scrollToElement(`.event-card[data-event-id="${CSS.escape(targetId)}"]`, eventList);
+    document.querySelector(".event-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  if (targetKind === "story") {
+    highlightedStoryId = targetId || "";
+    renderCache.delete("events");
+    renderPanels();
+    scrollToElement(`.event-card[data-story-id="${CSS.escape(targetId)}"]`, eventList);
+    document.querySelector(".event-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  if (targetKind === "gray_case") {
+    highlightedGrayCaseId = targetId || "";
+    renderCache.delete("gray-cases");
+    renderCache.delete("events");
+    renderPanels();
+    scrollToElement(`.gray-case-card[data-gray-case-id="${CSS.escape(targetId)}"]`, grayCaseActionBox);
+    document.querySelector("#grayCaseActionBox")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }
 
@@ -808,7 +1069,7 @@ function renderEvents() {
   const grayCaseMarkup = ((state.gray_cases || []).filter((item) => item.status === "active").slice(0, 2))
     .map(
       (item) => `
-        <article class="event-card story-card">
+        <article class="event-card story-card ${highlightedGrayCaseId === item.id ? "is-highlighted" : ""}" data-gray-case-id="${escapeHtml(item.id)}">
           <strong>地下暗线：${escapeHtml(grayTradeTypeLabels[item.case_type] || item.case_type)}</strong>
           <div>${escapeHtml(item.summary)}</div>
           <div class="event-meta">风险 ${item.exposure_risk}/100 · 涉及 ${escapeHtml((item.participant_names || []).join(" × "))}</div>
@@ -820,7 +1081,7 @@ function renderEvents() {
     .slice(0, 3)
     .map(
       (beat) => `
-        <article class="event-card story-card">
+        <article class="event-card story-card ${highlightedStoryId === beat.id ? "is-highlighted" : ""}" data-story-id="${escapeHtml(beat.id)}">
           <strong>${beat.title}</strong>
           <div>${beat.summary}</div>
           <div class="event-meta">故事线 · ${beat.kind} · 第 ${beat.stage} 段</div>
@@ -831,7 +1092,7 @@ function renderEvents() {
   const eventMarkup = state.events
     .map(
       (event) => `
-        <article class="event-card">
+        <article class="event-card ${highlightedEventId === event.id ? "is-highlighted" : ""}" data-event-id="${escapeHtml(event.id)}">
           <strong>${event.title}</strong>
           <div>${event.summary}</div>
           <div class="event-meta">${categoryLabels[event.category] || event.category} · ${event.source || "实验室"}</div>
@@ -931,7 +1192,7 @@ function recordMatchesDialogueFilters(record) {
     return false;
   }
   if (dialogueFilterMode === "loan") {
-    return record.kind === "loan" || Boolean(record.interest_rate != null) || /借|利率|归还|逾期/.test(record.financial_note || "");
+    return record.kind === "loan" || record.kind === "bank_loan" || Boolean(record.interest_rate != null) || /借|利率|归还|逾期|银行/.test(record.financial_note || "");
   }
   if (dialogueFilterMode === "gray") {
     return Boolean(record.gray_trade) || record.kind === "gray_trade";
@@ -971,6 +1232,10 @@ function renderMemory() {
         .filter((loan) => loan.status === "active" || loan.status === "overdue")
         .map((loan) => `<span class="memory-chip">${formatLoan(loan)}</span>`)
         .join("") || '<span class="memory-meta">当前没有活跃借款。</span>';
+    const bankLoanOverview =
+      activeBankLoansFor("player", state.player.id)
+        .map((loan) => `<span class="memory-chip">${loan.status === "overdue" ? "逾期" : "银行"}：剩余 $${loan.amount_due} · 第 ${loan.due_day} 天</span>`)
+        .join("") || '<span class="memory-meta">当前没有银行贷款。</span>';
     memoryBox.innerHTML = `
       <h3>${state.player.name}</h3>
       <div class="memory-meta">玩家 · 坐标 (${state.player.position.x}, ${state.player.position.y})</div>
@@ -978,6 +1243,7 @@ function renderMemory() {
         <div class="status-pill"><strong>当前时段</strong><span>${timeLabels[state.time_slot]}</span></div>
         <div class="status-pill"><strong>附近对象</strong><span>${nearby ? nearby.name : "无人"}</span></div>
         <div class="status-pill"><strong>现金</strong><span>$${state.player.cash}</span></div>
+        <div class="status-pill"><strong>信用值</strong><span>${state.player.credit_score}</span></div>
         <div class="status-pill"><strong>空仓</strong><span>${formatShortPortfolio(state.player.short_positions)}</span></div>
       </div>
       <div class="memory-section">
@@ -995,6 +1261,10 @@ function renderMemory() {
       <div class="memory-section">
         <strong>当前借款</strong>
         <div>${loanOverview}</div>
+      </div>
+      <div class="memory-section">
+        <strong>银行借贷</strong>
+        <div>${bankLoanOverview}</div>
       </div>
       <div class="memory-section">
         <strong>市场提示</strong>
@@ -2340,6 +2610,33 @@ tradeForm.addEventListener("submit", async (event) => {
   }
 });
 
+if (bankBorrowForm) {
+  bankBorrowForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (busy || !state) return;
+    busy = true;
+    if (bankBorrowBtn) bankBorrowBtn.disabled = true;
+    try {
+      state = await api("/api/bank/borrow", {
+        method: "POST",
+        body: JSON.stringify({
+          amount: Number(bankBorrowAmount?.value || 0),
+          term_days: Number(bankBorrowTerm?.value || 1),
+        }),
+      });
+      syncSceneEntities();
+      renderPanels();
+      signalStatus.textContent = state.player.last_trade_summary || "银行贷款已到账。";
+    } catch (error) {
+      signalStatus.textContent = error.message;
+    } finally {
+      busy = false;
+      if (bankBorrowBtn) bankBorrowBtn.disabled = false;
+      renderPanels();
+    }
+  });
+}
+
 sellAllBtn.addEventListener("click", async () => {
   if (busy || !state) return;
   const symbol = tradeSymbol.value;
@@ -2370,6 +2667,8 @@ sellAllBtn.addEventListener("click", async () => {
 
 tradeSymbol.addEventListener("change", renderTradeMeta);
 tradeSide.addEventListener("change", renderTradeMeta);
+bankBorrowAmount?.addEventListener("input", () => renderPanels());
+bankBorrowTerm?.addEventListener("change", () => renderPanels());
 if (dialogueActorFilter) {
   dialogueActorFilter.addEventListener("change", () => {
     dialogueFilterActor = dialogueActorFilter.value;
@@ -2431,6 +2730,38 @@ if (grayCaseActionBox) {
   });
 }
 
+if (dailyBriefBox) {
+  dailyBriefBox.addEventListener("click", (event) => {
+    const trigger = event.target.closest(".daily-brief-link");
+    if (!trigger) return;
+    jumpFromDailyBrief(trigger.dataset.briefTargetKind || "", trigger.dataset.briefTargetId || "", trigger.dataset.briefTargetFilter || "");
+  });
+}
+
+if (bankLoanList) {
+  bankLoanList.addEventListener("click", async (event) => {
+    const button = event.target.closest(".bank-repay-btn");
+    if (!button || busy) return;
+    const loanId = button.dataset.bankLoanId;
+    if (!loanId) return;
+    busy = true;
+    try {
+      state = await api(`/api/bank/repay/${loanId}`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      syncSceneEntities();
+      renderPanels();
+      signalStatus.textContent = state.player.last_trade_summary || "银行还款已处理。";
+    } catch (error) {
+      signalStatus.textContent = error.message;
+    } finally {
+      busy = false;
+      renderPanels();
+    }
+  });
+}
+
 newsForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (busy) return;
@@ -2457,15 +2788,28 @@ newsForm.addEventListener("submit", async (event) => {
 
 macroNewsForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (busy) return;
-  busy = true;
-  signalStatus.textContent = "正在发布你设定的宏观消息…";
+  if (busy) {
+    setMacroStatus("系统正在刷新世界状态，请等一秒再发布。");
+    signalStatus.textContent = "系统正在自动演化，宏观消息稍后再发。";
+    return;
+  }
   const formData = new FormData(macroNewsForm);
+  const title = String(formData.get("title") || "").trim();
+  if (!title) {
+    setMacroStatus("先写一个宏观消息标题，再发布。");
+    signalStatus.textContent = "宏观消息缺少标题。";
+    document.getElementById("macroTitle")?.focus();
+    return;
+  }
+  busy = true;
+  if (macroSubmitBtn) macroSubmitBtn.disabled = true;
+  setMacroStatus("正在发布宏观消息…");
+  signalStatus.textContent = "正在发布你设定的宏观消息…";
   try {
     state = await api("/api/macro-news", {
       method: "POST",
       body: JSON.stringify({
-        title: formData.get("title"),
+        title,
         summary: formData.get("summary"),
         category: formData.get("category"),
         tone: formData.get("tone"),
@@ -2475,17 +2819,25 @@ macroNewsForm.addEventListener("submit", async (event) => {
     });
     syncSceneEntities();
     renderPanels();
+    setMacroStatus("宏观消息已发布，盘面和情绪正在重估。");
     signalStatus.textContent = "宏观消息已发布，市场正在根据你的信号重估价格。";
     macroNewsForm.reset();
   } catch (error) {
+    setMacroStatus(normalizeError(error.message));
     signalStatus.textContent = error.message;
   } finally {
+    if (macroSubmitBtn) macroSubmitBtn.disabled = false;
     busy = false;
   }
 });
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function setMacroStatus(message) {
+  if (!macroStatus) return;
+  macroStatus.textContent = message || "";
 }
 
 function manhattan(left, right) {

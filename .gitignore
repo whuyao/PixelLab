@@ -16,3 +16,4 @@ tmp/
 !.env.example
 *.egg-info/
 static/vendor/
+node_modules/

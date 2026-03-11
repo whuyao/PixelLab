@@ -184,12 +184,17 @@ canvas {
 
 .market-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.18fr) minmax(320px, 0.82fr);
-  grid-template-areas:
-    "chart side"
-    "positions side";
+  grid-template-columns: minmax(0, 1.28fr) minmax(360px, 0.88fr);
   gap: 14px;
   align-items: start;
+}
+
+.market-main-block,
+.market-side-block {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  min-width: 0;
 }
 
 .market-chart-block,
@@ -198,21 +203,6 @@ canvas {
   border: 3px solid rgba(58, 50, 43, 0.56);
   background: rgba(255, 251, 241, 0.9);
   padding: 12px;
-}
-
-.market-side-block {
-  grid-area: side;
-  display: grid;
-  gap: 12px;
-  align-content: start;
-}
-
-.market-chart-block {
-  grid-area: chart;
-}
-
-.market-position-block {
-  grid-area: positions;
 }
 
 .market-summary-grid {
@@ -227,6 +217,20 @@ canvas {
   border: 2px solid rgba(58, 50, 43, 0.38);
   background: rgba(248, 242, 224, 0.92);
   padding: 9px 10px;
+}
+
+.bank-loan-card {
+  display: grid;
+  gap: 6px;
+}
+
+.bank-loan-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.bank-loan-actions button {
+  min-width: 108px;
 }
 
 .market-stock-card strong,
@@ -304,15 +308,33 @@ canvas {
   max-width: 86px;
 }
 
+#bankBorrowAmount {
+  max-width: 96px;
+}
+
 #talkSendBtn {
   min-width: 92px;
 }
 
 #marketCanvas {
   margin-top: 14px;
+  width: 100%;
+  height: 320px;
   min-height: 320px;
   background: linear-gradient(180deg, rgba(248, 251, 255, 0.95), rgba(233, 240, 226, 0.92));
   image-rendering: auto;
+}
+
+#tradeForm,
+#bankBorrowForm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+#tradeForm button,
+#bankBorrowForm button {
+  width: 100%;
 }
 
 .panel {
@@ -453,6 +475,22 @@ canvas {
   padding: 7px 8px;
 }
 
+.daily-brief-link {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.daily-brief-link:hover {
+  color: var(--accent-deep);
+  text-decoration: underline;
+}
+
 .daily-brief-index {
   display: inline-flex;
   align-items: center;
@@ -472,6 +510,11 @@ canvas {
   border: 2px solid rgba(58, 50, 43, 0.28);
   background: rgba(250, 245, 230, 0.88);
   padding: 10px;
+}
+
+.is-highlighted {
+  box-shadow: 0 0 0 3px rgba(194, 124, 68, 0.45);
+  border-color: rgba(194, 124, 68, 0.95);
 }
 
 .gray-case-actions {
@@ -777,6 +820,11 @@ canvas {
   color: var(--accent-deep);
 }
 
+.market-form button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
 @media (max-width: 1080px) {
   .layout {
     grid-template-columns: 1fr;
@@ -798,10 +846,11 @@ canvas {
 
   .market-layout {
     grid-template-columns: 1fr;
-    grid-template-areas:
-      "chart"
-      "side"
-      "positions";
+  }
+
+  .market-main-block,
+  .market-side-block {
+    grid-template-columns: 1fr;
   }
 
   .market-summary-grid,

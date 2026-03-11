@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GeoAI Pixel Lab Test (UrbanComp Lab)</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260311ak" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260311ap" />
   </head>
   <body>
     <main class="layout">
@@ -27,7 +27,7 @@
             <span>按 `E`：和身边的人说话</span>
             <span>滚轮缩放 / 拖拽平移</span>
             <button id="systemRunBtn" type="button">系统运行：开</button>
-            <button id="observerModeBtn" type="button">观察模式：关</button>
+            <button id="observerModeBtn" type="button">观察模式：开</button>
             <button id="autoExploreBtn" type="button">自动漫游：开</button>
             <button id="resetCameraBtn" type="button">重置视角</button>
             <button id="advanceBtn" type="button">推进时段</button>
@@ -43,9 +43,56 @@
             </div>
           </div>
           <div class="market-layout">
-            <div class="market-chart-block">
-              <p id="marketMeta" class="market-meta">正在等待今天的第一笔盘中波动。</p>
-              <canvas id="marketCanvas" width="960" height="320"></canvas>
+            <div class="market-main-block">
+              <div class="market-chart-block">
+                <p id="marketMeta" class="market-meta">正在等待今天的第一笔盘中波动。</p>
+                <canvas id="marketCanvas" width="960" height="320"></canvas>
+              </div>
+              <section class="market-subpanel market-macro-panel">
+                <div class="panel-head compact-head">
+                  <h3>宏观调控台</h3>
+                  <span class="panel-tag">手动发布</span>
+                </div>
+                <form id="macroNewsForm" class="signal-form macro-form market-form">
+                  <input id="macroTitle" name="title" type="text" placeholder="例如：监管层释放流动性支持信号" required />
+                  <input id="macroSummary" name="summary" type="text" placeholder="例如：市场预期风险偏好回升，科技与 GeoAI 获得资金关注。" />
+                  <select id="macroCategory" name="category">
+                    <option value="market">市场</option>
+                    <option value="tech">科技</option>
+                    <option value="geoai">GeoAI</option>
+                    <option value="general">综合</option>
+                    <option value="gaming">游戏</option>
+                  </select>
+                  <select id="macroTone" name="tone">
+                    <option value="bullish">利好</option>
+                    <option value="bearish">利空</option>
+                    <option value="volatile">震荡</option>
+                  </select>
+                  <select id="macroStrength" name="strength">
+                    <option value="1">弱</option>
+                    <option value="2">中弱</option>
+                    <option value="3" selected>中等</option>
+                    <option value="4">偏强</option>
+                    <option value="5">很强</option>
+                  </select>
+                  <select id="macroTarget" name="target">
+                    <option value="broad">全市场</option>
+                    <option value="GEO">GEO</option>
+                    <option value="AGR">AGR</option>
+                    <option value="SIG">SIG</option>
+                  </select>
+                  <button id="macroSubmitBtn" type="submit">发布宏观消息</button>
+                </form>
+                <p id="macroStatus" class="signal-status"></p>
+                <p class="composer-tip">先看 K 线和主线板块，再在这里发宏观消息会更顺手。</p>
+              </section>
+              <div class="market-position-block">
+                <div class="panel-head compact-head">
+                  <h3>持仓与资金分布</h3>
+                  <span class="panel-tag">玩家 + 智能体</span>
+                </div>
+                <div id="marketPositions" class="stack"></div>
+              </div>
             </div>
             <div class="market-side-block">
               <section class="market-subpanel">
@@ -80,48 +127,22 @@
               </section>
               <section class="market-subpanel">
                 <div class="panel-head compact-head">
-                  <h3>宏观调控台</h3>
-                  <span class="panel-tag">手动发布</span>
+                  <h3>银行借贷</h3>
+                  <span class="panel-tag">青松合作银行</span>
                 </div>
-                <form id="macroNewsForm" class="signal-form macro-form market-form">
-                  <input id="macroTitle" name="title" type="text" placeholder="例如：监管层释放流动性支持信号" />
-                  <input id="macroSummary" name="summary" type="text" placeholder="例如：市场预期风险偏好回升，科技与 GeoAI 获得资金关注。" />
-                  <select id="macroCategory" name="category">
-                    <option value="market">市场</option>
-                    <option value="tech">科技</option>
-                    <option value="geoai">GeoAI</option>
-                    <option value="general">综合</option>
-                    <option value="gaming">游戏</option>
+                <div id="bankStatusBox" class="stack"></div>
+                <form id="bankBorrowForm" class="signal-form market-form">
+                  <input id="bankBorrowAmount" name="amount" type="number" min="1" max="120" value="12" />
+                  <select id="bankBorrowTerm" name="term_days">
+                    <option value="1">1 天</option>
+                    <option value="2">2 天</option>
+                    <option value="3">3 天</option>
                   </select>
-                  <select id="macroTone" name="tone">
-                    <option value="bullish">利好</option>
-                    <option value="bearish">利空</option>
-                    <option value="volatile">震荡</option>
-                  </select>
-                  <select id="macroStrength" name="strength">
-                    <option value="1">弱</option>
-                    <option value="2">中弱</option>
-                    <option value="3" selected>中等</option>
-                    <option value="4">偏强</option>
-                    <option value="5">很强</option>
-                  </select>
-                  <select id="macroTarget" name="target">
-                    <option value="broad">全市场</option>
-                    <option value="GEO">GEO</option>
-                    <option value="AGR">AGR</option>
-                    <option value="SIG">SIG</option>
-                  </select>
-                  <button id="macroSubmitBtn" type="submit">发布宏观消息</button>
+                  <button id="bankBorrowBtn" type="submit">申请贷款</button>
                 </form>
-                <p class="composer-tip">股票、板块、宏观消息和交易入口都集中在这里。</p>
+                <p id="bankBorrowHint" class="composer-tip">按当前信用，银行会动态调整利率和额度。</p>
+                <div id="bankLoanList" class="stack"></div>
               </section>
-            </div>
-            <div class="market-position-block">
-              <div class="panel-head compact-head">
-                <h3>持仓与资金分布</h3>
-                <span class="panel-tag">玩家 + 智能体</span>
-              </div>
-              <div id="marketPositions" class="stack"></div>
             </div>
           </div>
         </section>
@@ -222,6 +243,6 @@
         </section>
       </aside>
     </main>
-    <script src="/static/app.js?v=20260311ak" type="module"></script>
+    <script src="/static/app.js?v=20260311ap" type="module"></script>
   </body>
 </html>
