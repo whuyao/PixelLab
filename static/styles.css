@@ -28,6 +28,7 @@ body {
 
 .layout {
   display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(340px, 0.78fr);
   gap: 22px;
   padding: 22px;
   align-items: start;
@@ -35,16 +36,10 @@ body {
   margin: 0 auto;
 }
 
-.top-shell {
-  display: grid;
-  grid-template-columns: minmax(0, 1.9fr) minmax(320px, 0.72fr);
-  gap: 18px;
-  align-items: start;
-}
-
 .lower-board {
   display: grid;
-  grid-template-columns: minmax(250px, 0.8fr) minmax(320px, 1fr) minmax(360px, 1.2fr) minmax(300px, 0.95fr);
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(250px, 0.85fr) minmax(320px, 1.05fr) minmax(360px, 1.2fr) minmax(300px, 0.95fr);
   gap: 16px;
   align-items: start;
 }
@@ -60,6 +55,7 @@ body {
 }
 
 .stage-panel {
+  grid-column: 1;
   padding: 16px;
 }
 
@@ -139,9 +135,19 @@ canvas {
 }
 
 .action-rail {
+  grid-column: 2;
   display: grid;
   gap: 16px;
   align-content: start;
+}
+
+.market-panel {
+  grid-column: 1;
+  padding: 14px;
+}
+
+.mission-panel {
+  grid-column: 2;
 }
 
 .composer-panel,
@@ -188,8 +194,23 @@ canvas {
   letter-spacing: 0.04em;
 }
 
+.market-switch {
+  display: flex;
+  gap: 8px;
+}
+
+.market-switch button {
+  min-width: 72px;
+  padding: 6px 10px;
+}
+
+.market-switch button.active {
+  background: linear-gradient(180deg, #89a85f, #6f8e4e);
+}
+
 #talkTarget,
-.composer-tip {
+.composer-tip,
+.market-meta {
   color: var(--subtle);
   font-size: 0.9rem;
 }
@@ -202,8 +223,19 @@ canvas {
   flex: 1 1 auto;
 }
 
+#tradeShares {
+  max-width: 86px;
+}
+
 #talkSendBtn {
   min-width: 92px;
+}
+
+#marketCanvas {
+  margin-top: 14px;
+  min-height: 320px;
+  background: linear-gradient(180deg, rgba(248, 251, 255, 0.95), rgba(233, 240, 226, 0.92));
+  image-rendering: auto;
 }
 
 .panel {
@@ -356,6 +388,10 @@ canvas {
   flex: 1 1 220px;
 }
 
+.macro-form input {
+  flex: 1 1 100%;
+}
+
 .signal-status {
   min-height: 22px;
   margin: 10px 0 0;
@@ -363,11 +399,18 @@ canvas {
 }
 
 @media (max-width: 1080px) {
-  .top-shell {
+  .layout {
     grid-template-columns: 1fr;
   }
 
   .lower-board {
     grid-template-columns: 1fr;
+  }
+
+  .stage-panel,
+  .action-rail,
+  .market-panel,
+  .mission-panel {
+    grid-column: 1;
   }
 }

@@ -20,6 +20,10 @@ class Player(BaseModel):
     id: str
     name: str
     position: Point
+    cash: int = 100
+    risk_appetite: int = 52
+    portfolio: dict[str, int] = Field(default_factory=dict)
+    last_trade_summary: str = ""
     injected_topics: list[str] = Field(default_factory=list)
     social_links: dict[str, int] = Field(default_factory=dict)
     daily_actions: list[str] = Field(default_factory=list)
@@ -67,10 +71,24 @@ class Agent(BaseModel):
     current_plan: str = ""
     social_stance: str = "observe"
     sprite_style: str = "scientist_a"
+    cash: int = 100
+    money_desire: int = 50
+    generosity: int = 50
+    money_urgency: int = 0
+    credit_score: int = 72
+    risk_appetite: int = 50
+    portfolio: dict[str, int] = Field(default_factory=dict)
+    last_trade_summary: str = ""
     home_position: Point | None = None
     home_label: str = ""
     is_resting: bool = False
     rest_until_day: int | None = None
+    core_needs: list[str] = Field(default_factory=list)
+    public_facts: list[str] = Field(default_factory=list)
+    hidden_facts: list[str] = Field(default_factory=list)
+    speech_habits: list[str] = Field(default_factory=list)
+    immediate_intent: str = ""
+    memory_stream: list[str] = Field(default_factory=list)
 
 
 class Task(BaseModel):
@@ -82,6 +100,8 @@ class Task(BaseModel):
     target: int = 100
     participants: list[str] = Field(default_factory=list)
     rewards: dict[str, int] = Field(default_factory=dict)
+    completed_day: int | None = None
+    archived_note: str = ""
 
 
 class LabEvent(BaseModel):
@@ -93,6 +113,9 @@ class LabEvent(BaseModel):
     time_slot: TimeSlot
     impacts: dict[str, int] = Field(default_factory=dict)
     participants: list[str] = Field(default_factory=list)
+    tone_hint: int = 0
+    market_target: str = "broad"
+    market_strength: int = 2
 
 
 class LabMetrics(BaseModel):
@@ -137,8 +160,52 @@ class StoryBeat(BaseModel):
     location: str = ""
 
 
+class LoanRecord(BaseModel):
+    id: str
+    lender_id: str
+    borrower_id: str
+    principal: int
+    interest_rate: int
+    amount_due: int
+    start_day: int
+    due_day: int
+    status: str = "active"
+    reason: str = ""
+
+
+class IndexCandle(BaseModel):
+    day: int
+    open: float
+    high: float
+    low: float
+    close: float
+    limit_state: str = "normal"
+
+
+class StockQuote(BaseModel):
+    symbol: str
+    name: str
+    sector: str
+    price: float
+    open_price: float
+    change_pct: float = 0.0
+    day_change_pct: float = 0.0
+    last_reason: str = ""
+
+
+class MarketState(BaseModel):
+    name: str = "Pixel Exchange"
+    is_open: bool = True
+    sentiment: int = 0
+    tick: int = 0
+    index_value: float = 100.0
+    stocks: list[StockQuote] = Field(default_factory=list)
+    index_history: list[IndexCandle] = Field(default_factory=list)
+    daily_index_history: list[IndexCandle] = Field(default_factory=list)
+
+
 class WorldState(BaseModel):
-    version: int = 8
+    version: int = 15
     world_width: int = 44
     world_height: int = 26
     day: int
@@ -149,10 +216,13 @@ class WorldState(BaseModel):
     tasks: list[Task]
     events: list[LabEvent]
     lab: LabMetrics
+    market: MarketState
     latest_dialogue: DialogueOutcome | None = None
+    archived_tasks: list[Task] = Field(default_factory=list)
     ambient_dialogues: list[DialogueOutcome] = Field(default_factory=list)
     social_threads: list[SocialThread] = Field(default_factory=list)
     story_beats: list[StoryBeat] = Field(default_factory=list)
+    loans: list[LoanRecord] = Field(default_factory=list)
 
 
 class MoveRequest(BaseModel):
@@ -165,9 +235,24 @@ class NewsRequest(BaseModel):
     category: EventCategory = "general"
 
 
+class MacroNewsRequest(BaseModel):
+    title: str
+    summary: str = ""
+    category: EventCategory = "market"
+    tone: Literal["bullish", "bearish", "volatile"] = "bullish"
+    strength: int = 3
+    target: Literal["broad", "GEO", "AGR", "SIG"] = "broad"
+
+
 class AdvanceRequest(BaseModel):
     reason: str = "reflect"
 
 
 class SpeakRequest(BaseModel):
     text: str
+
+
+class TradeRequest(BaseModel):
+    symbol: str
+    side: Literal["buy", "sell"]
+    shares: int = 1

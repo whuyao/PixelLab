@@ -1,19 +1,22 @@
-# LocalFarmer
+# PixelLab
 
-GeoAI Pixel Lab 的本地 MVP。当前版本实现了：
+`GeoAI Pixel Lab Test (UrbanComp Lab)` 的本地多智能体像素仿真系统。
 
-- FastAPI 本地服务
-- 中文实验室前端界面
-- 实验室时间推进与世界状态
-- NPC persona、长短期记忆、头顶冒泡对话、任务与 GeoAI 成长条
-- 玩家输入对话会优先调用 OpenAI 生成 NPC 回复，失败时才回退到本地模板
-- Brave Search 注入实验室事件
-- 本地 SQLite 快照存档
-- 像素素材驱动的实验室场景与交互面板
+当前版本不再只是一个基础实验室原型，而是一个可观察、可注入外部信息、带金融与社会行为的田园世界：
+
+- 中文前端，地图为主体，支持缩放、拖拽、角色点选
+- 玩家与 NPC 对话，优先走 `gpt-5-mini`，失败时退回本地模板
+- NPC 具备长期记忆、短期记忆、关系、口碑、体力、小屋和日常作息
+- 观察模式下玩家自动移动、自动发言、自动交易、自动推进
+- 股票市场、玩家交易、智能体自动交易、借贷与信用系统
+- 宏观调控台，可手动发布利好 / 利空 / 震荡消息影响全市场或指定标的
+- 大盘支持 `时K / 日K` 切换
+- 系统支持“一键运行 / 暂停”，便于你随时冻结世界自动演化
+- SQLite 快照存档 + JSONL 行为日志
 
 ## 运行
 
-1. 创建虚拟环境并安装依赖：
+1. 创建虚拟环境并安装依赖
 
 ```bash
 python3 -m venv .venv
@@ -21,30 +24,117 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-2. 在临时文件中放置密钥：
+2. 配置临时密钥文件
 
 ```bash
 cp .env.example /tmp/localfarmer.env
 ```
 
-编辑 `/tmp/localfarmer.env`，填入 `BRAVE_API_KEY` 和 `OPENAI_API_KEY`。目前代码不会把密钥写入仓库。可选地加入 `OPENAI_MODEL`，默认是 `gpt-5-mini`。
+编辑 [/tmp/localfarmer.env](/tmp/localfarmer.env)，填入：
 
-3. 启动：
+- `OPENAI_API_KEY`
+- `BRAVE_API_KEY`
+- 可选：`OPENAI_MODEL=gpt-5-mini`
+
+真实 key 不应进入仓库。
+
+3. 启动服务
 
 ```bash
 source .venv/bin/activate
 python run_localfarmer.py
 ```
 
-4. 浏览器打开 `http://127.0.0.1:8765`
+4. 打开
+
+```text
+http://127.0.0.1:8765
+```
+
+## 主要交互
+
+- `WASD / 方向键`：移动玩家
+- `E`：靠近角色后聚焦对话框
+- 鼠标滚轮：缩放地图
+- 鼠标拖拽：平移地图
+- `系统运行：开/暂停`：控制整个世界的自动演化
+- `观察模式：开/关`：切换到“只观察和外部注入”的玩法
+- `时K / 日K`：切换大盘视图
+
+## 金融与宏观模块
+
+### 股票市场
+
+- 当前有三支股票：`GEO / AGR / SIG`
+- 盘中会实时波动
+- 每天重新开盘，`日K` 会按天累计
+- 市场支持上涨、下跌、回撤、涨停、跌停
+
+### 玩家交易
+
+- 支持手动买入、卖出
+- 支持查看可用资金、当前持仓、现价
+- 支持“一键全卖当前持仓”
+- 观察模式下，玩家也会自行判断买卖
+
+### 借贷与信用
+
+- 借贷必须在明确对话中提出，后台不会偷偷成交
+- 默认次日归还
+- 逾期会掉信用值
+- 信用值低时，不仅更难借钱，也更难拉到合作和信息支持
+
+### 宏观调控台
+
+你可以手动发布一条市场消息，并显式控制：
+
+- 标题
+- 摘要
+- 类别
+- 方向：`利好 / 利空 / 震荡`
+- 强度：`1-5`
+- 目标：`全市场 / GEO / AGR / SIG`
+
+这条消息会直接进入世界事件流，并推动股价和大盘变化。
+
+## 日常世界机制
+
+- 每个角色都有自己的小屋
+- 夜晚会回屋休息，熬夜会掉体力
+- 在家完整休息一个阶段会回满体力
+- 每天早晨角色会自动刷新心情、压力、专注、当日倾向和记忆
+- 已完成任务会自动进入归档区
+
+## 数据与日志
+
+- 快照数据库：[save/localfarmer.db](/Volumes/Yaoy/project/LocalFarmer/save/localfarmer.db)
+- 行为日志：[logs/activity.jsonl](/Volumes/Yaoy/project/LocalFarmer/logs/activity.jsonl)
+
+日志记录包括：
+
+- 玩家移动
+- NPC 自主移动
+- 玩家与 NPC 对话
+- NPC 环境对话
+- 外部事件与宏观消息注入
+- 世界模拟 tick
+- 借贷、交易和每日刷新相关状态
+
+## 主要接口
+
+- `GET /api/state`
+- `POST /api/move`
+- `POST /api/speak/{agent_id}`
+- `POST /api/auto-speak/{agent_id}`
+- `POST /api/advance`
+- `POST /api/simulate`
+- `POST /api/news`
+- `POST /api/macro-news`
+- `POST /api/player/trade`
+- `POST /api/player/auto-trade`
 
 ## 说明
 
-- Brave 新闻注入依赖 `/tmp/localfarmer.env` 或系统环境变量。
-- 存档默认写到 `save/localfarmer.db`。
-- 本地 `tmp` 文件里的密钥优先级高于 shell 里的同名环境变量。
-
-## 素材署名
-
-- 实验室背景素材来自 [OpenGameArt - Laboratory (Land of Pixels)](https://opengameart.org/content/laboratory-land-of-pixels)
-- 角色素材来自 [OpenGameArt - Laboratory NPCs](https://opengameart.org/content/laboratory-npcs)
+- 默认模型是 `gpt-5-mini`
+- 服务默认监听 `127.0.0.1:8765`
+- 旧存档如果版本落后会被自动丢弃，这是正常行为

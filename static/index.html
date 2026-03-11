@@ -4,73 +4,148 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GeoAI Pixel Lab Test (UrbanComp Lab)</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260311i" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260311x" />
   </head>
   <body>
     <main class="layout">
-      <section class="top-shell">
-        <section class="stage-panel main-stage">
-          <header class="stage-header">
-            <div>
-              <p class="eyebrow">GeoAI Pixel Lab Test (UrbanComp Lab)</p>
-              <h1>GeoAI Pixel Lab Test (UrbanComp Lab)</h1>
-            </div>
-            <div class="status-strip">
-              <span id="dayLabel">第 1 天</span>
-              <span id="timeLabel">上午</span>
-              <span id="weatherLabel">晴朗</span>
-            </div>
-          </header>
-          <canvas id="labCanvas" width="1184" height="720"></canvas>
-          <div class="controls">
-            <span>移动：WASD / 方向键</span>
-            <span>按 `E`：和身边的人说话</span>
-            <span>滚轮缩放 / 拖拽平移</span>
-            <button id="observerModeBtn" type="button">观察模式：关</button>
-            <button id="autoExploreBtn" type="button">自动漫游：开</button>
-            <button id="resetCameraBtn" type="button">重置视角</button>
-            <button id="advanceBtn" type="button">推进时段</button>
+      <section class="stage-panel main-stage">
+        <header class="stage-header">
+          <div>
+            <p class="eyebrow">GeoAI Pixel Lab Test (UrbanComp Lab)</p>
+            <h1>GeoAI Pixel Lab Test (UrbanComp Lab)</h1>
           </div>
-        </section>
-        <aside class="action-rail">
-          <section class="panel mission-panel">
-            <div class="panel-head">
-              <h2>任务进展</h2>
-              <span class="panel-tag">主线区</span>
-            </div>
-            <div id="taskList" class="stack"></div>
-          </section>
-          <section class="composer-panel">
-            <div class="composer-head">
-              <h2>玩家对话</h2>
-              <span id="talkTarget">当前对象：未靠近任何同事</span>
-            </div>
-            <form id="talkForm" class="talk-form">
-              <input id="talkInput" name="text" type="text" placeholder="例如：你觉得这个 GeoAI 线索值得继续做吗？" />
-              <button id="talkSendBtn" type="submit">发送</button>
-            </form>
-            <p class="composer-tip">靠近同事后按 `E` 会自动聚焦到输入框，回车即可发送。</p>
-          </section>
-          <section class="panel signal-panel">
-            <div class="panel-head">
-              <h2>信号终端</h2>
-              <span class="panel-tag">外部输入</span>
-            </div>
-            <form id="newsForm" class="signal-form">
-              <input id="newsTopic" name="topic" type="text" placeholder="例如：GeoAI 推理突破" />
-              <select id="newsCategory" name="category">
-                <option value="geoai">GeoAI</option>
-                <option value="tech">科技</option>
-                <option value="market">市场</option>
-                <option value="gaming">游戏</option>
-                <option value="general" selected>综合</option>
-              </select>
-              <button type="submit">从 Brave 注入</button>
-            </form>
-            <p id="signalStatus" class="signal-status"></p>
-          </section>
-        </aside>
+          <div class="status-strip">
+            <span id="dayLabel">第 1 天</span>
+            <span id="timeLabel">上午</span>
+            <span id="weatherLabel">晴朗</span>
+          </div>
+        </header>
+        <canvas id="labCanvas" width="1184" height="720"></canvas>
+        <div class="controls">
+          <span>移动：WASD / 方向键</span>
+          <span>按 `E`：和身边的人说话</span>
+          <span>滚轮缩放 / 拖拽平移</span>
+          <button id="systemRunBtn" type="button">系统运行：开</button>
+          <button id="observerModeBtn" type="button">观察模式：关</button>
+          <button id="autoExploreBtn" type="button">自动漫游：开</button>
+          <button id="resetCameraBtn" type="button">重置视角</button>
+          <button id="advanceBtn" type="button">推进时段</button>
+        </div>
       </section>
+
+      <aside class="action-rail">
+        <section class="composer-panel">
+          <div class="composer-head">
+            <h2>玩家对话</h2>
+            <span id="talkTarget">当前对象：未靠近任何同事</span>
+          </div>
+          <form id="talkForm" class="talk-form">
+            <input id="talkInput" name="text" type="text" placeholder="例如：你觉得这个 GeoAI 线索值得继续做吗？" />
+            <button id="talkSendBtn" type="submit">发送</button>
+          </form>
+          <p class="composer-tip">靠近同事后按 `E` 会自动聚焦到输入框，回车即可发送。</p>
+        </section>
+        <section class="panel signal-panel">
+          <div class="panel-head">
+            <h2>信号终端</h2>
+            <span class="panel-tag">外部输入</span>
+          </div>
+          <form id="newsForm" class="signal-form">
+            <input id="newsTopic" name="topic" type="text" placeholder="例如：GeoAI 推理突破" />
+            <select id="newsCategory" name="category">
+              <option value="geoai">GeoAI</option>
+              <option value="tech">科技</option>
+              <option value="market">市场</option>
+              <option value="gaming">游戏</option>
+              <option value="general" selected>综合</option>
+            </select>
+            <button type="submit">从 Brave 注入</button>
+          </form>
+          <p id="signalStatus" class="signal-status"></p>
+        </section>
+        <section class="panel signal-panel">
+          <div class="panel-head">
+            <h2>宏观调控台</h2>
+            <span class="panel-tag">手动发布</span>
+          </div>
+          <form id="macroNewsForm" class="signal-form macro-form">
+            <input id="macroTitle" name="title" type="text" placeholder="例如：监管层释放流动性支持信号" />
+            <input id="macroSummary" name="summary" type="text" placeholder="例如：市场预期风险偏好回升，科技与 GeoAI 获得资金关注。" />
+            <select id="macroCategory" name="category">
+              <option value="market">市场</option>
+              <option value="tech">科技</option>
+              <option value="geoai">GeoAI</option>
+              <option value="general">综合</option>
+              <option value="gaming">游戏</option>
+            </select>
+            <select id="macroTone" name="tone">
+              <option value="bullish">利好</option>
+              <option value="bearish">利空</option>
+              <option value="volatile">震荡</option>
+            </select>
+            <select id="macroStrength" name="strength">
+              <option value="1">弱</option>
+              <option value="2">中弱</option>
+              <option value="3" selected>中等</option>
+              <option value="4">偏强</option>
+              <option value="5">很强</option>
+            </select>
+            <select id="macroTarget" name="target">
+              <option value="broad">全市场</option>
+              <option value="GEO">GEO</option>
+              <option value="AGR">AGR</option>
+              <option value="SIG">SIG</option>
+            </select>
+            <button id="macroSubmitBtn" type="submit">发布宏观消息</button>
+          </form>
+          <p class="composer-tip">你可以手动指定方向、强度和目标板块，直接推动市场涨跌。</p>
+        </section>
+        <section class="panel signal-panel">
+          <div class="panel-head">
+            <h2>玩家交易</h2>
+            <span class="panel-tag">股市</span>
+          </div>
+          <form id="tradeForm" class="signal-form">
+            <select id="tradeSymbol" name="symbol">
+              <option value="GEO">GEO</option>
+              <option value="AGR">AGR</option>
+              <option value="SIG">SIG</option>
+            </select>
+            <select id="tradeSide" name="side">
+              <option value="buy">买入</option>
+              <option value="sell">卖出</option>
+            </select>
+            <input id="tradeShares" name="shares" type="number" min="1" max="9" value="1" />
+            <button id="tradeSubmitBtn" type="submit">提交交易</button>
+          </form>
+          <div class="signal-form">
+            <button id="sellAllBtn" type="button">一键全卖当前持仓</button>
+          </div>
+          <p id="tradeMeta" class="composer-tip">可用资金：$0 · 当前持仓：空仓</p>
+          <p class="composer-tip">观察模式下，玩家也会自己判断买卖；你也可以手动下单。</p>
+        </section>
+      </aside>
+
+      <section class="panel market-panel">
+        <div class="panel-head">
+          <h2>大盘实时走势</h2>
+          <div class="market-switch">
+            <button id="marketIntradayBtn" type="button">时K</button>
+            <button id="marketDailyBtn" type="button">日K</button>
+          </div>
+        </div>
+        <p id="marketMeta" class="market-meta">正在等待今天的第一笔盘中波动。</p>
+        <canvas id="marketCanvas" width="960" height="320"></canvas>
+      </section>
+
+      <section class="panel mission-panel">
+        <div class="panel-head">
+          <h2>任务进展</h2>
+          <span class="panel-tag">主线区</span>
+        </div>
+        <div id="taskList" class="stack"></div>
+      </section>
+
       <section class="lower-board">
         <section class="panel metrics-panel">
           <div class="panel-head">
@@ -102,6 +177,6 @@
         </section>
       </section>
     </main>
-    <script src="/static/app.js?v=20260311o" type="module"></script>
+    <script src="/static/app.js?v=20260311x" type="module"></script>
   </body>
 </html>

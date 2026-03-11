@@ -101,7 +101,9 @@ def conversational_pressure(agent: Agent) -> str:
 
 
 def self_reflection_for(agent: Agent) -> str:
-    lines = AGENT_SELF_TALKS.get(agent.id, ["我再想想。"])
+    lines = list(AGENT_SELF_TALKS.get(agent.id, ["我再想想。"]))
+    if agent.immediate_intent:
+        lines.append(agent.immediate_intent[:14] + ("…" if len(agent.immediate_intent) > 14 else ""))
     index = (len(agent.short_term_memory) + len(agent.long_term_memory)) % len(lines)
     return lines[index]
 
@@ -153,7 +155,12 @@ def short_reply_seed(agent: Agent, topic: str) -> str:
         },
     }
     lines = seeds.get(agent.id, seeds["lin"]).get(topic_key, seeds["lin"]["social"])
-    return lines[(agent.state.mood + len(topic)) % len(lines)]
+    line = lines[(agent.state.mood + len(topic)) % len(lines)]
+    if agent.speech_habits:
+        habit = agent.speech_habits[(agent.state.focus + len(agent.id)) % len(agent.speech_habits)]
+        if not line.startswith(habit):
+            return f"{habit}，{line}"
+    return line
 
 
 def casual_bridge(world: WorldState, agent: Agent, topic: str) -> str:
@@ -267,6 +274,8 @@ def build_dialogue_from_player(world: WorldState, agent: Agent, player_text: str
     if bridge and (agent.state.energy + len(player_text)) % 2 == 0:
         reply = f"{reply} {bridge}"
     reply = f"{reply} {followup}"
+    if agent.immediate_intent and classify_topic(player_text) != "geoai" and (agent.state.curiosity + len(player_text)) % 4 == 0:
+        reply = f"{reply} 我这会儿其实{agent.immediate_intent[:-1] if agent.immediate_intent.endswith('。') else agent.immediate_intent}"
     bubble = reply[:18] + ("…" if len(reply) > 18 else "")
     return DialogueOutcome(
         agent_id=agent.id,

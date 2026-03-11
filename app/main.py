@@ -9,11 +9,11 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import Settings, load_settings
 from app.engine.game_engine import GameEngine
-from app.models import AdvanceRequest, MoveRequest, NewsRequest, SpeakRequest, WorldState
+from app.models import AdvanceRequest, MacroNewsRequest, MoveRequest, NewsRequest, SpeakRequest, TradeRequest, WorldState
 from app.services.activity_logger import ActivityLogger
 from app.services.openai_dialogue_service import OpenAIDialogueError, OpenAIDialogueService
 from app.services.brave_service import BraveSearchError, BraveService
-from app.services.event_mapper import map_search_result_to_event
+from app.services.event_mapper import map_macro_news_to_event, map_search_result_to_event
 from app.storage.repository import SnapshotRepository
 
 
@@ -143,5 +143,33 @@ async def inject_news(payload: NewsRequest) -> WorldState:
         raise HTTPException(status_code=404, detail="No Brave results found for this topic.")
     event = map_search_result_to_event(results[0], payload.topic, context.engine.get_state().time_slot, payload.category)
     state = context.engine.inject_event(event)
+    context.repository.save(state)
+    return state
+
+
+@app.post("/api/macro-news", response_model=WorldState)
+async def inject_macro_news(payload: MacroNewsRequest) -> WorldState:
+    try:
+        event = map_macro_news_to_event(payload, context.engine.get_state().time_slot)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    state = context.engine.inject_event(event)
+    context.repository.save(state)
+    return state
+
+
+@app.post("/api/player/trade", response_model=WorldState)
+async def player_trade(payload: TradeRequest) -> WorldState:
+    try:
+        state = context.engine.player_trade(payload.symbol, payload.side, payload.shares)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    context.repository.save(state)
+    return state
+
+
+@app.post("/api/player/auto-trade", response_model=WorldState)
+async def player_auto_trade() -> WorldState:
+    state = context.engine.auto_trade_player()
     context.repository.save(state)
     return state

@@ -104,6 +104,7 @@ class OpenAIDialogueService:
         latest_event = world.events[0].title if world.events else "暂无显著事件"
         top_memories = "；".join(memory.text for memory in agent.short_term_memory[:2]) or "暂无"
         long_memories = "；".join(memory.text for memory in agent.long_term_memory[:2]) or "暂无"
+        memory_stream = "；".join(agent.memory_stream[:5]) or "暂无"
         relations = sorted(agent.relations.items(), key=lambda item: item[1], reverse=True)[:3]
         relation_text = "；".join(
             f"{'玩家' if name == 'player' else name}:{score}" for name, score in relations
@@ -111,8 +112,22 @@ class OpenAIDialogueService:
         style_note = voice_style_for_agent(agent.id)
         pressure_note = conversational_pressure(agent)
         recent_context = "；".join(event.title for event in world.events[:3]) or "暂无"
+        public_facts = "；".join(agent.public_facts[:3]) or "暂无"
+        hidden_facts = "；".join(agent.hidden_facts[:2]) or "暂无"
+        core_needs = "；".join(agent.core_needs[:3]) or "暂无"
+        speech_habits = "；".join(agent.speech_habits[:3]) or "暂无"
+        holdings = "；".join(f"{symbol}×{shares}" for symbol, shares in sorted(agent.portfolio.items())) or "空仓"
+        debt_text = "；".join(
+            f"{'欠' if loan.borrower_id == agent.id else '借出'} ${loan.amount_due}，到第 {loan.due_day} 天"
+            for loan in world.loans
+            if loan.status in {"active", "overdue"} and (loan.borrower_id == agent.id or loan.lender_id == agent.id)
+        ) or "暂无借款"
+        market_board = "；".join(
+            f"{quote.symbol}:{quote.price:.2f}({quote.day_change_pct:+.2f}%)" for quote in world.market.stocks
+        ) or "暂无"
         return (
             "你在扮演一个中文像素田园研究站里的 NPC，同事之间会自然聊天。"
+            "请把自己当成一个 agent-based model 里的局部智能体：你只能基于自己的目标、记忆流和眼前情境说话，不能像上帝视角那样全知全能。"
             "你的输出必须是 JSON，字段只有 topic、reply、bubble。"
             "reply 必须像真人日常说话，优先 1 到 2 句短句；必要时才到 3 句。"
             "句子要短，允许口头停顿和随口接话，比如‘嗯’‘行啊’‘哈’‘先别急’这种自然起手。"
@@ -121,13 +136,20 @@ class OpenAIDialogueService:
             "除非玩家明确在聊科研、GeoAI、实验或数据，否则不要强行把话题拽回研究。"
             "回复不能停留在肤浅寒暄，必须正面回应玩家刚说的话，并至少做一件事：接住情绪、补一句观察、轻轻追问一句、或顺手给个很小的建议。"
             "如果角色脾气偏硬，就允许语气更直接；如果角色更温柔，也不要空泛安慰，仍然要把话往实处推。"
+            "先用 persona 约束自己，再用 memory stream 选择最自然的下一句，不要机械重复模板。"
+            "涉及金钱时，只有在双方明确说出借、给、请、报销、赞助之类动作时，才会真的成交；否则最多只是试探或讨论。"
             "bubble 必须是适合头顶冒泡的中文短句，不超过 18 个字。"
             "topic 是这轮对话的话题，控制在 18 个字以内。"
             "请保持角色一致，不要替玩家说话，不要输出 Markdown。"
             f"角色名：{agent.name}；身份：{agent.role}；人格：{agent.persona}；专长：{agent.specialty}；脾气：{temper_label_for_agent(agent.id)}。"
             f"说话风格：{style_note}。{pressure_note}"
+            f"核心需要：{core_needs}。公开事实：{public_facts}。隐藏心事：{hidden_facts}。口头习惯：{speech_habits}。"
+            f"当前现金：${agent.cash}；金钱欲望：{agent.money_desire}；当前金钱压力：{agent.money_urgency}；信用值：{agent.credit_score}；慷慨度：{agent.generosity}；风险偏好：{agent.risk_appetite}；持仓：{holdings}；借款状态：{debt_text}。"
             f"当前时段：{world.time_slot}；天气：{weather_label(world.weather)}；当前位置：{agent.current_location}；最近事件：{latest_event}。"
-            f"短期记忆：{top_memories}。长期记忆：{long_memories}。关系参考：{relation_text}。最近上下文：{recent_context}。"
+            f"当前盘面：{market_board}。"
+            f"短期记忆：{top_memories}。长期记忆：{long_memories}。"
+            f"memory stream：{memory_stream}。"
+            f"关系参考：{relation_text}。最近上下文：{recent_context}。"
         )
 
     def _build_user_prompt(self, world: WorldState, agent: Agent, player_text: str) -> str:
@@ -138,4 +160,7 @@ class OpenAIDialogueService:
             " 回复要像熟人之间随口接话，短、快、自然。"
             " 大多数时候聊的是生活感受、天气、作息、情绪和刚发生的小事。"
             " 只有在玩家明确聊科研时，才把科研内容提到前台。不要只说'有道理''我同意'这种空话。"
+            " 如果玩家提到钱、借钱、预算、请客、报销、赞助或股票，可以自然地表现出这个角色对金钱和盘面的态度。"
+            " 即使聊到钱，也不要默认已经成交；只有在措辞明确时，才把它说成真的借到、给到或请到。"
+            " 只使用这个角色自己会知道的内容，不要代替全体团队发言。"
         )
