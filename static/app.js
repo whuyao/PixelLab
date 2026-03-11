@@ -54,7 +54,7 @@ const talkInput = document.getElementById("talkInput");
 const talkTarget = document.getElementById("talkTarget");
 const talkSendBtn = document.getElementById("talkSendBtn");
 const macroSubmitBtn = document.getElementById("macroSubmitBtn");
-const ASSET_VERSION = "20260311aq";
+const ASSET_VERSION = "20260312b";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -413,6 +413,15 @@ const flowerPatches = [
   { x: 35, y: 13, w: 2, h: 2, hue: "#dcb8ff" },
 ];
 
+const terrainPalettes = {
+  meadow: { base: "#88b468", alt: "#7da95d", deep: "#6f9752", accent: "#a7cf7e", flower: "#f3d57a" },
+  garden: { base: "#8bb06d", alt: "#7e9e61", deep: "#6b8752", accent: "#b9d28a", flower: "#efb8cf" },
+  stone: { base: "#988e81", alt: "#877c70", deep: "#766d64", accent: "#bbb0a4", flower: "#d8d0c6" },
+  orchard: { base: "#7faa62", alt: "#73995a", deep: "#5c7f47", accent: "#a7ca7e", flower: "#f0d090" },
+  wheat: { base: "#c2b068", alt: "#b19f5a", deep: "#937f42", accent: "#ddcb87", flower: "#f7e0a0" },
+  lakeside: { base: "#80b3a3", alt: "#6ba18f", deep: "#588673", accent: "#a4d3c7", flower: "#d8f0ea" },
+};
+
 let state = null;
 let busy = false;
 let assetsReady = false;
@@ -459,6 +468,13 @@ const agentVisuals = {
   kai: { coat: "#c18f32", hair: "#c26a45", accent: "#ffe4ab", skin: "#efc099" },
 };
 
+const artAssets = {
+  farmTiles: null,
+  wheatSheet: null,
+  cratesRow: null,
+  hayProps: null,
+};
+
 const cottageOffsets = {
   lin: { dx: -10, dy: -34 },
   mika: { dx: -10, dy: -34 },
@@ -472,9 +488,58 @@ const sceneEntities = {
   agents: new Map(),
 };
 
+function loadImageAsset(src, { transparentBlack = false } = {}) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      if (!transparentBlack) {
+        resolve(image);
+        return;
+      }
+      const buffer = document.createElement("canvas");
+      buffer.width = image.width;
+      buffer.height = image.height;
+      const bufferCtx = buffer.getContext("2d");
+      bufferCtx.imageSmoothingEnabled = false;
+      bufferCtx.drawImage(image, 0, 0);
+      const data = bufferCtx.getImageData(0, 0, buffer.width, buffer.height);
+      for (let index = 0; index < data.data.length; index += 4) {
+        const red = data.data[index];
+        const green = data.data[index + 1];
+        const blue = data.data[index + 2];
+        if (red <= 8 && green <= 8 && blue <= 8) {
+          data.data[index + 3] = 0;
+        }
+      }
+      bufferCtx.putImageData(data, 0, 0);
+      const sanitized = new Image();
+      sanitized.onload = () => resolve(sanitized);
+      sanitized.onerror = reject;
+      sanitized.src = buffer.toDataURL("image/png");
+    };
+    image.onerror = reject;
+    image.src = src;
+  });
+}
+
 function loadAssets() {
-  assetsReady = true;
-  return Promise.resolve();
+  return Promise.all([
+    loadImageAsset(`/static/assets/tilesets/oga_tileset_farm_cc0.png?v=${ASSET_VERSION}`, { transparentBlack: true }),
+    loadImageAsset(`/static/assets/tilesets/oga_wheatfields_tileset_cc0.png?v=${ASSET_VERSION}`),
+    loadImageAsset(`/static/assets/props/oga_crates_and_sacks_cc0.png?v=${ASSET_VERSION}`),
+    loadImageAsset(`/static/assets/props/oga_hay_props_cc0.png?v=${ASSET_VERSION}`),
+  ])
+    .then(([farmTiles, wheatSheet, cratesRow, hayProps]) => {
+      artAssets.farmTiles = farmTiles;
+      artAssets.wheatSheet = wheatSheet;
+      artAssets.cratesRow = cratesRow;
+      artAssets.hayProps = hayProps;
+      assetsReady = true;
+    })
+    .catch((error) => {
+      console.error("Failed to load art assets", error);
+      assetsReady = true;
+    });
 }
 
 function gridToPixels(point) {
@@ -1482,12 +1547,30 @@ function drawBackground(now) {
       const py = y * tile;
       const sway = Math.sin(now / 900 + x * 0.7 + y * 0.35);
       const tint = (x * 11 + y * 7) % 3;
-      ctx.fillStyle = ["#7faa62", "#77a15d", "#88b168"][tint];
+      const grass = ["#7faa62", "#77a15d", "#88b168"][tint];
+      const darkGrass = ["#6e9557", "#678b53", "#769c5f"][tint];
+      ctx.fillStyle = grass;
       ctx.fillRect(px, py, tile, tile);
+      ctx.fillStyle = darkGrass;
+      ctx.fillRect(px + 4, py + 33, tile - 8, 3);
       ctx.fillStyle = "rgba(255,255,255,0.05)";
       ctx.fillRect(px + 5 + ((x + y) % 3), py + 8 + sway, 3, 10);
       ctx.fillRect(px + 20 + sway * 0.5, py + 4 + ((x * 3 + y) % 8), 2, 8);
       ctx.fillRect(px + 34 - sway * 0.4, py + 15 + ((x + y * 2) % 6), 2, 7);
+      if (tileNoise(x, y, 2) > 0.76) {
+        drawPixelCluster(px, py, "rgba(244, 231, 170, 0.4)", [
+          [10, 14, 2, 2],
+          [13, 11, 2, 2],
+          [16, 15, 2, 2],
+        ]);
+      }
+      if (tileNoise(x, y, 5) > 0.7) {
+        drawPixelCluster(px, py, "rgba(96, 133, 67, 0.44)", [
+          [28, 28, 4, 2],
+          [30, 25, 2, 3],
+          [25, 27, 3, 2],
+        ]);
+      }
     }
   }
 
@@ -1513,8 +1596,17 @@ function drawRooms(now) {
   });
 }
 
+function drawAssetSprite(image, sx, sy, sw, sh, dx, dy, dw, dh, alpha = 1) {
+  if (!image) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.drawImage(image, sx, sy, sw, sh, dx, dy, dw, dh);
+  ctx.restore();
+}
+
 function drawDecorations(now) {
   obstacles.forEach((obstacle) => drawObstacle(obstacle, now));
+  drawDownloadedScenery(now);
   drawFenceLine(8, 2, 8, 24);
   drawFenceLine(28, 2, 28, 10);
   drawFenceLine(25, 12, 25, 24);
@@ -1524,6 +1616,70 @@ function drawDecorations(now) {
       ctx.lineWidth = 1;
       ctx.strokeRect(x, y, tile, tile);
     }
+  }
+}
+
+function drawDownloadedScenery(now) {
+  const meetingRoom = rooms.find((room) => room.key === "meeting");
+  const lakesideRoom = rooms.find((room) => room.key === "lounge");
+  const orchardRoom = rooms.find((room) => room.key === "data_wall");
+
+  if (meetingRoom && artAssets.wheatSheet) {
+    const fieldX = meetingRoom.x * tile + 44;
+    const fieldY = meetingRoom.y * tile + 38;
+    const fieldWidth = meetingRoom.w * tile - 88;
+    const fieldHeight = meetingRoom.h * tile - 84;
+    for (let x = fieldX; x < fieldX + fieldWidth; x += 78) {
+      for (let y = fieldY; y < fieldY + fieldHeight; y += 120) {
+        drawAssetSprite(artAssets.wheatSheet, 0, 16, 48, 80, x, y, 78, 120, 0.42);
+      }
+    }
+    drawAssetSprite(artAssets.wheatSheet, 48, 0, 32, 96, meetingRoom.x * tile + meetingRoom.w * tile - 92, meetingRoom.y * tile + 26, 54, 162, 0.78);
+    drawAssetSprite(artAssets.wheatSheet, 64, 80, 16, 16, meetingRoom.x * tile + 24, meetingRoom.y * tile + meetingRoom.h * tile - 74, 28, 28, 0.95);
+  }
+
+  if (lakesideRoom && artAssets.wheatSheet) {
+    const waterBandY = lakesideRoom.y * tile + lakesideRoom.h * tile - 104;
+    for (let x = lakesideRoom.x * tile + 18; x < (lakesideRoom.x + lakesideRoom.w) * tile - 64; x += 112) {
+      drawAssetSprite(artAssets.wheatSheet, 0, 96, 48, 48, x, waterBandY, 92, 92, 0.38);
+    }
+  }
+
+  if (orchardRoom && artAssets.cratesRow) {
+    drawAssetSprite(
+      artAssets.cratesRow,
+      0,
+      0,
+      artAssets.cratesRow.width,
+      artAssets.cratesRow.height,
+      orchardRoom.x * tile + 28,
+      orchardRoom.y * tile + orchardRoom.h * tile - 78,
+      342,
+      36,
+      0.92,
+    );
+  }
+
+  if (artAssets.hayProps) {
+    drawAssetSprite(artAssets.hayProps, 0, 0, 84, 84, 14 * tile, 17 * tile - 10, 106, 106, 0.9);
+    drawAssetSprite(artAssets.hayProps, 0, 0, 84, 84, 18 * tile, 18 * tile - 4, 98, 98, 0.84);
+    drawAssetSprite(artAssets.hayProps, 165, 6, 32, 72, 20 * tile + 18, 17 * tile + 6, 28, 62, 0.88);
+  }
+
+  if (artAssets.farmTiles) {
+    const shrubSpots = [
+      { x: 9 * tile + 10, y: 2 * tile + 18, scale: 34 },
+      { x: 36 * tile + 16, y: 2 * tile + 16, scale: 34 },
+      { x: 5 * tile + 4, y: 14 * tile + 6, scale: 30 },
+      { x: 39 * tile + 4, y: 13 * tile + 12, scale: 30 },
+    ];
+    shrubSpots.forEach((spot, index) => {
+      const sway = Math.sin(now / 520 + index * 1.3) * 2;
+      drawAssetSprite(artAssets.farmTiles, 80, 48, 16, 16, spot.x, spot.y + sway, spot.scale, spot.scale, 0.9);
+    });
+    drawAssetSprite(artAssets.farmTiles, 0, 96, 16, 16, 7 * tile + 8, 3 * tile + 14, 32, 32, 0.94);
+    drawAssetSprite(artAssets.farmTiles, 0, 112, 16, 16, 6 * tile + 12, 20 * tile + 6, 30, 30, 0.88);
+    drawAssetSprite(artAssets.farmTiles, 112, 48, 16, 16, 33 * tile + 16, 10 * tile + 10, 28, 28, 0.88);
   }
 }
 
@@ -1545,6 +1701,8 @@ function drawCottage(x, y, agent, now) {
   ctx.fillRect(x, y + 16, 48, 30);
   ctx.fillStyle = "#c79b73";
   ctx.fillRect(x + 3, y + 18, 42, 26);
+  ctx.fillStyle = "rgba(255,255,255,0.16)";
+  ctx.fillRect(x + 6, y + 19, 34, 4);
   ctx.fillStyle = "#6f4f35";
   ctx.beginPath();
   ctx.moveTo(x - 2, y + 18);
@@ -1552,12 +1710,19 @@ function drawCottage(x, y, agent, now) {
   ctx.lineTo(x + 50, y + 18);
   ctx.closePath();
   ctx.fill();
+  ctx.fillStyle = "#8d5b3f";
+  ctx.fillRect(x + 4, y + 14, 40, 4);
   ctx.fillStyle = "#f7ead2";
   ctx.fillRect(x + 8, y + 24, 8, 8);
   ctx.fillRect(x + 32, y + 24, 8, 8);
   ctx.fillStyle = shadeColor(visual.coat, -14);
   ctx.fillRect(x + 18, y + 26, 12, 18);
   ctx.fillRect(x + 20, y + 8, 8, 7);
+  ctx.fillStyle = "#5d8745";
+  ctx.fillRect(x + 5, y + 42, 38, 3);
+  ctx.fillRect(x + 6, y + 39, 5, 3);
+  ctx.fillRect(x + 19, y + 40, 6, 3);
+  ctx.fillRect(x + 34, y + 39, 5, 3);
   if (agent.is_resting) {
     ctx.fillStyle = "rgba(247, 230, 164, 0.9)";
     ctx.fillRect(x + 10, y + 26, 4, 4);
@@ -1699,6 +1864,18 @@ function shadeColor(hex, amount) {
   const green = clampChannel((parsed >> 8) & 255);
   const blue = clampChannel(parsed & 255);
   return `rgb(${red}, ${green}, ${blue})`;
+}
+
+function tileNoise(x, y, seed = 0) {
+  const value = Math.sin((x + 1) * 12.9898 + (y + 1) * 78.233 + seed * 19.17) * 43758.5453;
+  return value - Math.floor(value);
+}
+
+function drawPixelCluster(px, py, color, cells) {
+  ctx.fillStyle = color;
+  cells.forEach(([dx, dy, w = 2, h = 2]) => {
+    ctx.fillRect(px + dx, py + dy, w, h);
+  });
 }
 
 function drawBubbles() {
@@ -1870,40 +2047,85 @@ function drawTerrainZone(room, now) {
   const width = room.w * tile;
   const height = room.h * tile;
 
-  const fills = {
-    meadow: "#8dbb68",
-    garden: "#95bb74",
-    stone: "#8f8578",
-    orchard: "#83ad66",
-    wheat: "#bba85c",
-    lakeside: "#7db2a8",
-  };
-  ctx.fillStyle = fills[room.terrain] || "#8dbb68";
+  const palette = terrainPalettes[room.terrain] || terrainPalettes.meadow;
+  ctx.fillStyle = palette.base;
   ctx.fillRect(px, py, width, height);
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  ctx.fillRect(px, py, width, 8);
+  ctx.fillStyle = "rgba(71, 56, 34, 0.08)";
+  ctx.fillRect(px, py + height - 6, width, 6);
 
   for (let gx = room.x; gx < room.x + room.w; gx += 1) {
     for (let gy = room.y; gy < room.y + room.h; gy += 1) {
       const cellX = gx * tile;
       const cellY = gy * tile;
+      const noise = tileNoise(gx, gy, room.x + room.y);
+      ctx.fillStyle = noise > 0.56 ? palette.alt : palette.base;
+      ctx.fillRect(cellX, cellY, tile, tile);
       if (room.terrain === "wheat") {
         ctx.fillStyle = (gx + gy) % 2 === 0 ? "rgba(227, 208, 126, 0.38)" : "rgba(173, 151, 79, 0.22)";
         ctx.fillRect(cellX + 4, cellY + 4, tile - 8, tile - 8);
+        ctx.fillStyle = "rgba(126, 101, 48, 0.22)";
+        ctx.fillRect(cellX + 2, cellY + 2, 2, tile - 4);
         const sway = Math.sin(now / 360 + gx * 0.9 + gy * 0.5) * 2.4;
         ctx.fillStyle = "rgba(247, 225, 141, 0.3)";
         ctx.fillRect(cellX + 12 + sway, cellY + 7, 2, tile - 18);
         ctx.fillRect(cellX + 23 - sway * 0.5, cellY + 9, 2, tile - 20);
+        ctx.fillStyle = palette.deep;
+        ctx.fillRect(cellX + 8, cellY + 36, tile - 16, 2);
       } else if (room.terrain === "stone") {
         ctx.fillStyle = (gx + gy) % 2 === 0 ? "rgba(201, 193, 184, 0.12)" : "rgba(95, 86, 77, 0.12)";
         ctx.fillRect(cellX + 5, cellY + 5, tile - 10, tile - 10);
+        drawPixelCluster(cellX, cellY, "rgba(255,255,255,0.16)", [
+          [9, 10, 7, 4],
+          [26, 18, 5, 4],
+          [15, 31, 6, 3],
+        ]);
+        drawPixelCluster(cellX, cellY, "rgba(82, 73, 63, 0.16)", [
+          [20, 12, 4, 3],
+          [11, 25, 6, 4],
+        ]);
       } else if (room.terrain === "lakeside") {
         ctx.fillStyle = "rgba(255,255,255,0.07)";
         ctx.fillRect(cellX + 6, cellY + 8, tile - 16, 4);
         ctx.fillStyle = `rgba(255,255,255,${0.05 + (Math.sin(now / 500 + gx + gy) + 1) * 0.03})`;
         ctx.fillRect(cellX + 8, cellY + 22, tile - 20, 3);
+        ctx.fillStyle = "rgba(72, 129, 118, 0.16)";
+        ctx.fillRect(cellX + 4, cellY + 34, tile - 8, 2);
+        if (noise > 0.63) {
+          drawPixelCluster(cellX, cellY, "rgba(219, 245, 238, 0.42)", [
+            [12, 14, 3, 2],
+            [16, 12, 2, 2],
+            [19, 15, 3, 2],
+          ]);
+        }
+      } else if (room.terrain === "orchard") {
+        ctx.fillStyle = "rgba(255,255,255,0.05)";
+        ctx.fillRect(cellX + 8, cellY + 8, 3, 10);
+        ctx.fillRect(cellX + 24, cellY + 10, 2, 8);
+        ctx.fillStyle = palette.deep;
+        ctx.fillRect(cellX + 6, cellY + 34, 10, 2);
+        ctx.fillRect(cellX + 23, cellY + 31, 9, 2);
+        if (noise > 0.68) {
+          drawPixelCluster(cellX, cellY, "rgba(239, 214, 141, 0.42)", [
+            [14, 16, 4, 4],
+            [20, 13, 3, 3],
+          ]);
+        }
       } else {
         ctx.fillStyle = "rgba(255,255,255,0.05)";
         ctx.fillRect(cellX + 8, cellY + 8, 3, 10);
         ctx.fillRect(cellX + 24, cellY + 10, 2, 8);
+        ctx.fillStyle = palette.deep;
+        ctx.fillRect(cellX + 6, cellY + 34, 7, 2);
+        ctx.fillRect(cellX + 20, cellY + 31, 5, 2);
+        if (noise > 0.72) {
+          drawPixelCluster(cellX, cellY, palette.flower, [
+            [15, 18, 2, 2],
+            [12, 20, 2, 2],
+            [18, 21, 2, 2],
+          ]);
+        }
       }
     }
   }
@@ -1914,11 +2136,19 @@ function drawPath(path) {
   const py = path.y * tile;
   ctx.fillStyle = "#d8c7a3";
   ctx.fillRect(px, py, path.w * tile, path.h * tile);
+  ctx.fillStyle = "rgba(255, 248, 222, 0.18)";
+  ctx.fillRect(px, py, path.w * tile, 5);
+  ctx.fillStyle = "rgba(122, 97, 68, 0.18)";
+  ctx.fillRect(px, py + path.h * tile - 5, path.w * tile, 5);
   for (let x = 0; x < path.w * tile; x += 18) {
     for (let y = 0; y < path.h * tile; y += 18) {
       ctx.fillStyle = (x + y) % 36 === 0 ? "rgba(132, 108, 81, 0.18)" : "rgba(255,255,255,0.12)";
       ctx.fillRect(px + x + 4, py + y + 5, 4, 4);
     }
+  }
+  for (let x = 10; x < path.w * tile; x += 36) {
+    ctx.fillStyle = "rgba(151, 126, 89, 0.18)";
+    ctx.fillRect(px + x, py + 9, 8, path.h * tile - 18);
   }
 }
 
@@ -1945,13 +2175,24 @@ function drawObstacle(obstacle, now) {
   const height = obstacle.h * tile;
 
   if (obstacle.type === "pond") {
+    ctx.fillStyle = "#8fd0c9";
+    roundRect(px + 2, py + 2, width - 4, height - 4, 20, true);
     ctx.fillStyle = "#6aa9c3";
     roundRect(px + 4, py + 4, width - 8, height - 8, 18, true);
+    ctx.strokeStyle = "rgba(239, 247, 232, 0.48)";
+    ctx.lineWidth = 3;
+    roundRect(px + 5, py + 5, width - 10, height - 10, 18, false);
     for (let index = 0; index < 4; index += 1) {
       const ripple = Math.sin(now / 420 + index * 1.6) * 8;
       ctx.fillStyle = `rgba(255,255,255,${0.09 + index * 0.02})`;
       ctx.fillRect(px + 16 + ripple, py + 14 + index * 12, width - 44, 3);
     }
+    ctx.fillStyle = "#6f9c51";
+    ctx.beginPath();
+    ctx.arc(px + width - 24, py + 18, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#f7d7e1";
+    ctx.fillRect(px + width - 26, py + 15, 4, 4);
     return;
   }
 
@@ -1969,6 +2210,8 @@ function drawObstacle(obstacle, now) {
     roundRect(px + 8, py + 10, width - 16, height - 18, 12, true);
     ctx.fillStyle = "#a9a297";
     ctx.fillRect(px + 14, py + 16, 16, 7);
+    ctx.fillStyle = "rgba(255,255,255,0.18)";
+    ctx.fillRect(px + 16, py + 13, 12, 3);
     return;
   }
 
@@ -1977,6 +2220,8 @@ function drawObstacle(obstacle, now) {
     ctx.fillRect(px + 5, py + 8, width - 10, height - 16);
     ctx.fillStyle = "#5f8a46";
     ctx.fillRect(px + 9, py + 12, width - 18, height - 24);
+    ctx.fillStyle = "#7bb05a";
+    ctx.fillRect(px + 12, py + 15, width - 24, 4);
     return;
   }
 
@@ -1986,6 +2231,8 @@ function drawObstacle(obstacle, now) {
     ctx.fillStyle = "#b39341";
     ctx.fillRect(px + 10, py + 12, width - 20, 4);
     ctx.fillRect(px + 10, py + 22, width - 20, 4);
+    ctx.fillStyle = "rgba(255, 241, 168, 0.3)";
+    ctx.fillRect(px + 10, py + 10, width - 22, 3);
     return;
   }
 
@@ -1993,6 +2240,9 @@ function drawObstacle(obstacle, now) {
     ctx.fillStyle = "#7b5638";
     ctx.fillRect(px + 8, py + 14, width - 16, 10);
     ctx.fillRect(px + 12, py + 24, width - 20, 10);
+    ctx.fillStyle = "#a47a4f";
+    ctx.fillRect(px + 12, py + 16, width - 24, 3);
+    ctx.fillRect(px + 16, py + 26, width - 28, 3);
     return;
   }
 
@@ -2021,8 +2271,14 @@ function drawObstacle(obstacle, now) {
 
 function drawTree(centerX, centerY, now) {
   const sway = Math.sin(now / 420 + centerX / 70) * 3;
+  ctx.fillStyle = "rgba(31, 46, 25, 0.18)";
+  ctx.beginPath();
+  ctx.ellipse(centerX, centerY + 8, 18, 8, 0, 0, Math.PI * 2);
+  ctx.fill();
   ctx.fillStyle = "#66452c";
   ctx.fillRect(centerX - 5, centerY - 4, 10, 16);
+  ctx.fillStyle = "#805b39";
+  ctx.fillRect(centerX - 3, centerY - 4, 3, 14);
   ctx.fillStyle = "#4f8247";
   ctx.beginPath();
   ctx.arc(centerX + sway, centerY - 12, 16, 0, Math.PI * 2);
@@ -2032,6 +2288,9 @@ function drawTree(centerX, centerY, now) {
   ctx.arc(centerX - 6 + sway * 0.8, centerY - 14, 8, 0, Math.PI * 2);
   ctx.arc(centerX + 7 + sway * 0.8, centerY - 10, 7, 0, Math.PI * 2);
   ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.18)";
+  ctx.fillRect(centerX - 8 + sway * 0.6, centerY - 22, 5, 3);
+  ctx.fillRect(centerX + 2 + sway * 0.6, centerY - 18, 4, 2);
 }
 
 function drawFenceLine(x1, y1, x2, y2) {
@@ -2047,6 +2306,9 @@ function drawFenceLine(x1, y1, x2, y2) {
     const x = vertical ? x1 * tile : (Math.min(x1, x2) + index) * tile;
     const y = vertical ? (Math.min(y1, y2) + index) * tile : y1 * tile;
     ctx.fillRect(x - 3, y - 3, 6, 18);
+    ctx.fillStyle = "#c8a57a";
+    ctx.fillRect(x - 2, y - 3, 2, 8);
+    ctx.fillStyle = "#8d6d47";
   }
 }
 
