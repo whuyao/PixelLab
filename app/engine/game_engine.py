@@ -19,7 +19,7 @@ from app.engine.event_system import build_internal_event
 from app.engine.task_system import apply_task_progress
 from app.engine.time_system import advance_time
 from app.engine.world_state import build_initial_world
-from app.models import Agent, DialogueOutcome, DialogueRecord, IndexCandle, LabEvent, LoanRecord, MemoryEntry, Point, SocialThread, StoryBeat, WorldState
+from app.models import Agent, DailyBriefing, DialogueOutcome, DialogueRecord, GrayCase, IndexCandle, LabEvent, LoanRecord, MemoryEntry, Point, SocialThread, StoryBeat, WorldState
 from app.services.activity_logger import ActivityLogger
 
 
@@ -96,11 +96,27 @@ RESOURCE_LABELS = {
 }
 
 HOME_SPOTS = {
-    "lin": (9, 3, "Lin 的木屋"),
-    "mika": (11, 23, "Mika 的木屋"),
-    "jo": (21, 3, "Jo 的木屋"),
-    "rae": (29, 23, "Rae 的木屋"),
-    "kai": (38, 3, "Kai 的木屋"),
+    "lin": (9, 3, "林澈的小屋"),
+    "mika": (11, 23, "米遥的小屋"),
+    "jo": (21, 3, "周铖的小屋"),
+    "rae": (29, 23, "芮宁的小屋"),
+    "kai": (38, 3, "凯川的小屋"),
+}
+
+DISPLAY_NAME_BY_ID = {
+    "lin": "林澈",
+    "mika": "米遥",
+    "jo": "周铖",
+    "rae": "芮宁",
+    "kai": "凯川",
+}
+
+LEGACY_NAME_REPLACEMENTS = {
+    "Lin": "林澈",
+    "Mika": "米遥",
+    "Jo": "周铖",
+    "Rae": "芮宁",
+    "Kai": "凯川",
 }
 
 FORCED_REST_THRESHOLD = 8
@@ -233,6 +249,10 @@ class GameEngine:
         self.state.lab.external_sensitivity = min(100, self.state.lab.external_sensitivity + 8)
         self.state.lab.collective_reasoning = min(100, self.state.lab.collective_reasoning + event.impacts.get("collective_reasoning", 0))
         self.state.lab.research_progress = min(100, self.state.lab.research_progress + event.impacts.get("research_progress", 0))
+        if event.tone_hint >= 2:
+            self.state.lab.reputation = self._bounded(self.state.lab.reputation + 2)
+        elif event.tone_hint <= -2:
+            self.state.lab.reputation = self._bounded(self.state.lab.reputation - 1)
         self._advance_geoai_progress(event.impacts.get("geoai_progress", 0), reason=event.title)
         for agent in self.state.agents:
             self._apply_event_to_agent(agent, event)
@@ -276,10 +296,12 @@ class GameEngine:
         self._refresh_agent_plans()
         self._update_market_intraday()
         self._maybe_generate_system_news()
+        self._maybe_trigger_random_lab_event()
         self._move_agents_autonomously()
         self._trigger_market_activity()
         self._trigger_ambient_interaction()
         self._trigger_strategy_event()
+        self._advance_gray_cases(daily_roll=False)
         self._settle_due_loans()
         self._age_social_threads()
         self._age_story_beats()
@@ -394,7 +416,15 @@ class GameEngine:
         if self.random.random() < 0.58:
             topic = self._desire_topic_between(first, second, first_desire, second_desire)
         mood = self._thread_mood(first, second, topic, existing=thread, first_desire=first_desire, second_desire=second_desire)
-        line_a, line_b = self._ambient_pair_lines(first, second, topic, mood, continued=thread is not None, first_desire=first_desire, second_desire=second_desire)
+        line_a, line_b, gray_plan = self._ambient_pair_lines(
+            first,
+            second,
+            topic,
+            mood,
+            continued=thread is not None,
+            first_desire=first_desire,
+            second_desire=second_desire,
+        )
         first.current_bubble = line_a
         second.current_bubble = line_b
         self._remember(first, f"刚刚和 {second.name} 在{ROOM_LABELS.get(first.current_location, first.current_location)}聊了“{topic}”。", 2)
@@ -418,7 +448,7 @@ class GameEngine:
         )
         self.state.ambient_dialogues.insert(0, ambient)
         self.state.ambient_dialogues = self.state.ambient_dialogues[:6]
-        financial_outcome = self._apply_pair_dialogue_state(first, second, topic, mood)
+        financial_outcome = self._apply_pair_dialogue_state(first, second, topic, mood, gray_plan)
         self._apply_desire_pair_impact(first, second, first_desire, second_desire, mood)
         left_desire_label = DESIRE_LABELS.get(first_desire, first_desire)
         right_desire_label = DESIRE_LABELS.get(second_desire, second_desire)
@@ -447,6 +477,8 @@ class GameEngine:
                 financial_note=str(financial_outcome["note"]) if financial_outcome else "",
                 interest_rate=int(financial_outcome["interest_rate"]) if financial_outcome and financial_outcome.get("interest_rate") is not None else None,
                 gray_trade=bool(financial_outcome and financial_outcome.get("gray_trade")),
+                gray_trade_type=str(financial_outcome["gray_trade_type"]) if financial_outcome and financial_outcome.get("gray_trade_type") else "",
+                gray_trade_severity=int(financial_outcome["gray_trade_severity"]) if financial_outcome and financial_outcome.get("gray_trade_severity") is not None else 0,
             )
         )
         self._log(
@@ -479,6 +511,180 @@ class GameEngine:
         for thread in self.state.social_threads[:]:
             if thread.momentum <= 0:
                 self.state.social_threads.remove(thread)
+
+    def _apply_team_cash_delta(self, total_delta: int, reason: str, include_player: bool = True) -> int:
+        if total_delta == 0:
+            return 0
+        members: list[object] = [*self.state.agents]
+        if include_player:
+            members.append(self.state.player)
+        if not members:
+            return 0
+        if total_delta > 0:
+            share = total_delta // len(members)
+            remainder = total_delta % len(members)
+            for index, member in enumerate(members):
+                member.cash += share + (1 if index < remainder else 0)
+            return total_delta
+        remaining = abs(total_delta)
+        members = sorted(members, key=lambda item: getattr(item, "cash", 0), reverse=True)
+        deducted = 0
+        while remaining > 0:
+            moved = False
+            for member in members:
+                if member.cash <= 0 or remaining <= 0:
+                    continue
+                step = min(max(1, remaining // max(1, len(members))), member.cash, remaining)
+                member.cash -= step
+                remaining -= step
+                deducted += step
+                moved = True
+            if not moved:
+                break
+        self._log("team_cash_shift", delta=-deducted, reason=reason)
+        return -deducted
+
+    def _maybe_trigger_random_lab_event(self) -> None:
+        if self.random.random() > 0.1:
+            return
+        active_gray = sum(1 for case in self.state.gray_cases if case.status == "active")
+        clean_lab = active_gray == 0
+        options: list[dict[str, object]] = [
+            {
+                "title": "校园开放日突然带来一波人气",
+                "summary": "来访者把研究站逛热了，顺手带来了赞助和讨论热度。",
+                "category": "general",
+                "tone": 2,
+                "target": "AGR",
+                "strength": 3,
+                "cash": 28,
+                "reputation": 5,
+                "atmosphere": 2,
+                "research": 1,
+            },
+            {
+                "title": "老校友临时追加了一笔小赞助",
+                "summary": "一位老校友听说你们最近势头不错，直接打来一笔小额支持。",
+                "category": "geoai",
+                "tone": 2,
+                "target": "GEO",
+                "strength": 4,
+                "cash": 36,
+                "reputation": 4,
+                "research": 2,
+                "knowledge": 2,
+            },
+            {
+                "title": "冷藏和供电一起出了点小故障",
+                "summary": "设备维修和耗材报废让大家今天得先掏钱填坑。",
+                "category": "general",
+                "tone": -1,
+                "target": "AGR",
+                "strength": 3,
+                "cash": -18,
+                "reputation": -2,
+                "atmosphere": -1,
+            },
+            {
+                "title": "社交媒体上冒出一条误传",
+                "summary": "外面有人把实验室说得有点离谱，短时间内弄乱了外界观感。",
+                "category": "market",
+                "tone": -2,
+                "target": "SIG",
+                "strength": 4,
+                "cash": -8,
+                "reputation": -5,
+                "atmosphere": -2,
+            },
+            {
+                "title": "周边市集邀你们临时摆了个小摊",
+                "summary": "原本只是去看看，结果意外卖掉了一些衍生小玩意和体验名额。",
+                "category": "general",
+                "tone": 1,
+                "target": "AGR",
+                "strength": 2,
+                "cash": 16,
+                "reputation": 2,
+                "atmosphere": 1,
+            },
+            {
+                "title": "市政测绘合作突然延期",
+                "summary": "原本快敲定的合作被拖住，团队现金流和外部预期都受了点影响。",
+                "category": "geoai",
+                "tone": -2,
+                "target": "GEO",
+                "strength": 4,
+                "cash": -22,
+                "reputation": -3,
+                "research": -1,
+            },
+        ]
+        if clean_lab:
+            options.append(
+                {
+                    "title": "合规抽查看下来比预期干净",
+                    "summary": "检查的人挑不出什么毛病，反倒让实验室口碑回暖了一截。",
+                    "category": "general",
+                    "tone": 2,
+                    "target": "broad",
+                    "strength": 3,
+                    "cash": 8,
+                    "reputation": 6,
+                    "atmosphere": 1,
+                }
+            )
+        else:
+            options.append(
+                {
+                    "title": "合规抽查让实验室神经紧了起来",
+                    "summary": "外部抽查撞上了几条说不清的灰线，大家只好先掏钱补洞。",
+                    "category": "market",
+                    "tone": -2,
+                    "target": "broad",
+                    "strength": 4,
+                    "cash": -14,
+                    "reputation": -6,
+                    "atmosphere": -2,
+                }
+            )
+        event_plan = self.random.choice(options)
+        event = LabEvent(
+            id=f"event-{uuid4().hex[:8]}",
+            category=str(event_plan["category"]),
+            title=str(event_plan["title"]),
+            summary=str(event_plan["summary"]),
+            source="系统奇遇",
+            time_slot=self.state.time_slot,
+            impacts={
+                "collective_reasoning": 1 if int(event_plan.get("tone", 0)) > 0 else 0,
+                "research_progress": max(-1, min(2, int(event_plan.get("research", 0)))),
+            },
+            participants=[],
+            tone_hint=int(event_plan["tone"]),
+            market_target=str(event_plan["target"]),
+            market_strength=int(event_plan["strength"]),
+        )
+        self._ingest_event(event, player_injected=False)
+        cash_delta = self._apply_team_cash_delta(int(event_plan.get("cash", 0)), reason=event.title, include_player=True)
+        self.state.lab.reputation = self._bounded(self.state.lab.reputation + int(event_plan.get("reputation", 0)))
+        self.state.lab.team_atmosphere = self._bounded(self.state.lab.team_atmosphere + int(event_plan.get("atmosphere", 0)))
+        self.state.lab.knowledge_base = self._bounded(self.state.lab.knowledge_base + int(event_plan.get("knowledge", 0)))
+        self.state.lab.research_progress = self._bounded(self.state.lab.research_progress + int(event_plan.get("research", 0)))
+        for agent in self.state.agents:
+            if cash_delta > 0:
+                agent.current_bubble = "今天外面真给面子。"
+            elif cash_delta < 0:
+                agent.current_bubble = "这波意外有点伤现金。"
+        self._log(
+            "random_lab_event",
+            event={"title": event.title, "category": event.category, "tone": event.tone_hint},
+            effects={
+                "cash_delta": cash_delta,
+                "reputation_delta": int(event_plan.get("reputation", 0)),
+                "atmosphere_delta": int(event_plan.get("atmosphere", 0)),
+                "research_delta": int(event_plan.get("research", 0)),
+            },
+        )
 
     def _roll_weather(self) -> str:
         weather_cycle = ["sunny", "breezy", "cloudy", "drizzle"]
@@ -754,6 +960,23 @@ class GameEngine:
                 task.description = "注入一条真正会影响市场或团队情绪的外部信息，让股价和大家的判断发生波动。"
         self._archive_completed_tasks()
 
+    def _apply_lab_rewards(self, rewards: dict[str, int], reason: str) -> None:
+        if not rewards:
+            return
+        if rewards.get("reputation"):
+            self.state.lab.reputation = self._bounded(self.state.lab.reputation + rewards["reputation"])
+        if rewards.get("knowledge_base"):
+            self.state.lab.knowledge_base = self._bounded(self.state.lab.knowledge_base + rewards["knowledge_base"])
+        if rewards.get("team_atmosphere"):
+            self.state.lab.team_atmosphere = self._bounded(self.state.lab.team_atmosphere + rewards["team_atmosphere"])
+        if rewards.get("external_sensitivity"):
+            self.state.lab.external_sensitivity = self._bounded(self.state.lab.external_sensitivity + rewards["external_sensitivity"])
+        if rewards.get("research_progress"):
+            self.state.lab.research_progress = self._bounded(self.state.lab.research_progress + rewards["research_progress"])
+        if rewards.get("collective_reasoning"):
+            self.state.lab.collective_reasoning = self._bounded(self.state.lab.collective_reasoning + rewards["collective_reasoning"])
+        self._log("lab_rewards_applied", rewards=rewards, reason=reason)
+
     def _archive_completed_tasks(self) -> None:
         active: list = []
         for task in self.state.tasks:
@@ -763,11 +986,12 @@ class GameEngine:
             if task.completed_day is None:
                 task.completed_day = self.state.day
                 task.archived_note = f"第 {self.state.day} 天完成，已转入归档。"
+                self._apply_lab_rewards(task.rewards, f"任务完成：{task.title}")
                 self.state.events.insert(
                     0,
                     build_internal_event(
                         title=f"任务完成：{task.title}",
-                        summary=f"{task.title} 已达成，现已归档。",
+                        summary=f"{task.title} 已达成，现已归档。实验室因此拿到了一轮正向口碑和运营收益。",
                         slot=self.state.time_slot,
                         category="general",
                     ),
@@ -780,6 +1004,11 @@ class GameEngine:
 
     def _refresh_agents_for_new_day(self) -> None:
         weather_bonus = {"sunny": 3, "breezy": 2, "cloudy": 0, "drizzle": -1}[self.state.weather]
+        active_gray_cases = sum(1 for case in self.state.gray_cases if case.status == "active")
+        if active_gray_cases == 0 and self.state.lab.team_atmosphere >= 58:
+            self.state.lab.reputation = self._bounded(self.state.lab.reputation + 1)
+        elif active_gray_cases <= 1 and self.state.lab.team_atmosphere >= 72 and self.state.lab.research_progress >= 30:
+            self.state.lab.reputation = self._bounded(self.state.lab.reputation + 1)
         for agent in self.state.agents:
             if agent.is_resting:
                 continue
@@ -792,6 +1021,74 @@ class GameEngine:
             agent.last_interaction = f"第 {self.state.day} 天开始，正在重新判断今天该靠近谁。"
             self._remember(agent, f"第 {self.state.day} 天开始了。天气是{weather_label(self.state.weather)}，你在重新判断今天的节奏。", 2)
         self._log("daily_agent_refresh", day=self.state.day, weather=self.state.weather)
+
+    def _generate_lab_daily(self, previous_day: int) -> None:
+        if previous_day <= 0:
+            return
+        if any(brief.day == self.state.day for brief in self.state.daily_briefings):
+            return
+        items: list[str] = []
+        yesterday_dialogues = [record for record in self.state.dialogue_history if record.day == previous_day]
+        conflict = next((record for record in yesterday_dialogues if record.mood == "tense"), None)
+        gray_trade = next((record for record in yesterday_dialogues if record.gray_trade), None)
+        loan_record = next((record for record in yesterday_dialogues if record.kind == "loan" or record.interest_rate is not None), None)
+        warm_pair = next((record for record in yesterday_dialogues if record.mood in {"warm", "spark"} and record.kind == "ambient_dialogue"), None)
+        geoai_milestone = next((event for event in self.state.events if event.category == "geoai" and "里程碑" in event.title), None)
+        previous_candle = next((candle for candle in reversed(self.state.market.daily_index_history or []) if candle.day == previous_day), None)
+        if previous_candle is not None:
+            day_change = ((previous_candle.close - previous_candle.open) / max(1, previous_candle.open)) * 100
+            market_tone = "大盘走强" if day_change >= 1.2 else "大盘承压" if day_change <= -1.2 else "大盘震荡"
+            items.append(f"股市速写：{market_tone}，指数收在 {previous_candle.close:.2f}，昨日日内 {day_change:+.2f}%。")
+        leader = self.state.market.rotation_leader or "GEO"
+        items.append(f"板块主线：{leader} 仍是大家盯得最紧的方向，轮动已经持续 {self.state.market.rotation_age} 天。")
+        if geoai_milestone is not None:
+            items.append(f"研究头条：{geoai_milestone.title}，实验室里已经有人开始押注 GEO 继续被重估。")
+        else:
+            items.append(f"研究头条：空间智能累计推进到 {self.state.lab.geoai_progress} 点，GeoAI 主线还在缓慢发酵。")
+        if loan_record is not None:
+            items.append(f"借贷消息：{loan_record.financial_note or loan_record.key_point}")
+        else:
+            active_loans = [loan for loan in self.state.loans if loan.status in {'active', 'overdue'}]
+            if active_loans:
+                items.append(f"借贷消息：实验室里还有 {len(active_loans)} 笔借款挂着，口碑和现金流都在被盯。")
+        if gray_trade is not None:
+            items.append(f"小道消息：{gray_trade.key_point}")
+        if conflict is not None:
+            items.append(f"关系风波：{conflict.key_point}")
+        if warm_pair is not None:
+            items.append(f"八卦速递：{warm_pair.participant_names[0]} 和 {warm_pair.participant_names[1]} 昨天聊得很顺，圈子里都看出来了。")
+        if self.state.story_beats:
+            lead_story = self.state.story_beats[0]
+            items.append(f"故事线更新：{lead_story.title}，已经推进到第 {lead_story.stage} 段。")
+        event_titles = [event.title for event in self.state.events[:6] if event.time_slot != "morning" or event.category != "general"]
+        for title in event_titles:
+            if len(items) >= 9:
+                break
+            if title not in "".join(items):
+                items.append(f"新闻摘录：{title} 还在被大家反复提起。")
+        while len(items) < 5:
+            fallback = [
+                f"日常杂闻：昨天是{weather_label(self.state.weather)}的一天，大家整体节奏比前天更慢一点。",
+                "茶水间八卦：有人昨晚没回屋，今天一早已经被大家默默记上了。",
+                "走廊传闻：最近谁跟谁靠得更近，大家心里其实都有数。",
+                "情绪观察：高压的人昨天明显更想谈钱和体力，而不是谈理想。",
+            ][len(items) % 4]
+            if fallback not in items:
+                items.append(fallback)
+        briefing = DailyBriefing(
+            id=f"brief-{uuid4().hex[:8]}",
+            day=self.state.day,
+            title=f"Lab Daily · 第 {self.state.day} 天晨报",
+            lead=f"给第 {self.state.day} 天开场的晨间简报，回看第 {previous_day} 天的重要动静。",
+            items=items[:10],
+        )
+        self.state.daily_briefings.insert(0, briefing)
+        self.state.daily_briefings = self.state.daily_briefings[:7]
+        combined_memory = "；".join(briefing.items[:6])
+        for agent in self.state.agents:
+            self._remember(agent, f"Lab Daily：{combined_memory}", 3, long_term=True)
+            agent.current_bubble = "先看今天的 Lab Daily。"
+        self._log("lab_daily_generated", day=self.state.day, items=briefing.items)
 
     def _sync_market_clock(self) -> None:
         self.state.market.is_open = self.state.time_slot != "night"
@@ -1173,6 +1470,7 @@ class GameEngine:
             loan.amount_due = 0
             loan.status = "repaid"
             borrower.credit_score = min(100, borrower.credit_score + 4)
+            self.state.lab.reputation = self._bounded(self.state.lab.reputation + 2)
             borrower.last_interaction = f"刚把欠 {lender.name} 的钱还清了。"
             lender.last_interaction = f"{borrower.name} 刚把借款还清了。"
             self._adjust_relation(borrower, lender, 3, "借款按时还清。")
@@ -1296,6 +1594,7 @@ class GameEngine:
 
     def _refresh_memory_streams(self) -> None:
         latest_event = self.state.events[0].title if self.state.events else "今天暂时没出大事"
+        latest_brief = self.state.daily_briefings[0] if self.state.daily_briefings else None
         for agent in self.state.agents:
             items: list[str] = []
             if agent.immediate_intent:
@@ -1320,6 +1619,8 @@ class GameEngine:
                 items.append(f"最近对话线：{thread.latest_summary}")
             else:
                 items.append(f"外部场景：{latest_event}")
+            if latest_brief is not None:
+                items.append(f"Lab Daily：{latest_brief.items[0] if latest_brief.items else latest_brief.lead}")
             if agent.current_plan:
                 items.append(f"当前打算：{agent.current_plan}")
             agent.memory_stream = items[:6]
@@ -1561,6 +1862,7 @@ class GameEngine:
             return agent_id
 
     def _advance_world(self) -> None:
+        previous_day = self.state.day
         day, slot = advance_time(self.state.day, self.state.time_slot)
         self.state.day = day
         self.state.time_slot = slot
@@ -1578,6 +1880,7 @@ class GameEngine:
             self._refresh_sector_rotation(force_roll=True)
             self._update_index_history(append=True)
             self._update_daily_index_history()
+            self._advance_gray_cases(daily_roll=True)
         for agent in self.state.agents:
             if agent.is_resting:
                 if slot == "morning" and day >= (agent.rest_until_day or day):
@@ -1615,11 +1918,10 @@ class GameEngine:
                 self._send_agent_home(agent, "体力已经见底，得先回去睡一觉。", forced=True)
         self._settle_due_loans()
         self._refresh_presence()
-        self._refresh_memory_streams()
-        self._refresh_tasks()
         if slot == "morning" and day > 1:
             self.state.player.daily_actions = []
             self._refresh_agents_for_new_day()
+            self._generate_lab_daily(previous_day)
             self.state.events.insert(
                 0,
                 build_internal_event(
@@ -1630,6 +1932,8 @@ class GameEngine:
                 ),
             )
             self.state.events = self.state.events[:8]
+        self._refresh_memory_streams()
+        self._refresh_tasks()
 
     def _find_agent(self, agent_id: str) -> Agent:
         for agent in self.state.agents:
@@ -1852,6 +2156,7 @@ class GameEngine:
             return
         for threshold in crossed:
             self.state.geoai_milestones.append(threshold)
+            self.state.lab.reputation = self._bounded(self.state.lab.reputation + (4 if threshold >= 260 else 3))
             milestone_event = LabEvent(
                 id=f"event-{uuid4().hex[:8]}",
                 category="geoai",
@@ -2058,7 +2363,12 @@ class GameEngine:
         response_line: str,
         topic: str,
         mood: str,
+        gray_plan: dict[str, object] | None = None,
     ) -> dict[str, object] | None:
+        if gray_plan and requester.id == str(gray_plan.get("requester_id")) and donor.id == str(gray_plan.get("donor_id")):
+            gray_result = self._execute_gray_trade_plan(requester, donor, topic, mood, gray_plan)
+            if gray_result is not None:
+                return gray_result
         explicit_gray_request = any(token in request_line for token in ["私下", "别挂到账", "别摆到台面", "灰色", "非正式"])
         explicit_gray_offer = any(token in response_line for token in ["私下给你", "先别挂账", "这笔先不摆到台面", "非正式资源交换", "别往外说"])
         if explicit_gray_request and explicit_gray_offer and donor.cash > 0:
@@ -2081,7 +2391,13 @@ class GameEngine:
                 "agent_gray_trade",
                 trade={"from": donor.id, "to": requester.id, "amount": amount, "topic": topic},
             )
-            return {"note": f"{donor.name} 和 {requester.name} 做了一笔非正式资源交换 ${amount}", "interest_rate": None, "gray_trade": True}
+            return {
+                "note": f"{donor.name} 和 {requester.name} 做了一笔非正式资源交换 ${amount}",
+                "interest_rate": None,
+                "gray_trade": True,
+                "gray_trade_type": "under_table_exchange",
+                "gray_trade_severity": 1,
+            }
         explicit_request = any(token in request_line for token in ["借我", "能不能借", "先垫", "能不能报销", "赞助我", "请我", "能不能支一点"])
         explicit_offer = any(token in response_line for token in ["借你", "我先垫", "我报销", "我请", "我来出", "行，我给你"])
         if not explicit_request or not explicit_offer or donor.cash <= 0:
@@ -2116,6 +2432,504 @@ class GameEngine:
             "gray_trade": False,
         }
 
+    def _gray_trade_catalog(
+        self,
+        requester: Agent,
+        donor: Agent,
+        topic: str,
+        mood: str,
+        first_desire: str,
+        second_desire: str,
+    ) -> list[dict[str, object]]:
+        pair_relation = (donor.relations.get(requester.id, 0) + requester.relations.get(donor.id, 0)) / 2
+        amount = max(4, min(18, max(requester.money_urgency, donor.money_urgency, 36) // 12))
+        options: list[dict[str, object]] = []
+        if {first_desire, second_desire} & {"money", "opportunity"}:
+            options.append(
+                {
+                    "type": "insider_tip_sale",
+                    "severity": 2,
+                    "requester_id": requester.id,
+                    "donor_id": donor.id,
+                    "amount": amount,
+                    "judgement_floor": 26,
+                    "line_a": f"这条盘前风向我可以提前告诉你，但别往外传，你私下给我 {amount} 美元，我把具体时点递给你。",
+                    "line_b": f"行，这笔我私下给你 ${amount}，你把那条内部风向先放给我。",
+                    "note": f"{donor.name} 花 ${amount} 向 {requester.name} 买了一条内幕消息。",
+                    "memory_requester": f"你刚把一条未公开的盘前消息私下卖给了 {donor.name}，拿到 ${amount}。",
+                    "memory_donor": f"你刚私下付给 {requester.name} ${amount}，换来一条内部风向。",
+                    "relation_delta": 1,
+                    "cash_delta": amount,
+                    "requester_credit": 4,
+                    "donor_credit": 2,
+                    "lab_reputation": -1,
+                    "market_sentiment": 1,
+                    "event_title": "有人私下倒卖内幕消息",
+                    "event_summary": f"{requester.name} 把一条没摆上台面的风向卖给了 {donor.name}。",
+                }
+            )
+        if requester.credit_score <= 62 or requester.money_urgency >= 78:
+            options.append(
+                {
+                    "type": "fake_reimbursement",
+                    "severity": 2,
+                    "requester_id": requester.id,
+                    "donor_id": donor.id,
+                    "amount": amount,
+                    "judgement_floor": 22,
+                    "line_a": f"你先给我 {amount} 美元，我把这笔包装成设备维护报销，过两天我补你一份假的凭据。",
+                    "line_b": f"好，这笔我先垫给你 ${amount}，但你答应的那份报销凭据别拖。",
+                    "note": f"{requester.name} 用假报销说辞从 {donor.name} 手里套走了 ${amount}。",
+                    "memory_requester": f"你刚拿“设备维护报销”的说法从 {donor.name} 手里换到了 ${amount}。",
+                    "memory_donor": f"你刚给了 {requester.name} ${amount}，这笔说是要走假报销单据。",
+                    "relation_delta": -1,
+                    "cash_delta": amount,
+                    "requester_credit": 5,
+                    "donor_credit": 3,
+                    "lab_reputation": -2,
+                    "stress_donor": 2,
+                    "event_title": "有人打起了假报销的主意",
+                    "event_summary": f"{requester.name} 和 {donor.name} 私下谈了一笔带着假单据味道的款子。",
+                }
+            )
+        if pair_relation >= 8 and mood != "warm":
+            options.append(
+                {
+                    "type": "data_theft",
+                    "severity": 3,
+                    "requester_id": requester.id,
+                    "donor_id": donor.id,
+                    "amount": amount + 2,
+                    "judgement_floor": 20,
+                    "line_a": f"服务器里那份原始数据我今晚能偷拷一份给你，你拿 {amount + 2} 美元来换，别在明面上提我。",
+                    "line_b": f"行，${amount + 2} 我给，你把那份原始数据拷出来，但名字别留下。",
+                    "note": f"{requester.name} 私拷了一份原始数据给 {donor.name}，换走了 ${amount + 2}。",
+                    "memory_requester": f"你刚答应把一份原始数据私拷给 {donor.name}，换到 ${amount + 2}。",
+                    "memory_donor": f"你刚花 ${amount + 2} 从 {requester.name} 那里买到一份未公开原始数据。",
+                    "relation_delta": 1,
+                    "cash_delta": amount + 2,
+                    "requester_credit": 7,
+                    "donor_credit": 4,
+                    "lab_reputation": -3,
+                    "market_sentiment": -1,
+                    "event_title": "原始数据被私下挪走",
+                    "event_summary": f"{requester.name} 把一份没公开的数据私下递给了 {donor.name}。",
+                }
+            )
+        if pair_relation <= 4 or mood == "tense":
+            options.append(
+                {
+                    "type": "blackmail",
+                    "severity": 4,
+                    "requester_id": requester.id,
+                    "donor_id": donor.id,
+                    "amount": amount + 3,
+                    "judgement_floor": 8,
+                    "line_a": f"你要么现在给我 {amount + 3} 美元封口，要么我就把你那笔逾期和私账往外抖。",
+                    "line_b": f"别把这事往外传，我给你 ${amount + 3}，但你最好今天就闭嘴。",
+                    "note": f"{requester.name} 向 {donor.name} 收了一笔 ${amount + 3} 的封口费。",
+                    "memory_requester": f"你刚逼着 {donor.name} 给了你 ${amount + 3} 封口费。",
+                    "memory_donor": f"你刚被 {requester.name} 逼着交了 ${amount + 3} 封口费，这事很伤脸。",
+                    "relation_delta": -6,
+                    "cash_delta": amount + 3,
+                    "requester_credit": 9,
+                    "donor_credit": 1,
+                    "lab_reputation": -4,
+                    "stress_requester": 2,
+                    "stress_donor": 8,
+                    "mood_override": "tense",
+                    "event_title": "实验室里出现封口费",
+                    "event_summary": f"{requester.name} 拿着 {donor.name} 的把柄要钱，气氛已经很脏。",
+                }
+            )
+        if donor.cash >= amount + 2 and requester.cash <= 22:
+            options.append(
+                {
+                    "type": "fraud",
+                    "severity": 3,
+                    "requester_id": requester.id,
+                    "donor_id": donor.id,
+                    "amount": amount,
+                    "judgement_floor": 18,
+                    "line_a": f"你先给我 {amount} 美元，我今晚就替你把那条关系打通，明早前肯定有结果。",
+                    "line_b": f"行，这 ${amount} 我先给你，你别让我白等到明早。",
+                    "note": f"{requester.name} 以“走关系”为名从 {donor.name} 那里套走了 ${amount}。",
+                    "memory_requester": f"你刚用“替人走关系”的说法从 {donor.name} 手里拿到了 ${amount}。",
+                    "memory_donor": f"你刚给了 {requester.name} ${amount}，想让他替你把一条关系打通。",
+                    "relation_delta": -3,
+                    "cash_delta": amount,
+                    "requester_credit": 8,
+                    "donor_credit": 2,
+                    "lab_reputation": -2,
+                    "stress_donor": 4,
+                    "event_title": "有人用模糊承诺骗了一笔钱",
+                    "event_summary": f"{requester.name} 用一套很虚的承诺从 {donor.name} 那里拿走了钱。",
+                }
+            )
+        return options
+
+    def _execute_gray_trade_plan(
+        self,
+        requester: Agent,
+        donor: Agent,
+        topic: str,
+        mood: str,
+        plan: dict[str, object],
+    ) -> dict[str, object] | None:
+        amount = min(int(plan.get("amount", 0) or 0), donor.cash)
+        if amount <= 0:
+            return None
+        relation = (donor.relations.get(requester.id, 0) + requester.relations.get(donor.id, 0)) / 2
+        judgement = self._loan_judgement_score(donor, requester, amount) + int(relation // 4)
+        judgement += 6 if mood == "warm" else 0
+        judgement -= 6 if mood == "tense" else 0
+        if plan.get("type") == "blackmail":
+            judgement += 18
+        if judgement < int(plan.get("judgement_floor", 24)):
+            return None
+        donor.cash -= amount
+        requester.cash += amount
+        requester.credit_score = max(0, requester.credit_score - int(plan.get("requester_credit", 3)))
+        donor.credit_score = max(0, donor.credit_score - int(plan.get("donor_credit", 1)))
+        self.state.lab.reputation = self._bounded(self.state.lab.reputation - int(plan.get("lab_reputation", 1)))
+        self.state.market.sentiment = self._bounded(self.state.market.sentiment + int(plan.get("market_sentiment", 0)))
+        if plan.get("stress_requester"):
+            self._shift_agent_state(requester, stress=int(plan["stress_requester"]))
+        if plan.get("stress_donor"):
+            self._shift_agent_state(donor, stress=int(plan["stress_donor"]))
+        relation_delta = int(plan.get("relation_delta", -1))
+        self._adjust_relation(requester, donor, relation_delta, f"围绕“{topic}”做了一笔地下交易：{plan.get('type')}")
+        self._remember(requester, str(plan.get("memory_requester") or f"你刚完成了一笔灰色交易，拿到 ${amount}。"), 3, long_term=True)
+        self._remember(donor, str(plan.get("memory_donor") or f"你刚在一笔灰色交易里付出 ${amount}。"), 3, long_term=True)
+        requester.last_interaction = f"刚和 {donor.name} 完成了一笔地下交易。"
+        donor.last_interaction = f"刚被卷进和 {requester.name} 的地下交易。"
+        event_title = str(plan.get("event_title") or "实验室里冒出一笔地下交易")
+        event_summary = str(plan.get("event_summary") or f"{requester.name} 和 {donor.name} 围绕“{topic}”搞了一笔见不得光的交换。")
+        self.state.events.insert(
+            0,
+            build_internal_event(
+                title=event_title,
+                summary=event_summary,
+                slot=self.state.time_slot,
+                category="general",
+            ),
+        )
+        self.state.events = self.state.events[:8]
+        self._log(
+            "agent_gray_trade",
+            trade={
+                "from": donor.id,
+                "to": requester.id,
+                "amount": amount,
+                "topic": topic,
+                "type": plan.get("type"),
+                "severity": plan.get("severity", 2),
+            },
+        )
+        self._register_gray_case(requester, donor, topic, plan, amount)
+        return {
+            "note": str(plan.get("note") or f"{requester.name} 从 {donor.name} 手里搞到了一笔不干净的钱 ${amount}"),
+            "interest_rate": None,
+            "gray_trade": True,
+            "gray_trade_type": str(plan.get("type") or "under_table_exchange"),
+            "gray_trade_severity": int(plan.get("severity", 2)),
+        }
+
+    def _register_gray_case(
+        self,
+        requester: Agent,
+        donor: Agent,
+        topic: str,
+        plan: dict[str, object],
+        amount: int,
+    ) -> None:
+        exposure = min(96, 18 + int(plan.get("severity", 2)) * 16 + max(0, 40 - requester.credit_score) // 2)
+        due_day = self.state.day + (1 if int(plan.get("severity", 2)) >= 3 else 2)
+        case = GrayCase(
+            id=f"gray-{uuid4().hex[:8]}",
+            case_type=str(plan.get("type") or "under_table_exchange"),
+            participants=[requester.id, donor.id],
+            participant_names=[requester.name, donor.name],
+            topic=topic,
+            summary=str(plan.get("note") or f"{requester.name} 和 {donor.name} 刚做了一笔地下交易。"),
+            amount=amount,
+            severity=int(plan.get("severity", 2)),
+            start_day=self.state.day,
+            due_day=due_day,
+            exposure_risk=exposure,
+            status="active",
+        )
+        self.state.gray_cases.insert(0, case)
+        self.state.gray_cases = self.state.gray_cases[:16]
+
+    def _advance_gray_cases(self, daily_roll: bool = False) -> None:
+        if not self.state.gray_cases:
+            return
+        active: list[GrayCase] = []
+        for case in self.state.gray_cases:
+            if case.status != "active":
+                continue
+            risk_bump = 10 if daily_roll else 4
+            if self.state.weather == "drizzle":
+                risk_bump += 2
+            if self.state.market.sentiment <= -10:
+                risk_bump += 2
+            case.exposure_risk = min(100, case.exposure_risk + risk_bump)
+            if case.due_day is not None and self.state.day >= case.due_day:
+                case.exposure_risk = min(100, case.exposure_risk + 12)
+                if self.random.random() < 0.34:
+                    self._escalate_gray_case(case)
+            exposure_roll = self.random.randint(1, 100)
+            if exposure_roll <= case.exposure_risk:
+                self._expose_gray_case(case)
+                continue
+            if daily_roll and case.severity <= 2 and self.state.day >= case.start_day + 2:
+                case.status = "settled"
+                self._settle_gray_case(case)
+                continue
+            active.append(case)
+        archived = [case for case in self.state.gray_cases if case.status != "active"]
+        self.state.gray_cases = (active + archived)[:16]
+
+    def _settle_gray_case(self, case: GrayCase) -> None:
+        self.state.lab.reputation = self._bounded(self.state.lab.reputation + 1)
+        self.state.events.insert(
+            0,
+            build_internal_event(
+                title="一笔地下交易暂时沉了下去",
+                summary=f"{case.summary} 目前还没被捅到台面上，但知道的人并没有忘。",
+                slot=self.state.time_slot,
+                category="general",
+            ),
+        )
+        self.state.events = self.state.events[:8]
+
+    def _escalate_gray_case(self, case: GrayCase) -> None:
+        first = next((agent for agent in self.state.agents if agent.id == case.participants[0]), None)
+        second = next((agent for agent in self.state.agents if agent.id == case.participants[1]), None)
+        if first is None or second is None:
+            return
+        branch = self.random.choice(["debt", "retaliation", "counterbite"])
+        if branch == "debt":
+            chaser, target = (second, first) if case.case_type in {"fraud", "fake_reimbursement"} else (first, second)
+            target.state.stress = self._bounded(target.state.stress + 6)
+            chaser.state.stress = self._bounded(chaser.state.stress + 3)
+            target.current_bubble = "这笔钱被盯上了。"
+            chaser.current_bubble = "这笔账我得追回来。"
+            self._adjust_relation(chaser, target, -3, "地下交易过后开始追账。")
+            case.summary = f"{chaser.name} 开始追着 {target.name} 要回那笔 ${case.amount}。"
+            self.state.events.insert(
+                0,
+                build_internal_event(
+                    title=f"{chaser.name} 开始追一笔地下账",
+                    summary=case.summary,
+                    slot=self.state.time_slot,
+                    category="general",
+                ),
+            )
+        elif branch == "retaliation":
+            attacker, defender = second, first
+            attacker.state.stress = self._bounded(attacker.state.stress + 5)
+            defender.state.stress = self._bounded(defender.state.stress + 7)
+            attacker.current_bubble = "这事我不会就这么算了。"
+            defender.current_bubble = "他已经开始报复了。"
+            self._adjust_relation(attacker, defender, -5, "地下交易之后开始互相报复。")
+            case.summary = f"{attacker.name} 对 {defender.name} 起了报复心，整件事更难压住。"
+            case.exposure_risk = min(100, case.exposure_risk + 14)
+            self.state.events.insert(
+                0,
+                build_internal_event(
+                    title=f"{attacker.name} 开始报复",
+                    summary=case.summary,
+                    slot=self.state.time_slot,
+                    category="general",
+                ),
+            )
+        else:
+            biter, target = first, second
+            biter.state.focus = self._bounded(biter.state.focus + 4)
+            target.state.stress = self._bounded(target.state.stress + 5)
+            biter.current_bubble = "真要翻出来，我也不会一个人背。"
+            target.current_bubble = "他已经想反咬了。"
+            self._adjust_relation(biter, target, -4, "地下交易后开始反咬一口。")
+            case.summary = f"{biter.name} 准备把这件事往 {target.name} 身上引，风向开始乱了。"
+            case.exposure_risk = min(100, case.exposure_risk + 18)
+            self.state.events.insert(
+                0,
+                build_internal_event(
+                    title=f"{biter.name} 准备反咬一口",
+                    summary=case.summary,
+                    slot=self.state.time_slot,
+                    category="general",
+                ),
+            )
+        self.state.events = self.state.events[:8]
+
+    def _expose_gray_case(self, case: GrayCase) -> None:
+        case.status = "exposed"
+        requester = next((agent for agent in self.state.agents if agent.id == case.participants[0]), None)
+        donor = next((agent for agent in self.state.agents if agent.id == case.participants[1]), None)
+        if requester is not None:
+            requester.state.stress = self._bounded(requester.state.stress + 8 + case.severity)
+            requester.state.mood = self._bounded(requester.state.mood - 5 - case.severity)
+            requester.current_bubble = "这事还是被翻出来了。"
+            self._remember(requester, f"你那笔“{case.summary}”被翻出来了，压力一下子上来了。", 3, long_term=True)
+        if donor is not None:
+            donor.state.stress = self._bounded(donor.state.stress + 6 + case.severity)
+            donor.state.mood = self._bounded(donor.state.mood - 4)
+            donor.current_bubble = "果然还是传开了。"
+            self._remember(donor, f"你卷进去的那笔地下交易被翻了出来，大家已经开始议论。", 3, long_term=True)
+        if requester is not None and donor is not None:
+            self._adjust_relation(requester, donor, -4 - case.severity, "地下交易被公开后开始互相怨。")
+        self.state.lab.reputation = self._bounded(self.state.lab.reputation - (4 + case.severity * 2))
+        self.state.lab.team_atmosphere = self._bounded(self.state.lab.team_atmosphere - (2 + case.severity))
+        self.state.market.sentiment = self._bounded(self.state.market.sentiment - (3 + case.severity))
+        case_event = LabEvent(
+            id=f"event-{uuid4().hex[:8]}",
+            category="market",
+            title=f"地下交易曝光：{self._gray_case_label(case.case_type)}",
+            summary=f"{case.summary} 这件事被传开了，实验室口碑和市场情绪都受到了拖累。",
+            source="系统新闻台",
+            time_slot=self.state.time_slot,
+            impacts={"collective_reasoning": -1, "research_progress": -1},
+            participants=case.participants,
+            tone_hint=-2,
+            market_target=self._gray_case_market_target(case.case_type),
+            market_strength=min(5, 2 + case.severity),
+        )
+        self.state.events.insert(0, case_event)
+        self.state.events = self.state.events[:8]
+        self._apply_event_to_market(case_event)
+        self._log(
+            "gray_case_exposed",
+            case={
+                "id": case.id,
+                "type": case.case_type,
+                "severity": case.severity,
+                "participants": case.participants,
+                "amount": case.amount,
+            },
+        )
+
+    def _related_gray_case(self, case_id: str) -> GrayCase:
+        case = next((item for item in self.state.gray_cases if item.id == case_id), None)
+        if case is None:
+            raise KeyError(case_id)
+        return case
+
+    def _execute_player_short(self, symbol: str, shares: int, reason: str) -> bool:
+        quote = self._quote(symbol)
+        if quote is None or shares <= 0:
+            return False
+        proceeds = int(round(quote.price * shares))
+        held = self.state.player.short_positions.get(symbol, 0)
+        current_avg = self.state.player.short_average_price.get(symbol, quote.price)
+        new_total = held + shares
+        weighted_avg = ((current_avg * held) + (quote.price * shares)) / max(1, new_total)
+        self.state.player.short_positions[symbol] = new_total
+        self.state.player.short_average_price[symbol] = round(weighted_avg, 2)
+        self.state.player.cash += proceeds
+        self.state.player.last_trade_summary = f"借机做空 {quote.name} {shares} 股，先回笼 ${proceeds}。"
+        self.state.events.insert(
+            0,
+            build_internal_event(
+                title=f"你做空了 {quote.name}",
+                summary=f"你借着灰色事件的风向做空 {quote.name} {shares} 股。{reason}",
+                slot=self.state.time_slot,
+                category="market",
+            ),
+        )
+        self.state.events = self.state.events[:8]
+        self._log(
+            "player_market_trade",
+            trade={"symbol": symbol, "name": quote.name, "side": "short", "shares": shares, "amount": proceeds, "manual": True, "reason": reason},
+        )
+        return True
+
+    def resolve_gray_case_action(self, case_id: str, action: str) -> WorldState:
+        case = self._related_gray_case(case_id)
+        if case.status != "active":
+            raise ValueError("这条地下案件已经不是可操作状态了。")
+        if action == "suppress":
+            cost = max(6, 4 + case.severity * 3)
+            if self.state.player.cash < cost:
+                raise ValueError(f"压消息至少需要 ${cost}。")
+            self.state.player.cash -= cost
+            case.exposure_risk = max(6, case.exposure_risk - (18 + case.severity * 4))
+            case.summary = f"你花了 ${cost} 先把“{self._gray_case_label(case.case_type)}”往下压了一层。"
+            self.state.player.last_trade_summary = f"花 ${cost} 压了“{self._gray_case_label(case.case_type)}”的消息。"
+            self.state.lab.reputation = self._bounded(self.state.lab.reputation - 1)
+            self.state.events.insert(
+                0,
+                build_internal_event(
+                    title="你出手压下了一条风声",
+                    summary=case.summary,
+                    slot=self.state.time_slot,
+                    category="general",
+                ),
+            )
+        elif action == "report":
+            case.summary = f"你主动把“{self._gray_case_label(case.case_type)}”捅到了台面上。"
+            self._expose_gray_case(case)
+            self.state.lab.reputation = self._bounded(self.state.lab.reputation + 2)
+            self.state.player.last_trade_summary = f"你主动举报了“{self._gray_case_label(case.case_type)}”。"
+        elif action == "mediate":
+            cost = max(8, case.severity * 4)
+            if self.state.player.cash < cost:
+                raise ValueError(f"和解至少需要 ${cost}。")
+            self.state.player.cash -= cost
+            case.status = "settled"
+            case.summary = f"你拿出 ${cost} 试着把“{self._gray_case_label(case.case_type)}”按和解的方式收掉。"
+            for agent_id in case.participants:
+                agent = next((item for item in self.state.agents if item.id == agent_id), None)
+                if agent is not None:
+                    agent.state.stress = self._bounded(agent.state.stress - 6)
+                    agent.current_bubble = "先这样收住吧。"
+            self.state.lab.team_atmosphere = self._bounded(self.state.lab.team_atmosphere + 2)
+            self.state.player.last_trade_summary = f"你花 ${cost} 让一条地下案子先收住了。"
+            self._settle_gray_case(case)
+        elif action == "short":
+            symbol = self._gray_case_market_target(case.case_type)
+            if symbol == "broad":
+                symbol = min(self.state.market.stocks, key=lambda item: item.day_change_pct).symbol if self.state.market.stocks else "SIG"
+            shares = max(1, min(3, 1 + case.severity // 2))
+            if not self._execute_player_short(symbol, shares, f"你借着“{self._gray_case_label(case.case_type)}”的风向下手。"):
+                raise ValueError("这条案子目前找不到可做空的目标。")
+            case.exposure_risk = min(100, case.exposure_risk + 8)
+        else:
+            raise ValueError("不支持的地下案件操作。")
+        self.state.player.daily_actions.append(f"gray_case:{action}:{case.id}")
+        self._log(
+            "player_gray_case_action",
+            action=action,
+            case={"id": case.id, "type": case.case_type, "status": case.status, "risk": case.exposure_risk},
+            player={"cash": self.state.player.cash, "last_trade_summary": self.state.player.last_trade_summary},
+        )
+        self.state.events = self.state.events[:8]
+        self._refresh_tasks()
+        self._refresh_memory_streams()
+        return self.state
+
+    def _gray_case_label(self, case_type: str) -> str:
+        return {
+            "under_table_exchange": "私下交换",
+            "insider_tip_sale": "内幕倒卖",
+            "fake_reimbursement": "假报销",
+            "data_theft": "数据窃取",
+            "blackmail": "封口费",
+            "fraud": "诈骗",
+        }.get(case_type, case_type)
+
+    def _gray_case_market_target(self, case_type: str) -> str:
+        return {
+            "insider_tip_sale": "SIG",
+            "data_theft": "GEO",
+            "fake_reimbursement": "broad",
+            "blackmail": "broad",
+            "fraud": "broad",
+            "under_table_exchange": "AGR",
+        }.get(case_type, "broad")
+
     def _resolve_player_money_exchange(self, agent: Agent, dialogue: DialogueOutcome, relation_delta: int) -> list[str]:
         intent, explicit_amount = self._player_money_intent(dialogue.player_text)
         effects: list[str] = []
@@ -2148,7 +2962,14 @@ class GameEngine:
             f"好奇心 {self._format_delta(changes['curiosity'])}",
         ]
 
-    def _apply_pair_dialogue_state(self, first: Agent, second: Agent, topic: str, mood: str) -> dict[str, object] | None:
+    def _apply_pair_dialogue_state(
+        self,
+        first: Agent,
+        second: Agent,
+        topic: str,
+        mood: str,
+        gray_plan: dict[str, object] | None = None,
+    ) -> dict[str, object] | None:
         if mood == "warm":
             deltas = {"mood": 4, "stress": -3, "focus": 1, "energy": -1, "curiosity": 1}
         elif mood == "spark":
@@ -2165,7 +2986,7 @@ class GameEngine:
         second.status_summary = self._build_status_summary(second, second.relations.get(first.id, 0), topic, counterpart=first.name)
         first.last_interaction = f"刚在{ROOM_LABELS.get(first.current_location, first.current_location)}和 {second.name} 围绕“{topic}”聊了一轮。"
         second.last_interaction = f"刚在{ROOM_LABELS.get(second.current_location, second.current_location)}和 {first.name} 接着聊了“{topic}”。"
-        transferred = self._resolve_pair_money_exchange(first, second, topic, mood)
+        transferred = self._resolve_pair_money_exchange(first, second, topic, mood, gray_plan)
         if transferred and self.state.ambient_dialogues:
             self.state.ambient_dialogues[0].effects.append(str(transferred["note"]))
         return transferred
@@ -2188,7 +3009,14 @@ class GameEngine:
             self._shift_agent_state(first, mood=-1, stress=2)
             self._shift_agent_state(second, mood=-1, stress=2)
 
-    def _resolve_pair_money_exchange(self, first: Agent, second: Agent, topic: str, mood: str) -> dict[str, object] | None:
+    def _resolve_pair_money_exchange(
+        self,
+        first: Agent,
+        second: Agent,
+        topic: str,
+        mood: str,
+        gray_plan: dict[str, object] | None = None,
+    ) -> dict[str, object] | None:
         if not self.state.ambient_dialogues:
             return None
         latest = self.state.ambient_dialogues[0]
@@ -2200,10 +3028,10 @@ class GameEngine:
             right_line = line.split(f"{second.name}：", 1)[1].strip()
         except IndexError:
             return None
-        first_to_second = self._ambient_money_exchange(first, second, left_line, right_line, topic, mood)
+        first_to_second = self._ambient_money_exchange(first, second, left_line, right_line, topic, mood, gray_plan)
         if first_to_second is not None:
             return first_to_second
-        second_to_first = self._ambient_money_exchange(second, first, right_line, left_line, topic, mood)
+        second_to_first = self._ambient_money_exchange(second, first, right_line, left_line, topic, mood, gray_plan)
         if second_to_first is not None:
             return second_to_first
         return None
@@ -2260,6 +3088,12 @@ class GameEngine:
 
     def _format_delta(self, value: int) -> str:
         return f"+{value}" if value > 0 else str(value)
+
+    def _localized_text(self, value: str) -> str:
+        text = value or ""
+        for legacy, localized in LEGACY_NAME_REPLACEMENTS.items():
+            text = text.replace(legacy, localized)
+        return text
 
     def _refresh_presence(self) -> None:
         activity_by_agent = {
@@ -2328,13 +3162,20 @@ class GameEngine:
             self.state.dialogue_history = []
         if self.state.geoai_milestones is None:
             self.state.geoai_milestones = []
+        if self.state.daily_briefings is None:
+            self.state.daily_briefings = []
+        if self.state.gray_cases is None:
+            self.state.gray_cases = []
         for agent in self.state.agents:
+            localized_name = DISPLAY_NAME_BY_ID.get(agent.id)
+            if localized_name:
+                agent.name = localized_name
             if agent.home_position is None:
                 home = HOME_SPOTS.get(agent.id)
                 if home is not None:
                     agent.home_position = Point(x=home[0], y=home[1])
                     agent.home_label = home[2]
-            if not agent.home_label and agent.id in HOME_SPOTS:
+            if agent.id in HOME_SPOTS:
                 agent.home_label = HOME_SPOTS[agent.id][2]
             if not agent.current_plan:
                 agent.current_plan = "继续观察当前局面，等待合适的合作或冲突时机。"
@@ -2381,8 +3222,28 @@ class GameEngine:
                 agent.status_summary = self._build_status_summary(agent, agent.relations.get("player", 0), topic, from_player=True)
             if not agent.last_interaction:
                 agent.last_interaction = "这一时段还没有发生新的深聊。"
+            agent.current_activity = self._localized_text(agent.current_activity)
+            agent.current_bubble = self._localized_text(agent.current_bubble)
+            agent.status_summary = self._localized_text(agent.status_summary)
+            agent.last_interaction = self._localized_text(agent.last_interaction)
+            agent.current_plan = self._localized_text(agent.current_plan)
+            agent.goals = [self._localized_text(item) for item in agent.goals or []]
+            agent.taboos = [self._localized_text(item) for item in agent.taboos or []]
+            agent.public_facts = [self._localized_text(item) for item in agent.public_facts or []]
+            agent.hidden_facts = [self._localized_text(item) for item in agent.hidden_facts or []]
+            agent.core_needs = [self._localized_text(item) for item in agent.core_needs or []]
+            agent.speech_habits = [self._localized_text(item) for item in agent.speech_habits or []]
+            agent.memory_stream = [self._localized_text(item) for item in agent.memory_stream or []]
+            for memory in agent.short_term_memory or []:
+                memory.text = self._localized_text(memory.text)
+            for memory in agent.long_term_memory or []:
+                memory.text = self._localized_text(memory.text)
         if self.state.player.portfolio is None:
             self.state.player.portfolio = {}
+        if self.state.player.short_positions is None:
+            self.state.player.short_positions = {}
+        if self.state.player.short_average_price is None:
+            self.state.player.short_average_price = {}
         if self.state.player.last_trade_summary is None:
             self.state.player.last_trade_summary = ""
         if not self.state.player.risk_appetite:
@@ -2399,6 +3260,29 @@ class GameEngine:
             self.state.market.rotation_leader = "GEO"
         if not self.state.market.rotation_age:
             self.state.market.rotation_age = 1
+        for event in self.state.events or []:
+            event.title = self._localized_text(event.title)
+            event.summary = self._localized_text(event.summary)
+        for beat in self.state.story_beats or []:
+            beat.title = self._localized_text(beat.title)
+            beat.summary = self._localized_text(beat.summary)
+        for record in self.state.dialogue_history or []:
+            record.participant_names = [self._localized_text(name) for name in record.participant_names or []]
+            record.topic = self._localized_text(record.topic)
+            record.summary = self._localized_text(record.summary)
+            record.key_point = self._localized_text(record.key_point)
+            record.transcript = [self._localized_text(line) for line in record.transcript or []]
+            record.financial_note = self._localized_text(record.financial_note)
+            if record.desire_labels:
+                record.desire_labels = {self._localized_text(key): self._localized_text(value) for key, value in record.desire_labels.items()}
+        for brief in self.state.daily_briefings or []:
+            brief.title = self._localized_text(brief.title)
+            brief.lead = self._localized_text(brief.lead)
+            brief.items = [self._localized_text(item) for item in brief.items or []]
+        for case in self.state.gray_cases or []:
+            case.participant_names = [self._localized_text(name) for name in case.participant_names or []]
+            case.topic = self._localized_text(case.topic)
+            case.summary = self._localized_text(case.summary)
 
     def _pick_social_topic(self, first: Agent, second: Agent) -> str:
         daily_candidates = [
@@ -2455,8 +3339,21 @@ class GameEngine:
             return "spark"
         return "neutral"
 
-    def _ambient_pair_lines(self, first: Agent, second: Agent, topic: str, mood: str, continued: bool, first_desire: str, second_desire: str) -> tuple[str, str]:
+    def _ambient_pair_lines(
+        self,
+        first: Agent,
+        second: Agent,
+        topic: str,
+        mood: str,
+        continued: bool,
+        first_desire: str,
+        second_desire: str,
+    ) -> tuple[str, str, dict[str, object] | None]:
         pair_relation = (first.relations.get(second.id, 0) + second.relations.get(first.id, 0)) / 2
+        gray_options = self._gray_trade_catalog(first, second, topic, mood, first_desire, second_desire)
+        if gray_options and self.random.random() < 0.18:
+            chosen = self.random.choice(gray_options)
+            return str(chosen["line_a"]), str(chosen["line_b"]), chosen
         if (
             ("消息" in topic or "风向" in topic or "机会" in topic or "周转" in topic)
             and pair_relation >= 26
@@ -2467,10 +3364,10 @@ class GameEngine:
             if first.money_urgency >= second.money_urgency:
                 left = f"这笔先别摆到台面上，你私下给我 {amount} 美元，我把那条消息先递给你。"
                 right = "行，这笔先算非正式资源交换，别在公开台账里展开。"
-                return left, right
+                return left, right, None
             left = f"我手里那条线可以先给你，但这笔先别挂账，你私下拿 {amount} 美元来换。"
             right = f"可以，这笔先走非正式资源交换，${amount} 我先给你。"
-            return left, right
+            return left, right, None
         if any(keyword in topic for keyword in ["预算", "股票", "借点", "周转"]):
             amount = max(4, max(first.money_urgency, second.money_urgency) // 20)
             if first.money_urgency >= second.money_urgency:
@@ -2480,23 +3377,23 @@ class GameEngine:
                     response_line = f"行，我借你 {amount} 美元，明天按 {interest}% 收回来。"
                 else:
                     response_line = "我这边得先看看你明天拿什么还，这笔今天先不借。"
-                return request_line, response_line
+                return request_line, response_line, None
             interest = self._proposed_interest_rate(second)
             offer_line = f"你要是真缺口不大，我可以先借你 {amount} 美元，你明天按 {interest}% 还。"
             if second.cash < 10:
                 response_line = f"行，那你先借我 {amount} 美元，我明天按 {interest}% 还你。"
             else:
                 response_line = "我先不借，今天更想自己扛一下。"
-            return offer_line, response_line
+            return offer_line, response_line, None
         if self._desires_collide(first_desire, second_desire):
             left = f"我现在更想先顾“{DESIRE_LABELS.get(first_desire, first_desire)}”，因为我已经没有余裕再分神了，你别总把话拽去“{DESIRE_LABELS.get(second_desire, second_desire)}”。"
             right = f"可我眼下最在意的就是“{DESIRE_LABELS.get(second_desire, second_desire)}”，你别像没看见一样。我不是故意顶你，是我真的先顾不上别的。"
-            return left, right
+            return left, right, None
         if first_desire == second_desire:
             shared = DESIRE_LABELS.get(first_desire, first_desire)
             left = f"我感觉你也在惦记“{shared}”，所以我刚才那句你应该听得懂。"
             right = f"对，我这会儿也想先把“{shared}”稳住，不然今天后面整个人都要散。"
-            return left, right
+            return left, right, None
         left_seed = ambient_line_for(first, topic)
         right_seed = ambient_line_for(second, topic)
         if continued:
@@ -2504,15 +3401,15 @@ class GameEngine:
         if mood == "tense":
             left = f"{left_seed[:-1]}，但我不同意把问题带过去。"
             right = f"{right_seed[:-1]}，你别只盯着一个点。"
-            return left, right
+            return left, right, None
         if mood == "warm":
             left = f"{left_seed[:-1]}，要不我们还是并肩把它做完。"
             right = f"{right_seed[:-1]}，行，我跟你站一边。"
-            return left, right
+            return left, right, None
         if mood == "spark":
             left = f"{left_seed[:-1]}，这条线也许真能一起做大。"
             right = f"{right_seed[:-1]}，那我继续往前接。"
-            return left, right
+            return left, right, None
         if first.id == "lin":
             right = f"{right_seed[:-1]}，我接着听你把细节说完。"
         elif first.id == "mika":
@@ -2524,7 +3421,7 @@ class GameEngine:
         else:
             right = f"{right_seed[:-1]}，这波动静我也想继续看。"
         left = left_seed
-        return left, right
+        return left, right, None
 
     def _desires_collide(self, first_desire: str, second_desire: str) -> bool:
         colliding = {

@@ -17,6 +17,8 @@ const dialogueFilterLoan = document.getElementById("dialogueFilterLoan");
 const dialogueFilterGray = document.getElementById("dialogueFilterGray");
 const dialogueFilterDesire = document.getElementById("dialogueFilterDesire");
 const signalStatus = document.getElementById("signalStatus");
+const dailyBriefBox = document.getElementById("dailyBriefBox");
+const grayCaseActionBox = document.getElementById("grayCaseActionBox");
 const memoryBox = document.getElementById("memoryBox");
 const newsForm = document.getElementById("newsForm");
 const macroNewsForm = document.getElementById("macroNewsForm");
@@ -43,7 +45,7 @@ const talkForm = document.getElementById("talkForm");
 const talkInput = document.getElementById("talkInput");
 const talkTarget = document.getElementById("talkTarget");
 const talkSendBtn = document.getElementById("talkSendBtn");
-const ASSET_VERSION = "20260311ah";
+const ASSET_VERSION = "20260311ak";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -105,6 +107,15 @@ const dialogueKindLabels = {
   gray_trade: "灰色交易",
 };
 
+const grayTradeTypeLabels = {
+  under_table_exchange: "私下交换",
+  insider_tip_sale: "内幕倒卖",
+  fake_reimbursement: "假报销",
+  data_theft: "数据窃取",
+  blackmail: "封口费",
+  fraud: "诈骗",
+};
+
 const resourceLabels = {
   compute: "算力窗口",
   evidence: "证据链",
@@ -131,6 +142,12 @@ function formatPortfolio(portfolio) {
   const entries = Object.entries(portfolio || {}).filter(([, shares]) => shares > 0);
   if (!entries.length) return "空仓";
   return entries.map(([symbol, shares]) => `${symbol}×${shares}`).join(" · ");
+}
+
+function formatShortPortfolio(shortPositions) {
+  const entries = Object.entries(shortPositions || {}).filter(([, shares]) => shares > 0);
+  if (!entries.length) return "无";
+  return entries.map(([symbol, shares]) => `${symbol} 空×${shares}`).join(" · ");
 }
 
 function formatLoan(loan) {
@@ -190,12 +207,14 @@ function renderDialogueCard(record) {
     `<span class="dialogue-badge">${escapeHtml(dialogueKindLabels[record.kind] || "记录")}</span>`,
     record.mood ? `<span class="dialogue-badge mood-${escapeHtml(record.mood)}">${escapeHtml(dialogueMoodLabel(record.mood))}</span>` : "",
     record.gray_trade ? '<span class="dialogue-badge gray-trade">非正式资源交换</span>' : "",
+    record.gray_trade_type ? `<span class="dialogue-badge gray-type">${escapeHtml(grayTradeTypeLabels[record.gray_trade_type] || record.gray_trade_type)}</span>` : "",
+    record.gray_trade_severity ? `<span class="dialogue-badge gray-severity">风险 ${escapeHtml(record.gray_trade_severity)}/4</span>` : "",
     record.interest_rate != null ? `<span class="dialogue-badge">利率 ${escapeHtml(record.interest_rate)}%</span>` : "",
   ]
     .filter(Boolean)
     .join("");
   return `
-    <article class="dialogue-card ${record.gray_trade ? "gray-trade-card" : ""}">
+    <article class="dialogue-card ${record.gray_trade ? "gray-trade-card" : ""}" data-record-id="${escapeHtml(record.id)}">
       <div class="dialogue-card-head">
         <strong>${escapeHtml((record.participant_names || []).join(" × ") || "匿名对话")}</strong>
         <span class="dialogue-time">${escapeHtml(formatDialogueTime(record))}</span>
@@ -208,7 +227,7 @@ function renderDialogueCard(record) {
       ${
         transcript || financial
           ? `
-            <details class="dialogue-details">
+            <details class="dialogue-details" data-dialogue-id="${escapeHtml(record.id)}" ${expandedDialogueIds.has(record.id) ? "open" : ""}>
               <summary>展开详情</summary>
               ${transcript ? `<div class="dialogue-transcript">${transcript}</div>` : ""}
               ${financial}
@@ -218,6 +237,48 @@ function renderDialogueCard(record) {
       }
     </article>
   `;
+}
+
+function captureDialogueTimelineState() {
+  const timeline = dialogueBox?.querySelector(".dialogue-timeline");
+  if (!timeline) return null;
+  const cards = [...timeline.querySelectorAll(".dialogue-card[data-record-id]")];
+  const anchor = cards.find((card) => card.offsetTop + card.offsetHeight > timeline.scrollTop) || cards[0] || null;
+  return {
+    scrollTop: timeline.scrollTop,
+    anchorId: anchor?.dataset.recordId || null,
+    anchorOffset: anchor ? timeline.scrollTop - anchor.offsetTop : 0,
+  };
+}
+
+function restoreDialogueTimelineState(snapshot) {
+  if (!snapshot) return;
+  const timeline = dialogueBox?.querySelector(".dialogue-timeline");
+  if (!timeline) return;
+  if (snapshot.anchorId) {
+    const anchor = timeline.querySelector(`[data-record-id="${snapshot.anchorId}"]`);
+    if (anchor) {
+      timeline.scrollTop = Math.max(0, anchor.offsetTop + snapshot.anchorOffset);
+      return;
+    }
+  }
+  timeline.scrollTop = snapshot.scrollTop || 0;
+}
+
+function bindDialogueDetailState() {
+  const detailsList = dialogueBox?.querySelectorAll(".dialogue-details[data-dialogue-id]") || [];
+  detailsList.forEach((details) => {
+    const dialogueId = details.dataset.dialogueId;
+    if (!dialogueId || details.dataset.bound === "1") return;
+    details.dataset.bound = "1";
+    details.addEventListener("toggle", () => {
+      if (details.open) {
+        expandedDialogueIds.add(dialogueId);
+      } else {
+        expandedDialogueIds.delete(dialogueId);
+      }
+    });
+  });
 }
 
 const roomNames = {
@@ -304,6 +365,7 @@ let composerPending = false;
 let observerStepCount = 0;
 let dialogueFilterMode = "all";
 let dialogueFilterActor = "all";
+const expandedDialogueIds = new Set();
 const cameraState = {
   zoom: 1,
   manual: false,
@@ -423,10 +485,86 @@ function renderPanels() {
   renderEvents();
   renderDialogueFilterControls();
   renderDialogue();
+  renderDailyBrief();
+  renderGrayCaseActions();
   renderMemory();
   renderMarketModule();
   renderMarketChart();
   renderTradeMeta();
+}
+
+function renderDailyBrief() {
+  if (!dailyBriefBox) return;
+  const latestBrief = state?.daily_briefings?.[0];
+  if (!latestBrief) {
+    dailyBriefBox.innerHTML = `
+      <div class="daily-brief-empty">
+        <strong>晨间简报还没生成</strong>
+        <p>下一次进入新的一天早晨后，这里会自动总结昨天的市场、八卦、借贷和实验室新闻。</p>
+      </div>
+    `;
+    return;
+  }
+  const items = (latestBrief.items || [])
+    .slice(0, 10)
+    .map(
+      (item, index) => `
+        <li class="daily-brief-item">
+          <span class="daily-brief-index">${index + 1}</span>
+          <span>${escapeHtml(item)}</span>
+        </li>
+      `,
+    )
+    .join("");
+  dailyBriefBox.innerHTML = `
+    <article class="daily-brief-card">
+      <div class="daily-brief-head">
+        <div>
+          <strong>${escapeHtml(latestBrief.title || "Lab Daily")}</strong>
+          <div class="daily-brief-meta">最新晨报 · 第 ${escapeHtml(latestBrief.day)} 天</div>
+        </div>
+        <span class="panel-tag">${Math.min((latestBrief.items || []).length, 10)} 条摘要</span>
+      </div>
+      <p class="daily-brief-lead">${escapeHtml(latestBrief.lead || "昨夜的重要变化已经汇总到这里。")}</p>
+      <ol class="daily-brief-list">${items}</ol>
+    </article>
+  `;
+}
+
+function renderGrayCaseActions() {
+  if (!grayCaseActionBox) return;
+  const activeCases = (state?.gray_cases || []).filter((item) => item.status === "active").slice(0, 3);
+  if (!activeCases.length) {
+    grayCaseActionBox.innerHTML = `
+      <div class="daily-brief-empty">
+        <strong>当前没有活跃地下案件</strong>
+        <p>一旦出现灰色交易、追债、报复或反咬，这里会给你介入入口。</p>
+      </div>
+    `;
+    return;
+  }
+  grayCaseActionBox.innerHTML = activeCases
+    .map(
+      (item) => `
+        <article class="gray-case-card">
+          <div class="daily-brief-head">
+            <div>
+              <strong>${escapeHtml(grayTradeTypeLabels[item.case_type] || item.case_type)}</strong>
+              <div class="daily-brief-meta">${escapeHtml((item.participant_names || []).join(" × "))} · 风险 ${item.exposure_risk}/100</div>
+            </div>
+            <span class="panel-tag">等级 ${item.severity}</span>
+          </div>
+          <div class="dialogue-summary">${escapeHtml(item.summary || "一条正在发酵的地下案件。")}</div>
+          <div class="gray-case-actions">
+            <button type="button" class="gray-action-btn" data-gray-case-id="${escapeHtml(item.id)}" data-gray-action="suppress">压消息</button>
+            <button type="button" class="gray-action-btn" data-gray-case-id="${escapeHtml(item.id)}" data-gray-action="report">举报</button>
+            <button type="button" class="gray-action-btn" data-gray-case-id="${escapeHtml(item.id)}" data-gray-action="mediate">和解</button>
+            <button type="button" class="gray-action-btn" data-gray-case-id="${escapeHtml(item.id)}" data-gray-action="short">借机做空</button>
+          </div>
+        </article>
+      `,
+    )
+    .join("");
 }
 
 function renderMetrics() {
@@ -514,6 +652,7 @@ function renderMarketModule() {
         <strong>玩家账户</strong>
         <div class="metric-meta">现金 $${state.player.cash}</div>
         <div class="metric-meta">持仓 ${formatPortfolio(state.player.portfolio)}</div>
+        <div class="metric-meta">空仓 ${formatShortPortfolio(state.player.short_positions)}</div>
         <div class="metric-meta">${state.player.last_trade_summary || "今天还没有执行交易。"}</div>
       </article>
     `;
@@ -656,8 +795,9 @@ function renderTradeMeta() {
   const symbol = tradeSymbol?.value || "GEO";
   const quote = (state.market?.stocks || []).find((item) => item.symbol === symbol);
   const held = state.player.portfolio?.[symbol] || 0;
+  const shortHeld = state.player.short_positions?.[symbol] || 0;
   if (tradeMeta) {
-    tradeMeta.textContent = `可用资金：$${state.player.cash} · ${symbol} 持仓：${held} 股 · 现价：${quote ? `$${quote.price.toFixed(2)}` : "--"}`;
+    tradeMeta.textContent = `可用资金：$${state.player.cash} · ${symbol} 持仓：${held} 股 · 空仓：${shortHeld} 股 · 现价：${quote ? `$${quote.price.toFixed(2)}` : "--"}`;
   }
   if (sellAllBtn) {
     sellAllBtn.disabled = held <= 0 || busy;
@@ -665,6 +805,17 @@ function renderTradeMeta() {
 }
 
 function renderEvents() {
+  const grayCaseMarkup = ((state.gray_cases || []).filter((item) => item.status === "active").slice(0, 2))
+    .map(
+      (item) => `
+        <article class="event-card story-card">
+          <strong>地下暗线：${escapeHtml(grayTradeTypeLabels[item.case_type] || item.case_type)}</strong>
+          <div>${escapeHtml(item.summary)}</div>
+          <div class="event-meta">风险 ${item.exposure_risk}/100 · 涉及 ${escapeHtml((item.participant_names || []).join(" × "))}</div>
+        </article>
+      `,
+    )
+    .join("");
   const storyMarkup = (state.story_beats || [])
     .slice(0, 3)
     .map(
@@ -688,10 +839,11 @@ function renderEvents() {
       `,
     )
     .join("");
-  eventList.innerHTML = `${storyMarkup}${eventMarkup}`;
+  eventList.innerHTML = `${grayCaseMarkup}${storyMarkup}${eventMarkup}`;
 }
 
 function renderDialogue() {
+  const timelineSnapshot = captureDialogueTimelineState();
   const latest = pendingDialogue || state.latest_dialogue;
   const history = ((state.dialogue_history || []).slice(0, 200)).filter((record) => recordMatchesDialogueFilters(record));
   const activeLoans = (state.loans || []).filter((loan) => loan.status === "active" || loan.status === "overdue");
@@ -739,6 +891,7 @@ function renderDialogue() {
       ${latestMarkup}
       <div class="dialogue-financial-strip"><strong>借贷看板</strong><div>${loanMarkup}</div></div>
     `;
+    bindDialogueDetailState();
     return;
   }
   const historyMarkup = history.map((record) => renderDialogueCard(record)).join("");
@@ -751,6 +904,8 @@ function renderDialogue() {
     <div class="dialogue-financial-strip"><strong>借贷看板</strong><div>${loanMarkup}</div></div>
     <div class="dialogue-timeline">${historyMarkup}</div>
   `;
+  bindDialogueDetailState();
+  restoreDialogueTimelineState(timelineSnapshot);
 }
 
 function renderDialogueFilterControls() {
@@ -823,6 +978,7 @@ function renderMemory() {
         <div class="status-pill"><strong>当前时段</strong><span>${timeLabels[state.time_slot]}</span></div>
         <div class="status-pill"><strong>附近对象</strong><span>${nearby ? nearby.name : "无人"}</span></div>
         <div class="status-pill"><strong>现金</strong><span>$${state.player.cash}</span></div>
+        <div class="status-pill"><strong>空仓</strong><span>${formatShortPortfolio(state.player.short_positions)}</span></div>
       </div>
       <div class="memory-section">
         <strong>当前状态</strong>
@@ -2242,6 +2398,36 @@ if (dialogueFilterDesire) {
   dialogueFilterDesire.addEventListener("click", () => {
     dialogueFilterMode = "desire";
     renderPanels();
+  });
+}
+if (grayCaseActionBox) {
+  grayCaseActionBox.addEventListener("click", async (event) => {
+    const button = event.target.closest(".gray-action-btn");
+    if (!button || busy) return;
+    const caseId = button.dataset.grayCaseId;
+    const action = button.dataset.grayAction;
+    if (!caseId || !action) return;
+    busy = true;
+    try {
+      state = await api(`/api/gray-cases/${caseId}/action`, {
+        method: "POST",
+        body: JSON.stringify({ action }),
+      });
+      syncSceneEntities();
+      renderPanels();
+      signalStatus.textContent =
+        action === "suppress"
+          ? "你先把这条地下风声往下压了一层。"
+          : action === "report"
+            ? "你把这条地下案件直接举报了出去。"
+            : action === "mediate"
+              ? "你出面把这条地下案子先和解收住了。"
+              : "你借着这条地下案件顺手做空了相关标的。";
+    } catch (error) {
+      signalStatus.textContent = error.message;
+    } finally {
+      busy = false;
+    }
   });
 }
 

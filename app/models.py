@@ -23,6 +23,8 @@ class Player(BaseModel):
     cash: int = 100
     risk_appetite: int = 52
     portfolio: dict[str, int] = Field(default_factory=dict)
+    short_positions: dict[str, int] = Field(default_factory=dict)
+    short_average_price: dict[str, float] = Field(default_factory=dict)
     last_trade_summary: str = ""
     injected_topics: list[str] = Field(default_factory=list)
     social_links: dict[str, int] = Field(default_factory=dict)
@@ -154,6 +156,8 @@ class DialogueRecord(BaseModel):
     financial_note: str = ""
     interest_rate: int | None = None
     gray_trade: bool = False
+    gray_trade_type: str = ""
+    gray_trade_severity: int = 0
 
 
 class SocialThread(BaseModel):
@@ -191,6 +195,21 @@ class LoanRecord(BaseModel):
     reason: str = ""
 
 
+class GrayCase(BaseModel):
+    id: str
+    case_type: str
+    participants: list[str] = Field(default_factory=list)
+    participant_names: list[str] = Field(default_factory=list)
+    topic: str = ""
+    summary: str = ""
+    amount: int = 0
+    severity: int = 1
+    start_day: int = 1
+    due_day: int | None = None
+    exposure_risk: int = 20
+    status: str = "active"
+
+
 class IndexCandle(BaseModel):
     day: int
     open: float
@@ -226,8 +245,16 @@ class MarketState(BaseModel):
     daily_index_history: list[IndexCandle] = Field(default_factory=list)
 
 
+class DailyBriefing(BaseModel):
+    id: str
+    day: int
+    title: str
+    lead: str = ""
+    items: list[str] = Field(default_factory=list)
+
+
 class WorldState(BaseModel):
-    version: int = 19
+    version: int = 22
     world_width: int = 44
     world_height: int = 26
     day: int
@@ -244,9 +271,11 @@ class WorldState(BaseModel):
     ambient_dialogues: list[DialogueOutcome] = Field(default_factory=list)
     dialogue_history: list[DialogueRecord] = Field(default_factory=list)
     geoai_milestones: list[int] = Field(default_factory=list)
+    daily_briefings: list[DailyBriefing] = Field(default_factory=list)
     social_threads: list[SocialThread] = Field(default_factory=list)
     story_beats: list[StoryBeat] = Field(default_factory=list)
     loans: list[LoanRecord] = Field(default_factory=list)
+    gray_cases: list[GrayCase] = Field(default_factory=list)
 
 
 class MoveRequest(BaseModel):
@@ -280,3 +309,7 @@ class TradeRequest(BaseModel):
     symbol: str
     side: Literal["buy", "sell"]
     shares: int = 1
+
+
+class GrayCaseActionRequest(BaseModel):
+    action: Literal["suppress", "report", "mediate", "short"]

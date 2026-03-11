@@ -52,7 +52,7 @@ body {
 
 .lower-board {
   display: grid;
-  grid-template-columns: minmax(260px, 0.78fr) minmax(360px, 1.08fr) minmax(280px, 0.84fr);
+  grid-template-columns: minmax(280px, 0.86fr) minmax(360px, 1.14fr);
   gap: 14px;
   align-items: start;
 }
@@ -405,6 +405,86 @@ canvas {
   min-height: 380px;
 }
 
+.daily-brief-box {
+  min-height: 180px;
+  border: 3px solid rgba(58, 50, 43, 0.75);
+  background: rgba(255, 251, 241, 0.88);
+  padding: 10px;
+}
+
+.daily-brief-card,
+.daily-brief-empty {
+  display: grid;
+  gap: 10px;
+}
+
+.daily-brief-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.daily-brief-meta,
+.daily-brief-lead {
+  color: var(--subtle);
+  font-size: 0.84rem;
+}
+
+.daily-brief-lead {
+  margin: 0;
+}
+
+.daily-brief-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.daily-brief-item {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  border: 2px solid rgba(58, 50, 43, 0.22);
+  background: rgba(250, 245, 230, 0.88);
+  padding: 7px 8px;
+}
+
+.daily-brief-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  border: 2px solid rgba(58, 50, 43, 0.42);
+  background: rgba(226, 235, 207, 0.95);
+  color: var(--accent-deep);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.gray-case-card {
+  display: grid;
+  gap: 10px;
+  border: 2px solid rgba(58, 50, 43, 0.28);
+  background: rgba(250, 245, 230, 0.88);
+  padding: 10px;
+}
+
+.gray-case-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.gray-action-btn {
+  width: 100%;
+  padding: 7px 8px;
+}
+
 .dialogue-filter-bar,
 .dialogue-filter-tabs {
   display: flex;
@@ -528,6 +608,14 @@ canvas {
 
 .gray-trade {
   background: rgba(209, 206, 201, 0.95);
+}
+
+.gray-type {
+  background: rgba(234, 223, 198, 0.96);
+}
+
+.gray-severity {
+  background: rgba(242, 214, 205, 0.96);
 }
 
 .mood-warm {

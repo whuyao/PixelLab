@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GeoAI Pixel Lab Test (UrbanComp Lab)</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260311ah" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260311ak" />
   </head>
   <body>
     <main class="layout">
@@ -141,13 +141,6 @@
             </div>
             <div id="memoryBox" class="memory-box">点击地图中的玩家或同事，这里会显示他的主要信息、状态、记忆和关系。</div>
           </section>
-          <section class="panel event-panel">
-            <div class="panel-head">
-              <h2>最近事件</h2>
-              <span class="panel-tag">世界</span>
-            </div>
-            <div id="eventList" class="stack"></div>
-          </section>
         </section>
       </section>
 
@@ -206,8 +199,29 @@
           </form>
           <p id="signalStatus" class="signal-status"></p>
         </section>
+        <section class="panel daily-panel">
+          <div class="panel-head">
+            <h2>Lab Daily</h2>
+            <span class="panel-tag">晨间简报</span>
+          </div>
+          <div id="dailyBriefBox" class="daily-brief-box">明天早上会自动生成一份 Lab Daily。</div>
+        </section>
+        <section class="panel daily-panel">
+          <div class="panel-head">
+            <h2>地下案件处置台</h2>
+            <span class="panel-tag">玩家介入</span>
+          </div>
+          <div id="grayCaseActionBox" class="daily-brief-box">一旦出现活跃地下案件，这里会出现压消息、举报、和解和做空入口。</div>
+        </section>
+        <section class="panel event-panel">
+          <div class="panel-head">
+            <h2>最近事件</h2>
+            <span class="panel-tag">世界</span>
+          </div>
+          <div id="eventList" class="stack"></div>
+        </section>
       </aside>
     </main>
-    <script src="/static/app.js?v=20260311ah" type="module"></script>
+    <script src="/static/app.js?v=20260311ak" type="module"></script>
   </body>
 </html>
