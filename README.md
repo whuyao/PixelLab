@@ -13,42 +13,151 @@
 - 每天早晨自动生成 `Lab Daily` 晨报，并同步进入所有人的记忆
 - SQLite 快照存档 + JSONL 行为日志
 
-## 运行
+## 配置与部署
 
-1. 创建虚拟环境并安装依赖
+### 环境要求
+
+- Python `3.11+` 推荐
+- macOS / Linux
+- 一个可用的 OpenAI API key
+- 可选：Brave Search API key
+
+### 1. 获取代码
+
+```bash
+git clone https://github.com/whuyao/PixelLab.git
+cd PixelLab
+```
+
+### 2. 创建虚拟环境并安装依赖
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
+pip install --upgrade pip
 pip install -e .
 ```
 
-2. 配置临时密钥文件
+如果你后续每次进入项目，都建议先执行：
+
+```bash
+cd /Volumes/Yaoy/project/LocalFarmer
+source .venv/bin/activate
+```
+
+### 3. 配置密钥和运行参数
+
+项目默认不会从仓库里的 `.env` 读密钥，而是读取一个仓库外的临时配置文件。
+
+默认路径：
+
+```text
+/tmp/localfarmer.env
+```
+
+先复制模板：
 
 ```bash
 cp .env.example /tmp/localfarmer.env
 ```
 
-编辑 [/tmp/localfarmer.env](/tmp/localfarmer.env)，填入：
+然后编辑 [/tmp/localfarmer.env](/tmp/localfarmer.env)，至少填写：
 
-- `OPENAI_API_KEY`
-- `BRAVE_API_KEY`
-- 可选：`OPENAI_MODEL=gpt-5-mini`
+```env
+OPENAI_API_KEY=你的_OPENAI_KEY
+OPENAI_MODEL=gpt-5-mini
+BRAVE_API_KEY=你的_BRAVE_KEY
+```
 
-真实 key 不应进入仓库。
+可选参数：
 
-3. 启动服务
+```env
+SAVE_PATH=save/localfarmer.db
+LOG_PATH=logs/activity.jsonl
+LOCALFARMER_ENV_FILE=/tmp/localfarmer.env
+```
+
+说明：
+
+- `OPENAI_API_KEY`：玩家和智能体对话优先走这个
+- `OPENAI_MODEL`：默认就是 `gpt-5-mini`
+- `BRAVE_API_KEY`：用于从 Brave 注入新闻，不配也能运行
+- `SAVE_PATH`：SQLite 快照存档位置
+- `LOG_PATH`：行为日志位置
+- `LOCALFARMER_ENV_FILE`：如果你不想用 `/tmp/localfarmer.env`，可以改成别的仓库外路径
+
+真实 key 不应写进代码文件、README、`.env.example` 或 GitHub。
+
+### 4. 启动项目
 
 ```bash
 source .venv/bin/activate
 python run_localfarmer.py
 ```
 
-4. 打开
+默认监听：
 
 ```text
 http://127.0.0.1:8765
 ```
+
+启动入口是 [run_localfarmer.py](/Volumes/Yaoy/project/LocalFarmer/run_localfarmer.py)，目前固定使用：
+
+- Host: `127.0.0.1`
+- Port: `8765`
+
+### 5. 停止项目
+
+在运行终端里按：
+
+```bash
+Ctrl + C
+```
+
+### 6. 首次运行后你会得到什么
+
+- 浏览器前端页面：`http://127.0.0.1:8765`
+- SQLite 存档：[save/localfarmer.db](/Volumes/Yaoy/project/LocalFarmer/save/localfarmer.db)
+- 行为日志：[logs/activity.jsonl](/Volumes/Yaoy/project/LocalFarmer/logs/activity.jsonl)
+
+### 7. 常见部署方式
+
+#### 本地开发运行
+
+适合日常调试，直接：
+
+```bash
+python run_localfarmer.py
+```
+
+#### 长时间后台运行
+
+如果你想在自己机器上长时间挂着，可以用 `tmux`、`screen` 或 `nohup` 包一层，例如：
+
+```bash
+nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
+```
+
+但要注意：
+
+- OpenAI 对话会消耗 token
+- 观察模式和自动演化开着时会持续推进世界
+- 建议不观察时暂停系统或直接停服务
+
+#### 服务器部署
+
+如果你后面要部署到远程 Linux 服务器，建议至少做这几件事：
+
+- 把 `/tmp/localfarmer.env` 改成服务器上的私有路径
+- 用反向代理把 `127.0.0.1:8765` 暴露出去
+- 定时备份 `save/localfarmer.db`
+- 保留 `logs/activity.jsonl` 以便排查行为问题
+
+当前项目没有额外依赖 Redis、消息队列或外部数据库，最小可运行依赖只有：
+
+- Python 环境
+- OpenAI key
+- 可选 Brave key
 
 ## 主要交互
 

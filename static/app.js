@@ -54,7 +54,7 @@ const talkInput = document.getElementById("talkInput");
 const talkTarget = document.getElementById("talkTarget");
 const talkSendBtn = document.getElementById("talkSendBtn");
 const macroSubmitBtn = document.getElementById("macroSubmitBtn");
-const ASSET_VERSION = "20260312b";
+const ASSET_VERSION = "20260312c";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -654,7 +654,7 @@ function renderPanels() {
   );
   renderIfChanged(
     "memory",
-    [selectedActorId, state.player, state.agents, state.loans, state.time_slot, state.day],
+    [selectedActorId, state.player, state.agents, state.loans, state.bank_loans, state.dialogue_history?.slice(0, 40), state.time_slot, state.day],
     () => renderMemory(),
   );
   renderIfChanged(
@@ -1303,30 +1303,78 @@ function renderMemory() {
       activeBankLoansFor("player", state.player.id)
         .map((loan) => `<span class="memory-chip">${loan.status === "overdue" ? "逾期" : "银行"}：剩余 $${loan.amount_due} · 第 ${loan.due_day} 天</span>`)
         .join("") || '<span class="memory-meta">当前没有银行贷款。</span>';
+    const playerDialogueRecords = getPlayerDialogueRecords(6);
+    const playerShortTerm =
+      playerDialogueRecords
+        .slice(0, 4)
+        .map((record) => `<span class="memory-chip">${record.key_point || record.summary}</span>`)
+        .join("") || '<span class="memory-meta">暂无可提炼的短期对话记忆。</span>';
+    const playerLongTerm =
+      getPlayerMemoryStream(6)
+        .map((item) => `<span class="memory-chip">${item}</span>`)
+        .join("") || '<span class="memory-meta">暂无较稳定的记忆流。</span>';
+    const playerRecentInteraction = getPlayerRecentInteraction();
+    const playerIntent = getPlayerIntentSummary();
+    const playerRelationBuckets = getPlayerRelationBuckets();
+    const activeBankDebt = activeBankLoansFor("player", state.player.id).reduce((sum, loan) => sum + (loan.amount_due || 0), 0);
+    const marketExposure = `${formatPortfolio(state.player.portfolio)} · ${formatShortPortfolio(state.player.short_positions)}`;
     memoryBox.innerHTML = `
       <h3>${state.player.name}</h3>
-      <div class="memory-meta">玩家 · 坐标 (${state.player.position.x}, ${state.player.position.y})</div>
+      <div class="memory-meta">玩家角色 · 坐标 (${state.player.position.x}, ${state.player.position.y})</div>
+      <div class="memory-meta">观察 / 干预者 · 风险偏好 ${state.player.risk_appetite}</div>
       <div class="status-grid">
+        <div class="status-pill"><strong>坐标</strong><span>${state.player.position.x}, ${state.player.position.y}</span></div>
         <div class="status-pill"><strong>当前时段</strong><span>${timeLabels[state.time_slot]}</span></div>
         <div class="status-pill"><strong>附近对象</strong><span>${nearby ? nearby.name : "无人"}</span></div>
         <div class="status-pill"><strong>现金</strong><span>$${state.player.cash}</span></div>
-        <div class="status-pill"><strong>信用值</strong><span>${state.player.credit_score}</span></div>
+        <div class="status-pill"><strong>信用值</strong><span>${state.player.credit_score} · ${creditLabel(state.player.credit_score)}</span></div>
+        <div class="status-pill"><strong>风险偏好</strong><span>${state.player.risk_appetite}</span></div>
+        <div class="status-pill"><strong>持仓</strong><span>${formatPortfolio(state.player.portfolio)}</span></div>
         <div class="status-pill"><strong>空仓</strong><span>${formatShortPortfolio(state.player.short_positions)}</span></div>
+        <div class="status-pill"><strong>银行待还</strong><span>$${activeBankDebt}</span></div>
       </div>
       <div class="memory-section">
-        <strong>当前状态</strong>
-        <div>${getPlayerBubbleText() || "正在田园研究站里走动、观察和聊天。"}</div>
+        <strong>当前计划</strong>
+        <div>${observerMode ? "保持观察模式，让系统自动行动，你负责挑关键时点介入。" : "在地图里主动走动、交谈、注入消息并管理市场仓位。"}</div>
       </div>
       <div class="memory-section">
-        <strong>今日行动</strong>
-        <div>${actionsMarkup}</div>
+        <strong>即时意图</strong>
+        <div>${playerIntent}</div>
       </div>
       <div class="memory-section">
-        <strong>已注入话题</strong>
-        <div>${topicsMarkup}</div>
+        <strong>状态摘要</strong>
+        <div>${getPlayerBubbleText() || "你正在田园研究站里走动、观察和聊天。"} 当前市场暴露为 ${marketExposure}。</div>
       </div>
       <div class="memory-section">
-        <strong>当前借款</strong>
+        <strong>最近互动</strong>
+        <div>${playerRecentInteraction}</div>
+      </div>
+      <div class="memory-section">
+        <strong>当前气泡</strong>
+        <div>${getPlayerBubbleText() || "……"}</div>
+      </div>
+      <div class="memory-section">
+        <strong>情感关系</strong>
+        <div class="relation-list">${relationsMarkup || '<span class="memory-meta">暂无关系记录。</span>'}</div>
+      </div>
+      <div class="memory-section">
+        <strong>社交倾向</strong>
+        <div>
+          <span class="memory-chip">偏亲近：${playerRelationBuckets.allies.join("、") || "暂无"}</span>
+          <span class="memory-chip">偏紧张：${playerRelationBuckets.rivals.join("、") || "暂无"}</span>
+        </div>
+      </div>
+      <div class="memory-section">
+        <strong>金钱倾向</strong>
+        <div>
+          <span class="memory-chip">当前现金 $${state.player.cash}</span>
+          <span class="memory-chip">信用值 ${state.player.credit_score}</span>
+          <span class="memory-chip">风险偏好 ${state.player.risk_appetite}</span>
+          <span class="memory-chip">银行待还 $${activeBankDebt}</span>
+        </div>
+      </div>
+      <div class="memory-section">
+        <strong>借款状态</strong>
         <div>${loanOverview}</div>
       </div>
       <div class="memory-section">
@@ -1334,12 +1382,24 @@ function renderMemory() {
         <div>${bankLoanOverview}</div>
       </div>
       <div class="memory-section">
-        <strong>市场提示</strong>
-        <div>股票、交易、持仓和宏观调控都集中在“市场中心”模块查看。</div>
+        <strong>公开关注点</strong>
+        <div>${topicsMarkup}</div>
       </div>
       <div class="memory-section">
-        <strong>和大家的关系</strong>
-        <div class="relation-list">${relationsMarkup || '<span class="memory-meta">暂无关系记录。</span>'}</div>
+        <strong>Memory Stream</strong>
+        <div>${playerLongTerm}</div>
+      </div>
+      <div class="memory-section">
+        <strong>短期记忆</strong>
+        <div>${playerShortTerm}</div>
+      </div>
+      <div class="memory-section">
+        <strong>今日行动</strong>
+        <div>${actionsMarkup}</div>
+      </div>
+      <div class="memory-section">
+        <strong>市场提示</strong>
+        <div>股票、交易、持仓、宏观调控和银行借贷都集中在“市场中心”模块查看。</div>
       </div>
     `;
     return;
@@ -2533,6 +2593,56 @@ function formatPlayerAction(action) {
     return `移动到 (${x}, ${y})`;
   }
   return action;
+}
+
+function getPlayerDialogueRecords(limit = 8) {
+  return (state?.dialogue_history || []).filter((record) => (record.participants || []).includes("player")).slice(0, limit);
+}
+
+function getPlayerRecentInteraction() {
+  const latest = getPlayerDialogueRecords(1)[0];
+  if (!latest) return "这段时间你还没有形成新的明确互动。";
+  const otherName = (latest.participant_names || []).find((name) => name !== state.player.name) || "对方";
+  return `${otherName} 最近围绕“${latest.topic || "临时闲聊"}”和你有过一轮交流。`;
+}
+
+function getPlayerIntentSummary() {
+  const activeBankDebt = activeBankLoansFor("player", state.player.id).reduce((sum, loan) => sum + (loan.amount_due || 0), 0);
+  if (activeBankDebt > 0 && state.player.cash < activeBankDebt) {
+    return "你眼下更在意现金调度和还款节奏，行动会偏谨慎。";
+  }
+  if (observerMode) {
+    return "你现在把主动性让给系统，自己更像观察者，只负责挑时机介入。";
+  }
+  if ((state.player.injected_topics || []).length) {
+    return "你在持续盯外部信号，准备把新消息喂给实验室和市场。";
+  }
+  return "你现在主要在田园研究站里走动、观察、聊天，并等待更值得介入的时机。";
+}
+
+function getPlayerMemoryStream(limit = 6) {
+  const actionMemories = (state.player.daily_actions || [])
+    .slice(-4)
+    .reverse()
+    .map((action) => `刚才${formatPlayerAction(action)}`);
+  const topicMemories = (state.player.injected_topics || [])
+    .slice(0, 3)
+    .map((topic) => `最近注入了“${topic}”`);
+  const dialogueMemories = getPlayerDialogueRecords(4).map((record) => `${(record.participant_names || []).join(" × ")}：${record.key_point || record.summary}`);
+  return [...dialogueMemories, ...topicMemories, ...actionMemories].slice(0, limit);
+}
+
+function getPlayerRelationBuckets() {
+  const entries = Object.entries(state.player.social_links || {}).sort((left, right) => right[1] - left[1]);
+  const allies = entries
+    .filter(([, value]) => value >= 35)
+    .slice(0, 3)
+    .map(([key]) => state.agents.find((item) => item.id === key)?.name || key);
+  const rivals = entries
+    .filter(([, value]) => value <= -10)
+    .slice(0, 3)
+    .map(([key]) => state.agents.find((item) => item.id === key)?.name || key);
+  return { allies, rivals };
 }
 
 async function api(path, options = {}) {
