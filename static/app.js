@@ -11,6 +11,11 @@ const metricsList = document.getElementById("metricsList");
 const taskList = document.getElementById("taskList");
 const eventList = document.getElementById("eventList");
 const dialogueBox = document.getElementById("dialogueBox");
+const dialogueActorFilter = document.getElementById("dialogueActorFilter");
+const dialogueFilterAll = document.getElementById("dialogueFilterAll");
+const dialogueFilterLoan = document.getElementById("dialogueFilterLoan");
+const dialogueFilterGray = document.getElementById("dialogueFilterGray");
+const dialogueFilterDesire = document.getElementById("dialogueFilterDesire");
 const signalStatus = document.getElementById("signalStatus");
 const memoryBox = document.getElementById("memoryBox");
 const newsForm = document.getElementById("newsForm");
@@ -25,6 +30,8 @@ const tradeMeta = document.getElementById("tradeMeta");
 const marketCanvas = document.getElementById("marketCanvas");
 const marketCtx = marketCanvas.getContext("2d");
 const marketMeta = document.getElementById("marketMeta");
+const marketSummary = document.getElementById("marketSummary");
+const marketPositions = document.getElementById("marketPositions");
 const marketIntradayBtn = document.getElementById("marketIntradayBtn");
 const marketDailyBtn = document.getElementById("marketDailyBtn");
 const advanceBtn = document.getElementById("advanceBtn");
@@ -36,7 +43,7 @@ const talkForm = document.getElementById("talkForm");
 const talkInput = document.getElementById("talkInput");
 const talkTarget = document.getElementById("talkTarget");
 const talkSendBtn = document.getElementById("talkSendBtn");
-const ASSET_VERSION = "20260311z";
+const ASSET_VERSION = "20260311ah";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -84,6 +91,20 @@ const stanceLabels = {
   observe: "观察",
 };
 
+const dialogueMoodLabels = {
+  warm: "亲近",
+  spark: "起势",
+  tense: "拉扯",
+  neutral: "平稳",
+};
+
+const dialogueKindLabels = {
+  player_dialogue: "玩家对话",
+  ambient_dialogue: "同事互聊",
+  loan: "借贷结算",
+  gray_trade: "灰色交易",
+};
+
 const resourceLabels = {
   compute: "算力窗口",
   evidence: "证据链",
@@ -123,6 +144,80 @@ function creditLabel(value) {
   if (value >= 65) return "正常";
   if (value >= 40) return "偏低";
   return "危险";
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function formatDialogueTime(record) {
+  return `第 ${record.day} 天 · ${timeLabels[record.time_slot] || record.time_slot || "未知时段"}`;
+}
+
+function dialogueMoodLabel(value) {
+  return dialogueMoodLabels[value] || "平稳";
+}
+
+function renderDesireChips(desireLabels) {
+  const entries = Object.entries(desireLabels || {});
+  if (!entries.length) {
+    return '<span class="dialogue-chip">暂时还没暴露出明显欲望</span>';
+  }
+  return entries
+    .map(([name, label]) => `<span class="dialogue-chip desire-chip">${escapeHtml(name)} · ${escapeHtml(label)}</span>`)
+    .join("");
+}
+
+function truncateText(value, length = 88) {
+  const text = String(value ?? "");
+  if (text.length <= length) return text;
+  return `${text.slice(0, length)}…`;
+}
+
+function renderDialogueCard(record) {
+  const transcript = (record.transcript || [])
+    .map((line) => `<div class="dialogue-line">${escapeHtml(line)}</div>`)
+    .join("");
+  const financial = record.financial_note
+    ? `<div class="dialogue-finance"><strong>金钱/借贷</strong><span>${escapeHtml(record.financial_note)}</span></div>`
+    : "";
+  const badges = [
+    `<span class="dialogue-badge">${escapeHtml(dialogueKindLabels[record.kind] || "记录")}</span>`,
+    record.mood ? `<span class="dialogue-badge mood-${escapeHtml(record.mood)}">${escapeHtml(dialogueMoodLabel(record.mood))}</span>` : "",
+    record.gray_trade ? '<span class="dialogue-badge gray-trade">非正式资源交换</span>' : "",
+    record.interest_rate != null ? `<span class="dialogue-badge">利率 ${escapeHtml(record.interest_rate)}%</span>` : "",
+  ]
+    .filter(Boolean)
+    .join("");
+  return `
+    <article class="dialogue-card ${record.gray_trade ? "gray-trade-card" : ""}">
+      <div class="dialogue-card-head">
+        <strong>${escapeHtml((record.participant_names || []).join(" × ") || "匿名对话")}</strong>
+        <span class="dialogue-time">${escapeHtml(formatDialogueTime(record))}</span>
+      </div>
+      <div class="dialogue-badges">${badges}</div>
+      <div class="dialogue-topic">话题：${escapeHtml(record.topic || "临时闲聊")}</div>
+      <div class="dialogue-keypoint"><strong>要点</strong><span>${escapeHtml(record.key_point || record.summary || "暂无摘要。")}</span></div>
+      <div class="dialogue-summary">${escapeHtml(truncateText(record.summary || "暂无摘要。", 72))}</div>
+      <div class="dialogue-desires">${renderDesireChips(record.desire_labels)}</div>
+      ${
+        transcript || financial
+          ? `
+            <details class="dialogue-details">
+              <summary>展开详情</summary>
+              ${transcript ? `<div class="dialogue-transcript">${transcript}</div>` : ""}
+              ${financial}
+            </details>
+          `
+          : ""
+      }
+    </article>
+  `;
 }
 
 const roomNames = {
@@ -207,6 +302,8 @@ let draftTalkText = "";
 let selectedActorId = null;
 let composerPending = false;
 let observerStepCount = 0;
+let dialogueFilterMode = "all";
+let dialogueFilterActor = "all";
 const cameraState = {
   zoom: 1,
   manual: false,
@@ -324,79 +421,123 @@ function renderPanels() {
   renderMetrics();
   renderTasks();
   renderEvents();
+  renderDialogueFilterControls();
   renderDialogue();
   renderMemory();
+  renderMarketModule();
   renderMarketChart();
   renderTradeMeta();
 }
 
 function renderMetrics() {
-  const teamCash = state.agents.reduce((sum, agent) => sum + (agent.cash || 0), 0);
-  const leader = state.market?.rotation_leader || "GEO";
-  const marketMarkup = (state.market?.stocks || [])
-    .map(
-      (quote) => `
-        <div class="metric-item">
-          <strong>${quote.name}</strong>
-          <div class="metric-meta">${quote.symbol} · $${quote.price.toFixed(2)} · 日内 ${quote.day_change_pct >= 0 ? "+" : ""}${quote.day_change_pct.toFixed(2)}%${quote.symbol === leader ? " · 当前主线" : ""}</div>
-        </div>
-      `,
-    )
-    .join("");
-  const activeLoans = (state.loans || []).filter((loan) => loan.status === "active" || loan.status === "overdue");
-  const metrics = [
-    ["GeoAI 进度", state.lab.geoai_progress],
+  const milestoneCount = (state.geoai_milestones || []).length;
+  const summaryMarkup = `
+    <article class="metric-summary-card">
+      <strong>当前总览</strong>
+      <div class="metric-meta">第 ${state.day} 天 · ${timeLabels[state.time_slot]} · ${weatherLabels[state.weather] || state.weather}</div>
+      <div class="metric-summary-grid">
+        <div class="status-pill"><strong>实验室口碑</strong><span>${state.lab.reputation}</span></div>
+        <div class="status-pill"><strong>团队氛围</strong><span>${state.lab.team_atmosphere}</span></div>
+        <div class="status-pill"><strong>研究推进</strong><span>${state.lab.research_progress}</span></div>
+        <div class="status-pill"><strong>外部敏感度</strong><span>${state.lab.external_sensitivity}</span></div>
+      </div>
+    </article>
+  `;
+  const researchMetrics = [
+    ["GeoAI 进度", state.lab.geoai_progress, `累计 ${state.lab.geoai_progress} 点 · 已触发 ${milestoneCount} 个里程碑`],
     ["集体推理", state.lab.collective_reasoning],
-    ["研究推进", state.lab.research_progress],
     ["知识库", state.lab.knowledge_base],
+  ];
+  const operationsMetrics = [
+    ["研究推进", state.lab.research_progress],
     ["团队氛围", state.lab.team_atmosphere],
+    ["实验室口碑", state.lab.reputation],
     ["外部敏感度", state.lab.external_sensitivity],
   ];
-  const metricMarkup = metrics
-    .map(
-      ([label, value]) => `
-        <div class="metric-item">
-          <strong>${label}</strong>
-          <div class="metric-meta">${value}/100</div>
-          <div class="progress"><span style="width:${value}%"></span></div>
-        </div>
-      `,
-    )
-    .join("");
-  const moneyMarkup = `
-    <div class="metric-item">
-      <strong>玩家现金</strong>
-      <div class="metric-meta">$${state.player.cash}</div>
-    </div>
-    <div class="metric-item">
-      <strong>团队总现金</strong>
-      <div class="metric-meta">$${teamCash}</div>
-    </div>
-    ${state.agents
+  const renderMetricGroup = (title, items) => `
+    <section class="metric-group">
+      <h3 class="metric-group-title">${title}</h3>
+      ${items
+        .map(
+          ([label, value, customMeta]) => `
+            <article class="metric-item">
+              <strong>${label}</strong>
+              <div class="metric-meta">${customMeta || `${value}/100`}</div>
+              <div class="progress"><span style="width:${Math.max(0, Math.min(100, value))}%"></span></div>
+            </article>
+          `,
+        )
+        .join("")}
+    </section>
+  `;
+  metricsList.innerHTML = `
+    ${summaryMarkup}
+    ${renderMetricGroup("研究核心", researchMetrics)}
+    ${renderMetricGroup("实验室运营", operationsMetrics)}
+  `;
+}
+
+function renderMarketModule() {
+  if (!state) return;
+  const quotes = state.market?.stocks || [];
+  const leader = state.market?.rotation_leader || "GEO";
+  if (marketSummary) {
+    const stateCards = `
+      <article class="market-state-card">
+        <strong>市场状态</strong>
+        <div class="metric-meta">${state.market?.is_open ? "开盘中" : "已收盘"} · ${marketRegimeLabels[state.market?.regime] || state.market?.regime || "牛市"}</div>
+        <div class="metric-meta">情绪 ${state.market?.sentiment ?? 0} · 已持续 ${state.market?.regime_age ?? 1} 天</div>
+      </article>
+      <article class="market-state-card">
+        <strong>板块轮动</strong>
+        <div class="metric-meta">当前主线 ${leader} · 已持续 ${state.market?.rotation_age ?? 1} 天</div>
+        <div class="metric-meta">指数 ${state.market?.index_value?.toFixed(2) || "--"}</div>
+      </article>
+    `;
+    const quoteCards = quotes
       .map(
-        (agent) => `
-          <div class="metric-item">
-            <strong>${agent.name} 现金</strong>
-            <div class="metric-meta">$${agent.cash} · 欲望 ${moneyDesireLabel(agent.money_desire)} · 压力 ${moneyUrgencyLabel(agent.money_urgency || agent.money_desire)}</div>
-          </div>
+        (quote) => `
+          <article class="market-stock-card">
+            <strong>${quote.name}</strong>
+            <div class="metric-meta">${quote.symbol} · $${quote.price.toFixed(2)} · 日内 ${quote.day_change_pct >= 0 ? "+" : ""}${quote.day_change_pct.toFixed(2)}%</div>
+            <div class="metric-meta">${quote.symbol === leader ? "当前主线板块" : quote.last_reason || "暂无最新原因"}</div>
+          </article>
         `,
       )
-      .join("")}
-    <div class="metric-item">
-      <strong>股市状态</strong>
-      <div class="metric-meta">${state.market?.is_open ? "开盘中" : "已收盘"} · ${marketRegimeLabels[state.market?.regime] || state.market?.regime || "牛市"} · 情绪 ${state.market?.sentiment ?? 0} · 已持续 ${state.market?.regime_age ?? 1} 天</div>
-    </div>
-    <div class="metric-item">
-      <strong>板块轮动</strong>
-      <div class="metric-meta">当前主线 ${leader} · 已持续 ${state.market?.rotation_age ?? 1} 天</div>
-    </div>
-    <div class="metric-item">
-      <strong>活跃借款</strong>
-      <div class="metric-meta">${activeLoans.length} 笔</div>
-    </div>
-    ${marketMarkup}
-  `;
-  metricsList.innerHTML = `${metricMarkup}${moneyMarkup}`;
+      .join("");
+    marketSummary.innerHTML = `${stateCards}${quoteCards}`;
+  }
+  if (marketPositions) {
+    const teamCash = state.agents.reduce((sum, agent) => sum + (agent.cash || 0), 0);
+    const playerPosition = `
+      <article class="position-card">
+        <strong>玩家账户</strong>
+        <div class="metric-meta">现金 $${state.player.cash}</div>
+        <div class="metric-meta">持仓 ${formatPortfolio(state.player.portfolio)}</div>
+        <div class="metric-meta">${state.player.last_trade_summary || "今天还没有执行交易。"}</div>
+      </article>
+    `;
+    const teamPosition = `
+      <article class="position-card">
+        <strong>团队资金分布</strong>
+        <div class="metric-meta">团队总现金 $${teamCash}</div>
+        <div class="metric-meta">有持仓的成员 ${(state.agents || []).filter((agent) => Object.values(agent.portfolio || {}).some((shares) => shares > 0)).length} 人</div>
+      </article>
+    `;
+    const agentPositions = state.agents
+      .map(
+        (agent) => `
+          <article class="position-card">
+            <strong>${agent.name}</strong>
+            <div class="metric-meta">现金 $${agent.cash} · 信用 ${agent.credit_score}</div>
+            <div class="metric-meta">持仓 ${formatPortfolio(agent.portfolio)}</div>
+            <div class="metric-meta">${agent.last_trade_summary || "今天还没有明确买卖。"}</div>
+          </article>
+        `,
+      )
+      .join("");
+    marketPositions.innerHTML = `<div class="position-grid">${playerPosition}${teamPosition}${agentPositions}</div>`;
+  }
 }
 
 function renderTasks() {
@@ -552,26 +693,98 @@ function renderEvents() {
 
 function renderDialogue() {
   const latest = pendingDialogue || state.latest_dialogue;
-  const ambient = (state.ambient_dialogues || []).slice(0, 2);
-  const ambientMarkup = ambient
-    .map(
-      (item) =>
-        `<div class="memory-section"><strong>${item.agent_name}</strong><div class="memory-meta">${item.topic}</div><div>${item.line}</div></div>`,
-    )
-    .join("");
-  if (!latest) {
-    dialogueBox.innerHTML = `走近同事后按 E，就会像日常交流一样聊起来。${ambientMarkup ? `<div class="memory-section"><strong>环境对话</strong>${ambientMarkup}</div>` : ""}`;
+  const history = ((state.dialogue_history || []).slice(0, 200)).filter((record) => recordMatchesDialogueFilters(record));
+  const activeLoans = (state.loans || []).filter((loan) => loan.status === "active" || loan.status === "overdue");
+  const loanMarkup =
+    activeLoans.map((loan) => `<span class="dialogue-chip loan-chip">${escapeHtml(formatLoan(loan))} · ${loan.status === "overdue" ? "逾期" : "进行中"}</span>`).join("") ||
+    '<span class="memory-meta">当前没有活跃借款。</span>';
+  const latestMarkup = pendingDialogue
+    ? `
+      <article class="dialogue-card spotlight-card">
+        <div class="dialogue-card-head">
+          <strong>当前对话</strong>
+          <span class="dialogue-time">正在生成</span>
+        </div>
+        <div class="dialogue-keypoint"><strong>你的话</strong><span>${escapeHtml(pendingDialogue.player_text || "你刚刚发起了一轮聊天。")}</span></div>
+        <div class="dialogue-summary">对方正在根据当前欲望、关系和现场状态组织下一句回应。</div>
+      </article>
+    `
+    : latest
+      ? `
+      <article class="dialogue-card spotlight-card">
+        <div class="dialogue-card-head">
+          <strong>当前聚焦</strong>
+          <span class="dialogue-time">${escapeHtml(latest.topic || "临时闲聊")}</span>
+        </div>
+        ${latest.player_text ? `<div class="dialogue-line"><strong>你：</strong>${escapeHtml(latest.player_text)}</div>` : ""}
+        <div class="dialogue-line"><strong>${escapeHtml(latest.agent_name)}：</strong>${escapeHtml(latest.line)}</div>
+        <div class="dialogue-summary">${escapeHtml(truncateText((latest.effects || []).join(" · ") || "这轮对话刚刚发生。", 68))}</div>
+      </article>
+      `
+      : `
+        <article class="dialogue-card spotlight-card">
+          <div class="dialogue-card-head">
+            <strong>当前聚焦</strong>
+            <span class="dialogue-time">等待中</span>
+          </div>
+          <div class="dialogue-summary">走近同事后按 E 开聊；观察模式下，你也可以只看他们自己吵、自己结盟、自己借钱。</div>
+        </article>
+      `;
+  if (!history.length && !latest) {
+    dialogueBox.innerHTML = `
+      <div class="dialogue-toolbar">
+        <span>筛选结果 0 / 200 条</span>
+        <span>活跃借款 ${activeLoans.length}</span>
+      </div>
+      ${latestMarkup}
+      <div class="dialogue-financial-strip"><strong>借贷看板</strong><div>${loanMarkup}</div></div>
+    `;
     return;
   }
-  const effectText = pendingDialogue ? "对方正在思考你的话。" : latest.effects.join(" · ");
-  const playerBlock = latest.player_text ? `<div class="memory-section"><strong>你说</strong><div>${latest.player_text}</div></div>` : "";
+  const historyMarkup = history.map((record) => renderDialogueCard(record)).join("");
   dialogueBox.innerHTML = `
-    ${playerBlock}
-    <div class="memory-section"><strong>${latest.agent_name} 回复</strong><div>${latest.line}</div></div>
-    <span class="memory-meta">话题：${latest.topic}</span><br />
-    <span class="memory-meta">${effectText}</span>
-    ${ambientMarkup ? `<div class="memory-section"><strong>最近路过听到</strong>${ambientMarkup}</div>` : ""}
+    <div class="dialogue-toolbar">
+      <span>筛选结果 ${history.length} / 200 条</span>
+      <span>活跃借款 ${activeLoans.length}</span>
+    </div>
+    ${latestMarkup}
+    <div class="dialogue-financial-strip"><strong>借贷看板</strong><div>${loanMarkup}</div></div>
+    <div class="dialogue-timeline">${historyMarkup}</div>
   `;
+}
+
+function renderDialogueFilterControls() {
+  if (!dialogueActorFilter || !state) return;
+  const selected = dialogueActorFilter.value || dialogueFilterActor;
+  const options = [
+    '<option value="all">全部人物</option>',
+    '<option value="player">你</option>',
+    ...state.agents.map((agent) => `<option value="${agent.id}">${agent.name}</option>`),
+  ].join("");
+  dialogueActorFilter.innerHTML = options;
+  dialogueActorFilter.value = selected && [...dialogueActorFilter.options].some((option) => option.value === selected) ? selected : "all";
+  dialogueFilterActor = dialogueActorFilter.value;
+  if (dialogueFilterAll) dialogueFilterAll.classList.toggle("active", dialogueFilterMode === "all");
+  if (dialogueFilterLoan) dialogueFilterLoan.classList.toggle("active", dialogueFilterMode === "loan");
+  if (dialogueFilterGray) dialogueFilterGray.classList.toggle("active", dialogueFilterMode === "gray");
+  if (dialogueFilterDesire) dialogueFilterDesire.classList.toggle("active", dialogueFilterMode === "desire");
+}
+
+function recordMatchesDialogueFilters(record) {
+  if (!record) return false;
+  if (dialogueFilterActor !== "all" && !(record.participants || []).includes(dialogueFilterActor)) {
+    return false;
+  }
+  if (dialogueFilterMode === "loan") {
+    return record.kind === "loan" || Boolean(record.interest_rate != null) || /借|利率|归还|逾期/.test(record.financial_note || "");
+  }
+  if (dialogueFilterMode === "gray") {
+    return Boolean(record.gray_trade) || record.kind === "gray_trade";
+  }
+  if (dialogueFilterMode === "desire") {
+    return record.mood === "tense" || /拉扯|分歧|冲突|驱动/.test(`${record.topic || ""}${record.key_point || ""}`);
+  }
+  return true;
 }
 
 function renderMemory() {
@@ -598,16 +811,11 @@ function renderMemory() {
       })
       .join("");
     const nearby = getNearbyAgent();
-    const marketOverview =
-      (state.market?.stocks || [])
-        .map((quote) => `<span class="memory-chip">${quote.symbol} $${quote.price.toFixed(2)} (${quote.day_change_pct >= 0 ? "+" : ""}${quote.day_change_pct.toFixed(2)}%)</span>`)
-        .join("") || '<span class="memory-meta">暂无盘面。</span>';
     const loanOverview =
       (state.loans || [])
         .filter((loan) => loan.status === "active" || loan.status === "overdue")
         .map((loan) => `<span class="memory-chip">${formatLoan(loan)}</span>`)
         .join("") || '<span class="memory-meta">当前没有活跃借款。</span>';
-    const portfolioOverview = `<span class="memory-chip">${formatPortfolio(state.player.portfolio)}</span>`;
     memoryBox.innerHTML = `
       <h3>${state.player.name}</h3>
       <div class="memory-meta">玩家 · 坐标 (${state.player.position.x}, ${state.player.position.y})</div>
@@ -629,20 +837,12 @@ function renderMemory() {
         <div>${topicsMarkup}</div>
       </div>
       <div class="memory-section">
-        <strong>当前盘面</strong>
-        <div>${marketOverview}</div>
-      </div>
-      <div class="memory-section">
         <strong>当前借款</strong>
         <div>${loanOverview}</div>
       </div>
       <div class="memory-section">
-        <strong>玩家持仓</strong>
-        <div>${portfolioOverview}</div>
-      </div>
-      <div class="memory-section">
-        <strong>最近交易</strong>
-        <div>${state.player.last_trade_summary || "今天还没有做过买卖。"}</div>
+        <strong>市场提示</strong>
+        <div>股票、交易、持仓和宏观调控都集中在“市场中心”模块查看。</div>
       </div>
       <div class="memory-section">
         <strong>和大家的关系</strong>
@@ -680,7 +880,6 @@ function renderMemory() {
   const hiddenFacts = (agent.hidden_facts || []).map((item) => `<span class="memory-chip">${item}</span>`).join("") || '<span class="memory-meta">暂无隐藏心事。</span>';
   const speechHabits = (agent.speech_habits || []).map((item) => `<span class="memory-chip">${item}</span>`).join("") || '<span class="memory-meta">暂无口头习惯。</span>';
   const memoryStream = (agent.memory_stream || []).map((item) => `<span class="memory-chip">${item}</span>`).join("") || '<span class="memory-meta">暂无 memory stream。</span>';
-  const portfolioText = formatPortfolio(agent.portfolio);
   const loanText =
     (state.loans || [])
       .filter((loan) => (loan.status === "active" || loan.status === "overdue") && (loan.borrower_id === agent.id || loan.lender_id === agent.id))
@@ -746,12 +945,8 @@ function renderMemory() {
       <div><span class="memory-chip">当前现金 $${agent.cash}</span><span class="memory-chip">金钱欲望 ${agent.money_desire}</span><span class="memory-chip">金钱压力 ${agent.money_urgency || agent.money_desire}</span><span class="memory-chip">信用值 ${agent.credit_score}</span><span class="memory-chip">慷慨度 ${agent.generosity}</span><span class="memory-chip">风险偏好 ${agent.risk_appetite}</span></div>
     </div>
     <div class="memory-section">
-      <strong>持仓</strong>
-      <div><span class="memory-chip">${portfolioText}</span></div>
-    </div>
-    <div class="memory-section">
-      <strong>最近交易</strong>
-      <div>${agent.last_trade_summary || "今天还没有做过明确买卖。"}</div>
+      <strong>市场提示</strong>
+      <div>这个人的持仓、最近交易和盘面暴露统一放在“市场中心”里查看。</div>
     </div>
     <div class="memory-section">
       <strong>借款状态</strong>
@@ -2019,6 +2214,36 @@ sellAllBtn.addEventListener("click", async () => {
 
 tradeSymbol.addEventListener("change", renderTradeMeta);
 tradeSide.addEventListener("change", renderTradeMeta);
+if (dialogueActorFilter) {
+  dialogueActorFilter.addEventListener("change", () => {
+    dialogueFilterActor = dialogueActorFilter.value;
+    renderPanels();
+  });
+}
+if (dialogueFilterAll) {
+  dialogueFilterAll.addEventListener("click", () => {
+    dialogueFilterMode = "all";
+    renderPanels();
+  });
+}
+if (dialogueFilterLoan) {
+  dialogueFilterLoan.addEventListener("click", () => {
+    dialogueFilterMode = "loan";
+    renderPanels();
+  });
+}
+if (dialogueFilterGray) {
+  dialogueFilterGray.addEventListener("click", () => {
+    dialogueFilterMode = "gray";
+    renderPanels();
+  });
+}
+if (dialogueFilterDesire) {
+  dialogueFilterDesire.addEventListener("click", () => {
+    dialogueFilterMode = "desire";
+    renderPanels();
+  });
+}
 
 newsForm.addEventListener("submit", async (event) => {
   event.preventDefault();

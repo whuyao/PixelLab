@@ -47,6 +47,23 @@ app = FastAPI(title="LocalFarmer", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=Path(__file__).parent.parent / "static"), name="static")
 
 
+async def _apply_ai_player_dialogue(agent_id: str, text: str) -> None:
+    cleaned = text.strip()
+    if not cleaned:
+        raise ValueError("先输入一句你想说的话。")
+    dialogue = None
+    if context.dialogue.enabled:
+        agent = context.engine.get_agent(agent_id)
+        try:
+            dialogue = await context.dialogue.build_player_dialogue(context.engine.get_state(), agent, cleaned)
+        except OpenAIDialogueError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if dialogue is not None:
+        context.engine.commit_external_dialogue(agent_id, dialogue, cleaned)
+    else:
+        context.engine.speak_to_agent(agent_id, cleaned)
+
+
 @app.get("/")
 async def root() -> FileResponse:
     return FileResponse(Path(__file__).parent.parent / "static/index.html")
@@ -83,18 +100,7 @@ async def interact(agent_id: str) -> WorldState:
 @app.post("/api/speak/{agent_id}", response_model=WorldState)
 async def speak(agent_id: str, payload: SpeakRequest) -> WorldState:
     try:
-        text = payload.text.strip()
-        dialogue = None
-        if context.dialogue.enabled:
-            agent = context.engine.get_agent(agent_id)
-            try:
-                dialogue = await context.dialogue.build_player_dialogue(context.engine.get_state(), agent, text)
-            except OpenAIDialogueError as exc:
-                raise HTTPException(status_code=502, detail=str(exc)) from exc
-        if dialogue is not None:
-            context.engine.commit_external_dialogue(agent_id, dialogue, text)
-        else:
-            context.engine.speak_to_agent(agent_id, text)
+        await _apply_ai_player_dialogue(agent_id, payload.text)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except KeyError as exc:
@@ -107,7 +113,7 @@ async def speak(agent_id: str, payload: SpeakRequest) -> WorldState:
 @app.post("/api/auto-speak/{agent_id}", response_model=WorldState)
 async def auto_speak(agent_id: str, payload: SpeakRequest) -> WorldState:
     try:
-        context.engine.speak_to_agent(agent_id, payload.text)
+        await _apply_ai_player_dialogue(agent_id, payload.text)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except KeyError as exc:

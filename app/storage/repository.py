@@ -15,7 +15,7 @@ class SnapshotRepository:
         payload = load_latest_snapshot(self.path)
         if payload is None:
             return None
-        if payload.get("version", 1) < 17:
+        if payload.get("version", 1) < 19:
             return None
         return WorldState.model_validate(payload)
 

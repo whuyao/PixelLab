@@ -138,6 +138,24 @@ class DialogueOutcome(BaseModel):
     effects: list[str] = Field(default_factory=list)
 
 
+class DialogueRecord(BaseModel):
+    id: str
+    kind: str
+    day: int
+    time_slot: TimeSlot
+    participants: list[str] = Field(default_factory=list)
+    participant_names: list[str] = Field(default_factory=list)
+    topic: str = ""
+    summary: str
+    key_point: str = ""
+    transcript: list[str] = Field(default_factory=list)
+    desire_labels: dict[str, str] = Field(default_factory=dict)
+    mood: str = ""
+    financial_note: str = ""
+    interest_rate: int | None = None
+    gray_trade: bool = False
+
+
 class SocialThread(BaseModel):
     id: str
     participants: list[str] = Field(default_factory=list)
@@ -209,7 +227,7 @@ class MarketState(BaseModel):
 
 
 class WorldState(BaseModel):
-    version: int = 17
+    version: int = 19
     world_width: int = 44
     world_height: int = 26
     day: int
@@ -224,6 +242,8 @@ class WorldState(BaseModel):
     latest_dialogue: DialogueOutcome | None = None
     archived_tasks: list[Task] = Field(default_factory=list)
     ambient_dialogues: list[DialogueOutcome] = Field(default_factory=list)
+    dialogue_history: list[DialogueRecord] = Field(default_factory=list)
+    geoai_milestones: list[int] = Field(default_factory=list)
     social_threads: list[SocialThread] = Field(default_factory=list)
     story_beats: list[StoryBeat] = Field(default_factory=list)
     loans: list[LoanRecord] = Field(default_factory=list)

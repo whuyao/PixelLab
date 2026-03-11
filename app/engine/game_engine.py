@@ -19,7 +19,7 @@ from app.engine.event_system import build_internal_event
 from app.engine.task_system import apply_task_progress
 from app.engine.time_system import advance_time
 from app.engine.world_state import build_initial_world
-from app.models import Agent, DialogueOutcome, IndexCandle, LabEvent, LoanRecord, MemoryEntry, Point, SocialThread, StoryBeat, WorldState
+from app.models import Agent, DialogueOutcome, DialogueRecord, IndexCandle, LabEvent, LoanRecord, MemoryEntry, Point, SocialThread, StoryBeat, WorldState
 from app.services.activity_logger import ActivityLogger
 
 
@@ -112,6 +112,7 @@ MARKET_SYMBOL_PREFERENCE = {
     "opportunist": "SIG",
 }
 LIMIT_MOVE_PCT = 10.0
+GEOAI_MILESTONES = [50, 100, 180, 260, 360, 500, 700, 950]
 
 
 class GameEngine:
@@ -232,7 +233,7 @@ class GameEngine:
         self.state.lab.external_sensitivity = min(100, self.state.lab.external_sensitivity + 8)
         self.state.lab.collective_reasoning = min(100, self.state.lab.collective_reasoning + event.impacts.get("collective_reasoning", 0))
         self.state.lab.research_progress = min(100, self.state.lab.research_progress + event.impacts.get("research_progress", 0))
-        self.state.lab.geoai_progress = min(100, self.state.lab.geoai_progress + event.impacts.get("geoai_progress", 0))
+        self._advance_geoai_progress(event.impacts.get("geoai_progress", 0), reason=event.title)
         for agent in self.state.agents:
             self._apply_event_to_agent(agent, event)
         self._apply_event_to_market(event)
@@ -402,7 +403,7 @@ class GameEngine:
             self._remember(first, f"“{topic}”里的想法值得留到明天继续追。", 3, long_term=True)
             self._remember(second, f"“{topic}”里的想法值得留到明天继续追。", 3, long_term=True)
             self.state.lab.collective_reasoning = min(100, self.state.lab.collective_reasoning + 1)
-            self.state.lab.geoai_progress = min(100, self.state.lab.geoai_progress + 1)
+            self._advance_geoai_progress(1, reason=topic)
         self.state.lab.team_atmosphere = min(100, self.state.lab.team_atmosphere + 1)
         relation_delta = 4 if mood in {"warm", "spark"} else (-4 if mood == "tense" else 2)
         self._adjust_relation(first, second, relation_delta, f"在{ROOM_LABELS.get(first.current_location, first.current_location)}围绕“{topic}”持续聊了一会儿。")
@@ -417,8 +418,37 @@ class GameEngine:
         )
         self.state.ambient_dialogues.insert(0, ambient)
         self.state.ambient_dialogues = self.state.ambient_dialogues[:6]
-        self._apply_pair_dialogue_state(first, second, topic, mood)
+        financial_outcome = self._apply_pair_dialogue_state(first, second, topic, mood)
         self._apply_desire_pair_impact(first, second, first_desire, second_desire, mood)
+        left_desire_label = DESIRE_LABELS.get(first_desire, first_desire)
+        right_desire_label = DESIRE_LABELS.get(second_desire, second_desire)
+        self._append_dialogue_record(
+            DialogueRecord(
+                id=f"dialogue-{uuid4().hex[:8]}",
+                kind="gray_trade" if financial_outcome and financial_outcome.get("gray_trade") else "ambient_dialogue",
+                day=self.state.day,
+                time_slot=self.state.time_slot,
+                participants=[first.id, second.id],
+                participant_names=[first.name, second.name],
+                topic=topic,
+                summary=f"{first.name} 和 {second.name} 在{ROOM_LABELS.get(first.current_location, first.current_location)}围绕“{topic}”接了一轮，整体气氛偏{self._mood_label(mood)}。",
+                key_point=self._ambient_dialogue_key_point(
+                    first.name,
+                    second.name,
+                    topic,
+                    mood,
+                    left_desire_label,
+                    right_desire_label,
+                    str(financial_outcome["note"]) if financial_outcome else "",
+                ),
+                transcript=[f"{first.name}：{line_a}", f"{second.name}：{line_b}"],
+                desire_labels={first.name: left_desire_label, second.name: right_desire_label},
+                mood=mood,
+                financial_note=str(financial_outcome["note"]) if financial_outcome else "",
+                interest_rate=int(financial_outcome["interest_rate"]) if financial_outcome and financial_outcome.get("interest_rate") is not None else None,
+                gray_trade=bool(financial_outcome and financial_outcome.get("gray_trade")),
+            )
+        )
         self._log(
             "ambient_dialogue",
             participants=[
@@ -1107,6 +1137,28 @@ class GameEngine:
             loan.status = "overdue"
             borrower.credit_score = max(0, borrower.credit_score - 12)
             self._adjust_relation(borrower, lender, -4, "借款到期却没有还上。")
+            self._append_dialogue_record(
+                DialogueRecord(
+                    id=f"dialogue-{uuid4().hex[:8]}",
+                    kind="loan",
+                    day=self.state.day,
+                    time_slot=self.state.time_slot,
+                    participants=[borrower.id, lender.id],
+                    participant_names=[borrower.name, lender.name],
+                    topic="借款清算",
+                    summary=f"{borrower.name} 到了还款时点却一分钱也没还上，{lender.name} 这边直接记成逾期。",
+                    key_point=f"{borrower.name} 信用受损，{lender.name} 对这笔钱的耐心明显下降。",
+                    transcript=[f"{borrower.name}：我今天还不上。", f"{lender.name}：这笔先记逾期。"],
+                    desire_labels={
+                        borrower.name: DESIRE_LABELS.get(dominant_desire_for_agent(self.state, borrower)[0], "缓解钱压"),
+                        lender.name: DESIRE_LABELS.get(dominant_desire_for_agent(self.state, lender)[0], "守住节奏"),
+                    },
+                    mood="tense",
+                    financial_note=f"未归还，剩余应付 ${loan.amount_due}，约定利率 {loan.interest_rate}%",
+                    interest_rate=loan.interest_rate,
+                    gray_trade=False,
+                )
+            )
             self._log(
                 "loan_repayment",
                 loan={"id": loan.id, "status": loan.status, "remaining_due": loan.amount_due, "payment": 0},
@@ -1132,6 +1184,39 @@ class GameEngine:
             self._adjust_relation(borrower, lender, -3, "借款到期后没有全部还清。")
         self._remember(borrower, f"你今天向 {lender.name} 归还了借款 ${payment}。", 2)
         self._remember(lender, f"{borrower.name} 今天归还了你借款 ${payment}。", 2)
+        self._append_dialogue_record(
+            DialogueRecord(
+                id=f"dialogue-{uuid4().hex[:8]}",
+                kind="loan",
+                day=self.state.day,
+                time_slot=self.state.time_slot,
+                participants=[borrower.id, lender.id],
+                participant_names=[borrower.name, lender.name],
+                topic="借款清算",
+                summary=(
+                    f"{borrower.name} 早上归还了 {lender.name} ${payment}。"
+                    if loan.status == "repaid"
+                    else f"{borrower.name} 只先还了 {lender.name} ${payment}，这笔还没彻底结清。"
+                ),
+                key_point=(
+                    f"这笔借款已经结清，信用略有修复。"
+                    if loan.status == "repaid"
+                    else f"还剩 ${loan.amount_due} 没还，关系和口碑都会继续受压。"
+                ),
+                transcript=[
+                    f"{borrower.name}：今天先还你 ${payment}。",
+                    f"{lender.name}：{'这笔清了。' if loan.status == 'repaid' else f'还差 ${loan.amount_due}。'}",
+                ],
+                desire_labels={
+                    borrower.name: DESIRE_LABELS.get(dominant_desire_for_agent(self.state, borrower)[0], "缓解钱压"),
+                    lender.name: DESIRE_LABELS.get(dominant_desire_for_agent(self.state, lender)[0], "守住节奏"),
+                },
+                mood="warm" if loan.status == "repaid" else "tense",
+                financial_note=f"已归还 ${payment}，剩余 ${loan.amount_due}，约定利率 {loan.interest_rate}%",
+                interest_rate=loan.interest_rate,
+                gray_trade=False,
+            )
+        )
         self._log(
             "loan_repayment",
             loan={"id": loan.id, "status": loan.status, "remaining_due": loan.amount_due, "payment": payment},
@@ -1653,7 +1738,7 @@ class GameEngine:
         money_effects = self._resolve_player_money_exchange(agent, dialogue, relation_delta)
         agent.current_bubble = dialogue.bubble_text
         self.state.lab.team_atmosphere = min(100, self.state.lab.team_atmosphere + 2)
-        self.state.lab.geoai_progress = min(100, self.state.lab.geoai_progress + 3)
+        self._advance_geoai_progress(3, reason=dialogue.topic or "玩家对话")
         self.state.lab.knowledge_base = min(100, self.state.lab.knowledge_base + 2)
         topic = dialogue.topic or "今天的聊天"
         self._remember(agent, f"你在{self._slot_name(self.state.time_slot)}和玩家聊了“{topic}”。", importance=2)
@@ -1674,6 +1759,28 @@ class GameEngine:
         self.state.events = self.state.events[:8]
         apply_task_progress(self.state.tasks, "dialogue")
         dialogue.effects = self._player_dialogue_effects(agent, relation_delta, changes) + money_effects
+        player_desire = self._player_desire_label(dialogue.player_text)
+        agent_desire = desire_label_for_agent(self.state, agent, dialogue.player_text)
+        financial_note = "；".join(money_effects)
+        key_point = self._player_dialogue_key_point(dialogue, agent.name, player_desire, agent_desire, financial_note, relation_delta)
+        self._append_dialogue_record(
+            DialogueRecord(
+                id=f"dialogue-{uuid4().hex[:8]}",
+                kind="player_dialogue",
+                day=self.state.day,
+                time_slot=self.state.time_slot,
+                participants=["player", agent.id],
+                participant_names=["你", agent.name],
+                topic=dialogue.topic or "临时闲聊",
+                summary=f"你先抛出“{dialogue.player_text or '一段试探'}”，{agent.name} 的回应是：“{dialogue.line}”",
+                key_point=key_point,
+                transcript=[f"你：{dialogue.player_text}", f"{agent.name}：{dialogue.line}"] if dialogue.player_text else [f"{agent.name}：{dialogue.line}"],
+                desire_labels={"你": player_desire, agent.name: agent_desire},
+                mood="warm" if relation_delta >= 3 else "tense" if relation_delta <= -2 else "neutral",
+                financial_note=financial_note,
+                gray_trade=False,
+            )
+        )
         self._log(
             "player_dialogue",
             agent={"id": agent.id, "name": agent.name, "x": agent.position.x, "y": agent.position.y},
@@ -1688,6 +1795,105 @@ class GameEngine:
             money={"player_cash": self.state.player.cash, "agent_cash": agent.cash},
         )
         return dialogue
+
+    def _append_dialogue_record(self, record: DialogueRecord) -> None:
+        if self.state.dialogue_history is None:
+            self.state.dialogue_history = []
+        self.state.dialogue_history.insert(0, record)
+        self.state.dialogue_history = self.state.dialogue_history[:200]
+
+    def _player_desire_label(self, text: str) -> str:
+        normalized = text.strip()
+        if not normalized:
+            return "想先试探气氛"
+        if any(token in normalized for token in ["钱", "借", "预算", "请", "报销", "利息", "股票", "买", "卖"]):
+            return "想缓解钱压"
+        if any(token in normalized for token in ["累", "困", "回去", "休息", "睡"]):
+            return "想先喘口气"
+        if any(token in normalized for token in ["陪", "聊", "想你", "一起", "听我", "你还好吗"]):
+            return "想被接住"
+        if any(token in normalized for token in ["为什么", "怎么", "证据", "讲清", "解释"]):
+            return "想把话讲清"
+        if any(token in normalized for token in ["机会", "热点", "消息", "外部", "新闻"]):
+            return "想抓机会"
+        if any(token in normalized for token in ["科研", "GeoAI", "实验", "模型"]):
+            return "想把事情往前推"
+        return "想继续聊下去"
+
+    def _player_dialogue_key_point(
+        self,
+        dialogue: DialogueOutcome,
+        agent_name: str,
+        player_desire: str,
+        agent_desire: str,
+        financial_note: str,
+        relation_delta: int,
+    ) -> str:
+        if financial_note:
+            return f"这轮对话落到了钱上：{financial_note}"
+        if relation_delta <= -3:
+            return f"你在试探“{player_desire}”，{agent_name} 则更受“{agent_desire}”驱动，气氛偏顶。"
+        if relation_delta >= 3:
+            return f"你在试探“{player_desire}”，{agent_name} 顺着“{agent_desire}”接住了这轮话。"
+        return f"这轮主要在围绕“{dialogue.topic or '眼前这件事'}”互相摸清对方当下最在意什么。"
+
+    def _advance_geoai_progress(self, amount: int, reason: str = "") -> None:
+        if amount <= 0:
+            return
+        previous = self.state.lab.geoai_progress
+        self.state.lab.geoai_progress = max(0, previous + amount)
+        self._emit_geoai_milestones(previous, self.state.lab.geoai_progress, reason)
+
+    def _emit_geoai_milestones(self, previous: int, current: int, reason: str) -> None:
+        if self.state.geoai_milestones is None:
+            self.state.geoai_milestones = []
+        crossed = [threshold for threshold in GEOAI_MILESTONES if previous < threshold <= current and threshold not in self.state.geoai_milestones]
+        if not crossed:
+            return
+        for threshold in crossed:
+            self.state.geoai_milestones.append(threshold)
+            milestone_event = LabEvent(
+                id=f"event-{uuid4().hex[:8]}",
+                category="geoai",
+                title=f"空间智能研究突破 {threshold} 点里程碑",
+                summary=f"实验室的空间智能研究累计推进到 {current} 点，已跨过 {threshold} 点档位。触发原因与“{reason or '近期持续对话与外部信号'}”相关，市场开始重新定价 GEO 板块。",
+                source="实验室新闻台",
+                time_slot=self.state.time_slot,
+                impacts={"collective_reasoning": 2, "research_progress": 1},
+                participants=[],
+                tone_hint=2,
+                market_target="GEO",
+                market_strength=5 if threshold >= 260 else 4,
+            )
+            self.state.events.insert(0, milestone_event)
+            self.state.events = self.state.events[:8]
+            for agent in self.state.agents:
+                self._apply_event_to_agent(agent, milestone_event)
+            self._apply_event_to_market(milestone_event)
+            self._log(
+                "geoai_milestone",
+                milestone={"threshold": threshold, "current": current, "reason": reason or "持续推进"},
+            )
+
+    def _ambient_dialogue_key_point(
+        self,
+        first_name: str,
+        second_name: str,
+        topic: str,
+        mood: str,
+        first_desire: str,
+        second_desire: str,
+        financial_note: str,
+    ) -> str:
+        if financial_note:
+            return f"这轮话已经落成了资源动作：{financial_note}"
+        if mood == "tense":
+            return f"{first_name} 更受“{first_desire}”驱动，{second_name} 更受“{second_desire}”驱动，分歧已经摆到明面上。"
+        if mood in {"warm", "spark"} and first_desire == second_desire:
+            return f"两个人都在惦记“{first_desire}”，所以这轮更容易迅速站到一边。"
+        if mood in {"warm", "spark"}:
+            return f"他们虽然各有侧重，但都愿意继续接“{topic}”这条线。"
+        return f"这轮主要是在摸彼此对“{topic}”的真实取向。"
 
     def _propagate_shared_signal_relationships(self, event: LabEvent) -> None:
         if event.category not in {"geoai", "tech", "market"}:
@@ -1852,7 +2058,30 @@ class GameEngine:
         response_line: str,
         topic: str,
         mood: str,
-    ) -> tuple[int, int] | None:
+    ) -> dict[str, object] | None:
+        explicit_gray_request = any(token in request_line for token in ["私下", "别挂到账", "别摆到台面", "灰色", "非正式"])
+        explicit_gray_offer = any(token in response_line for token in ["私下给你", "先别挂账", "这笔先不摆到台面", "非正式资源交换", "别往外说"])
+        if explicit_gray_request and explicit_gray_offer and donor.cash > 0:
+            amount = self._extract_money_amount(f"{request_line}{response_line}") or max(5, requester.money_urgency // 18)
+            relation = (donor.relations.get(requester.id, 0) + requester.relations.get(donor.id, 0)) / 2
+            judgement = self._loan_judgement_score(donor, requester, amount) + int(relation // 3)
+            if mood == "tense":
+                judgement -= 8
+            if judgement < 34 or relation < 18:
+                return None
+            amount = min(amount, donor.cash)
+            if amount <= 0:
+                return None
+            donor.cash -= amount
+            requester.cash += amount
+            self._remember(requester, f"{donor.name} 刚私下塞给你 ${amount}，算一笔不公开的资源交换。", 2)
+            self._remember(donor, f"你刚私下给了 {requester.name} ${amount}，这笔没有摆到公开台面上。", 2)
+            self._adjust_relation(requester, donor, 1, f"围绕“{topic}”完成了一次不公开的资源交换。")
+            self._log(
+                "agent_gray_trade",
+                trade={"from": donor.id, "to": requester.id, "amount": amount, "topic": topic},
+            )
+            return {"note": f"{donor.name} 和 {requester.name} 做了一笔非正式资源交换 ${amount}", "interest_rate": None, "gray_trade": True}
         explicit_request = any(token in request_line for token in ["借我", "能不能借", "先垫", "能不能报销", "赞助我", "请我", "能不能支一点"])
         explicit_offer = any(token in response_line for token in ["借你", "我先垫", "我报销", "我请", "我来出", "行，我给你"])
         if not explicit_request or not explicit_offer or donor.cash <= 0:
@@ -1881,7 +2110,11 @@ class GameEngine:
             loan={"id": loan.id, "lender": donor.id, "borrower": requester.id, "principal": amount, "interest_rate": interest_rate, "due_day": loan.due_day},
             topic=topic,
         )
-        return amount, interest_rate
+        return {
+            "note": f"{donor.name} 借给了 {requester.name} ${amount}，明天按 {interest_rate}% 收回",
+            "interest_rate": interest_rate,
+            "gray_trade": False,
+        }
 
     def _resolve_player_money_exchange(self, agent: Agent, dialogue: DialogueOutcome, relation_delta: int) -> list[str]:
         intent, explicit_amount = self._player_money_intent(dialogue.player_text)
@@ -1915,7 +2148,7 @@ class GameEngine:
             f"好奇心 {self._format_delta(changes['curiosity'])}",
         ]
 
-    def _apply_pair_dialogue_state(self, first: Agent, second: Agent, topic: str, mood: str) -> None:
+    def _apply_pair_dialogue_state(self, first: Agent, second: Agent, topic: str, mood: str) -> dict[str, object] | None:
         if mood == "warm":
             deltas = {"mood": 4, "stress": -3, "focus": 1, "energy": -1, "curiosity": 1}
         elif mood == "spark":
@@ -1934,7 +2167,8 @@ class GameEngine:
         second.last_interaction = f"刚在{ROOM_LABELS.get(second.current_location, second.current_location)}和 {first.name} 接着聊了“{topic}”。"
         transferred = self._resolve_pair_money_exchange(first, second, topic, mood)
         if transferred and self.state.ambient_dialogues:
-            self.state.ambient_dialogues[0].effects.append(f"{transferred}")
+            self.state.ambient_dialogues[0].effects.append(str(transferred["note"]))
+        return transferred
 
     def _apply_desire_pair_impact(self, first: Agent, second: Agent, first_desire: str, second_desire: str, mood: str) -> None:
         if first_desire == second_desire and mood in {"warm", "spark"}:
@@ -1954,7 +2188,7 @@ class GameEngine:
             self._shift_agent_state(first, mood=-1, stress=2)
             self._shift_agent_state(second, mood=-1, stress=2)
 
-    def _resolve_pair_money_exchange(self, first: Agent, second: Agent, topic: str, mood: str) -> str | None:
+    def _resolve_pair_money_exchange(self, first: Agent, second: Agent, topic: str, mood: str) -> dict[str, object] | None:
         if not self.state.ambient_dialogues:
             return None
         latest = self.state.ambient_dialogues[0]
@@ -1968,12 +2202,10 @@ class GameEngine:
             return None
         first_to_second = self._ambient_money_exchange(first, second, left_line, right_line, topic, mood)
         if first_to_second is not None:
-            amount, rate = first_to_second
-            return f"{second.name} 借给了 {first.name} ${amount}，利息 {rate}%"
+            return first_to_second
         second_to_first = self._ambient_money_exchange(second, first, right_line, left_line, topic, mood)
         if second_to_first is not None:
-            amount, rate = second_to_first
-            return f"{first.name} 借给了 {second.name} ${amount}，利息 {rate}%"
+            return second_to_first
         return None
 
     def _build_status_summary(
@@ -2092,6 +2324,10 @@ class GameEngine:
             self.state.loans = []
         if self.state.archived_tasks is None:
             self.state.archived_tasks = []
+        if self.state.dialogue_history is None:
+            self.state.dialogue_history = []
+        if self.state.geoai_milestones is None:
+            self.state.geoai_milestones = []
         for agent in self.state.agents:
             if agent.home_position is None:
                 home = HOME_SPOTS.get(agent.id)
@@ -2220,6 +2456,21 @@ class GameEngine:
         return "neutral"
 
     def _ambient_pair_lines(self, first: Agent, second: Agent, topic: str, mood: str, continued: bool, first_desire: str, second_desire: str) -> tuple[str, str]:
+        pair_relation = (first.relations.get(second.id, 0) + second.relations.get(first.id, 0)) / 2
+        if (
+            ("消息" in topic or "风向" in topic or "机会" in topic or "周转" in topic)
+            and pair_relation >= 26
+            and {first_desire, second_desire} & {"money", "opportunity"}
+            and self.random.random() < 0.16
+        ):
+            amount = max(5, max(first.money_urgency, second.money_urgency) // 18)
+            if first.money_urgency >= second.money_urgency:
+                left = f"这笔先别摆到台面上，你私下给我 {amount} 美元，我把那条消息先递给你。"
+                right = "行，这笔先算非正式资源交换，别在公开台账里展开。"
+                return left, right
+            left = f"我手里那条线可以先给你，但这笔先别挂账，你私下拿 {amount} 美元来换。"
+            right = f"可以，这笔先走非正式资源交换，${amount} 我先给你。"
+            return left, right
         if any(keyword in topic for keyword in ["预算", "股票", "借点", "周转"]):
             amount = max(4, max(first.money_urgency, second.money_urgency) // 20)
             if first.money_urgency >= second.money_urgency:
@@ -2238,13 +2489,13 @@ class GameEngine:
                 response_line = "我先不借，今天更想自己扛一下。"
             return offer_line, response_line
         if self._desires_collide(first_desire, second_desire):
-            left = f"我现在更想先顾“{DESIRE_LABELS.get(first_desire, first_desire)}”，你别总把话拽去“{DESIRE_LABELS.get(second_desire, second_desire)}”。"
-            right = f"可我眼下最在意的就是“{DESIRE_LABELS.get(second_desire, second_desire)}”，你别像没看见一样。"
+            left = f"我现在更想先顾“{DESIRE_LABELS.get(first_desire, first_desire)}”，因为我已经没有余裕再分神了，你别总把话拽去“{DESIRE_LABELS.get(second_desire, second_desire)}”。"
+            right = f"可我眼下最在意的就是“{DESIRE_LABELS.get(second_desire, second_desire)}”，你别像没看见一样。我不是故意顶你，是我真的先顾不上别的。"
             return left, right
         if first_desire == second_desire:
             shared = DESIRE_LABELS.get(first_desire, first_desire)
-            left = f"我感觉你也在惦记“{shared}”。"
-            right = f"对，我这会儿也想先把“{shared}”稳住。"
+            left = f"我感觉你也在惦记“{shared}”，所以我刚才那句你应该听得懂。"
+            right = f"对，我这会儿也想先把“{shared}”稳住，不然今天后面整个人都要散。"
             return left, right
         left_seed = ambient_line_for(first, topic)
         right_seed = ambient_line_for(second, topic)

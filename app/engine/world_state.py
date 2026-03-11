@@ -332,7 +332,7 @@ def build_initial_world() -> WorldState:
         daily_index_history=[IndexCandle(day=1, open=100.0, high=100.0, low=100.0, close=100.0, limit_state="normal")],
     )
     return WorldState(
-        version=17,
+        version=19,
         world_width=44,
         world_height=26,
         day=1,
@@ -346,6 +346,8 @@ def build_initial_world() -> WorldState:
         market=market,
         archived_tasks=[],
         ambient_dialogues=[],
+        dialogue_history=[],
+        geoai_milestones=[],
         social_threads=[],
         story_beats=[],
         loans=[],
