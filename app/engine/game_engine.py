@@ -2356,23 +2356,24 @@ class GameEngine:
         }
         agent.current_bubble = event_bubble.get(event.category, "这条消息值得留意。")
 
-    def _commit_dialogue(self, agent: Agent, dialogue: DialogueOutcome, reason: str) -> DialogueOutcome:
+    def _commit_dialogue(self, agent: Agent, dialogue: DialogueOutcome, reason: str, mode: str = "manual") -> DialogueOutcome:
         self.state.latest_dialogue = dialogue
         self.state.ambient_dialogues.insert(0, dialogue)
         self.state.ambient_dialogues = self.state.ambient_dialogues[:6]
-        relation_delta, changes = self._apply_player_dialogue_impact(agent, dialogue)
+        relation_delta, changes = self._apply_player_dialogue_impact(agent, dialogue, intensity=0.35 if mode == "observer" else 1.0)
         self._adjust_player_relation(agent, relation_delta, reason)
         money_effects = self._resolve_player_money_exchange(agent, dialogue, relation_delta)
         agent.current_bubble = dialogue.bubble_text
-        self.state.lab.team_atmosphere = min(100, self.state.lab.team_atmosphere + 2)
-        self._advance_geoai_progress(3, reason=dialogue.topic or "玩家对话")
-        self.state.lab.knowledge_base = min(100, self.state.lab.knowledge_base + 2)
+        self.state.lab.team_atmosphere = min(100, self.state.lab.team_atmosphere + (1 if mode == "observer" else 2))
+        if mode != "observer":
+            self._advance_geoai_progress(3, reason=dialogue.topic or "玩家对话")
+            self.state.lab.knowledge_base = min(100, self.state.lab.knowledge_base + 2)
         topic = dialogue.topic or "今天的聊天"
         self._remember(agent, f"你在{self._slot_name(self.state.time_slot)}和玩家聊了“{topic}”。", importance=2)
         if dialogue.player_text:
             self._remember(agent, f"玩家刚刚说：“{dialogue.player_text}”", importance=2)
         self._remember(agent, f"你刚刚回复玩家：“{dialogue.line[:72]}”", importance=2)
-        if agent.persona in {"rational", "creative"}:
+        if mode != "observer" and agent.persona in {"rational", "creative"}:
             self._remember(agent, f"关于“{topic}”的讨论值得继续追。", importance=3, long_term=True)
         self.state.events.insert(
             0,
@@ -2399,7 +2400,7 @@ class GameEngine:
                 participants=["player", agent.id],
                 participant_names=["你", agent.name],
                 topic=dialogue.topic or "临时闲聊",
-                summary=f"你先抛出“{dialogue.player_text or '一段试探'}”，{agent.name} 的回应是：“{dialogue.line}”",
+                summary=f"{'观察模式下你先随口抛出' if mode == 'observer' else '你先抛出'}“{dialogue.player_text or '一段试探'}”，{agent.name} 的回应是：“{dialogue.line}”",
                 key_point=key_point,
                 transcript=[f"你：{dialogue.player_text}", f"{agent.name}：{dialogue.line}"] if dialogue.player_text else [f"{agent.name}：{dialogue.line}"],
                 desire_labels={"你": player_desire, agent.name: agent_desire},
@@ -2413,6 +2414,7 @@ class GameEngine:
             agent={"id": agent.id, "name": agent.name, "x": agent.position.x, "y": agent.position.y},
             topic=dialogue.topic,
             reason=reason,
+            mode=mode,
             dialogue={
                 "player_text": dialogue.player_text,
                 "agent_reply": dialogue.line,
@@ -2630,7 +2632,7 @@ class GameEngine:
         if previous < 65 <= updated:
             self._remember(agent, f"你开始期待下一次和玩家单独聊天。", 4, long_term=True)
 
-    def _apply_player_dialogue_impact(self, agent: Agent, dialogue: DialogueOutcome) -> tuple[int, dict[str, int]]:
+    def _apply_player_dialogue_impact(self, agent: Agent, dialogue: DialogueOutcome, intensity: float = 1.0) -> tuple[int, dict[str, int]]:
         player_text = " ".join(filter(None, [dialogue.player_text, dialogue.topic]))
         support = self._keyword_hits(player_text, ["谢谢", "辛苦", "理解", "支持", "一起", "慢慢", "相信", "喜欢", "麻烦你", "拜托"])
         pressure = self._keyword_hits(player_text, ["不对", "问题", "bug", "风险", "怀疑", "分歧", "卡住", "着急", "质疑", "别扯", "别废话"])
@@ -2641,7 +2643,7 @@ class GameEngine:
         constructive = self._keyword_hits(player_text, ["一起看", "梳理", "帮我", "分析", "讨论", "复盘", "解释"])
         relation_delta = 1 + resonance + support + constructive + (1 if inquiry > 0 and hostility == 0 else 0) - pressure * 2 - hostility * 4 - dominance
         relation_delta = max(-12, min(10, relation_delta))
-        changes = {
+        raw_changes = {
             "mood": max(-9, min(8, resonance + support + constructive - pressure * 2 - hostility * 3 - dominance)),
             "stress": max(-6, min(9, pressure * 2 + hostility * 3 + dominance - support - (1 if constructive > 0 else 0))),
             "focus": max(-5, min(6, inquiry + (1 if agent.persona in {"rational", "engineering"} else 0) - hostility - (1 if support > inquiry + 1 else 0))),
@@ -2649,6 +2651,18 @@ class GameEngine:
             "curiosity": max(-4, min(7, resonance + inquiry + constructive - hostility)),
             "geo_reasoning_skill": 1 if self._is_geoai_topic(player_text) and hostility == 0 else 0,
         }
+        if intensity != 1.0:
+            relation_delta = int(round(relation_delta * intensity))
+            changes = {
+                "mood": int(round(raw_changes["mood"] * max(0.25, intensity))),
+                "stress": int(round(raw_changes["stress"] * max(0.25, intensity))),
+                "focus": int(round(raw_changes["focus"] * max(0.25, intensity))),
+                "energy": int(round(raw_changes["energy"] * max(0.2, intensity * 0.8))),
+                "curiosity": int(round(raw_changes["curiosity"] * max(0.25, intensity))),
+                "geo_reasoning_skill": 0 if intensity < 0.6 else raw_changes["geo_reasoning_skill"],
+            }
+        else:
+            changes = raw_changes
         self._shift_agent_state(agent, **changes)
         projected_relation = max(-100, min(100, agent.relations.get("player", 0) + relation_delta))
         topic = dialogue.topic or "刚才的话题"

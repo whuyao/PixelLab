@@ -47,7 +47,7 @@ app = FastAPI(title="LocalFarmer", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=Path(__file__).parent.parent / "static"), name="static")
 
 
-async def _apply_ai_player_dialogue(agent_id: str, text: str) -> None:
+async def _apply_ai_player_dialogue(agent_id: str, text: str, observer_mode: bool = False) -> None:
     cleaned = text.strip()
     if not cleaned:
         raise ValueError("先输入一句你想说的话。")
@@ -59,9 +59,15 @@ async def _apply_ai_player_dialogue(agent_id: str, text: str) -> None:
         except OpenAIDialogueError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
     if dialogue is not None:
-        context.engine.commit_external_dialogue(agent_id, dialogue, cleaned)
+        if observer_mode:
+            context.engine.social_engine.commit_observer_dialogue(agent_id, dialogue, cleaned)
+        else:
+            context.engine.commit_external_dialogue(agent_id, dialogue, cleaned)
     else:
-        context.engine.speak_to_agent(agent_id, cleaned)
+        if observer_mode:
+            context.engine.social_engine.speak_to_agent_observer(agent_id, cleaned)
+        else:
+            context.engine.speak_to_agent(agent_id, cleaned)
 
 
 @app.get("/")
@@ -113,7 +119,7 @@ async def speak(agent_id: str, payload: SpeakRequest) -> WorldState:
 @app.post("/api/auto-speak/{agent_id}", response_model=WorldState)
 async def auto_speak(agent_id: str, payload: SpeakRequest) -> WorldState:
     try:
-        await _apply_ai_player_dialogue(agent_id, payload.text)
+        await _apply_ai_player_dialogue(agent_id, payload.text, observer_mode=True)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except KeyError as exc:

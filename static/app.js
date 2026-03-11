@@ -54,7 +54,7 @@ const talkInput = document.getElementById("talkInput");
 const talkTarget = document.getElementById("talkTarget");
 const talkSendBtn = document.getElementById("talkSendBtn");
 const macroSubmitBtn = document.getElementById("macroSubmitBtn");
-const ASSET_VERSION = "20260311ap";
+const ASSET_VERSION = "20260311aq";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -432,6 +432,8 @@ let dialogueFilterMode = "all";
 let dialogueFilterActor = "all";
 const expandedDialogueIds = new Set();
 const renderCache = new Map();
+const observerRecentAgents = [];
+const observerAgentCooldowns = new Map();
 let highlightedEventId = "";
 let highlightedStoryId = "";
 let highlightedDialogueId = "";
@@ -2085,6 +2087,48 @@ function getNearbyAgent() {
   return state.agents.find((agent) => manhattan(agent.position, state.player.position) <= 2) || null;
 }
 
+function trimObserverHistory() {
+  while (observerRecentAgents.length > 4) observerRecentAgents.shift();
+}
+
+function markObserverAgent(agentId) {
+  observerAgentCooldowns.set(agentId, Date.now());
+  observerRecentAgents.push(agentId);
+  trimObserverHistory();
+}
+
+function observerTalkPenalty(agentId) {
+  const lastAt = observerAgentCooldowns.get(agentId);
+  if (!lastAt) return 0;
+  const elapsed = Date.now() - lastAt;
+  if (elapsed < 12000) return 120;
+  if (elapsed < 22000) return 60;
+  if (elapsed < 36000) return 20;
+  return 0;
+}
+
+function observerRelationBias(agentId) {
+  return state?.player?.social_links?.[agentId] || 0;
+}
+
+function pickObserverTarget(requireNearby = false) {
+  if (!state?.agents?.length) return null;
+  const candidates = state.agents.filter((agent) => !agent.is_resting);
+  const pool = requireNearby ? candidates.filter((agent) => manhattan(agent.position, state.player.position) <= 2) : candidates;
+  if (!pool.length) return null;
+  return pool
+    .slice()
+    .sort((left, right) => {
+      const leftDistance = manhattan(left.position, state.player.position);
+      const rightDistance = manhattan(right.position, state.player.position);
+      const leftRecent = observerRecentAgents.includes(left.id) ? 28 + observerRecentAgents.lastIndexOf(left.id) * 8 : 0;
+      const rightRecent = observerRecentAgents.includes(right.id) ? 28 + observerRecentAgents.lastIndexOf(right.id) * 8 : 0;
+      const leftScore = (requireNearby ? 0 : leftDistance * 5) + observerTalkPenalty(left.id) + leftRecent + observerRelationBias(left.id) * 0.65 + Math.random() * 8;
+      const rightScore = (requireNearby ? 0 : rightDistance * 5) + observerTalkPenalty(right.id) + rightRecent + observerRelationBias(right.id) * 0.65 + Math.random() * 8;
+      return leftScore - rightScore;
+    })[0];
+}
+
 function getFocusAgent() {
   return getNearbyAgent() || state.agents.find((agent) => agent.id === state?.latest_dialogue?.agent_id) || state.agents[0];
 }
@@ -2178,6 +2222,8 @@ function buildObserverUtterance(target) {
     "我刚从旁边走过，感觉这里气氛还不错。",
     "你现在看起来像想说点什么，我在听。",
     "今天大家都慢下来了，你这会儿最想聊什么？",
+    "我就随口问一句，你现在脑子里最先跳出来的是什么？",
+    "先不聊大事，我只是路过，想听你一句真心话。",
   ];
   const byAgent = {
     lin: ["你刚才那句我记住了，要不要把思路再讲直一点？", "你今天看起来比上午稳一点，现在最卡哪儿？"],
@@ -2343,6 +2389,12 @@ function loop(now) {
 
 function chooseAutoMove() {
   if (!state || !autoExplore) return null;
+  if (observerMode) {
+    const target = pickObserverTarget(false);
+    if (target && manhattan(target.position, state.player.position) > 2 && Math.random() < 0.82) {
+      return chooseWalkableStep(state.player.position, target.position);
+    }
+  }
   const focus = state.agents
     .slice()
     .sort((left, right) => manhattan(left.position, state.player.position) - manhattan(right.position, state.player.position))[0];
@@ -2373,6 +2425,7 @@ async function autoInteract(target) {
       body: JSON.stringify({ text: observerText }),
     });
     pendingDialogue = null;
+    markObserverAgent(target.id);
     syncSceneEntities();
     renderPanels();
     signalStatus.textContent = `观察模式下，玩家刚主动和 ${target.name} 聊了一句。`;
@@ -2468,8 +2521,8 @@ function scheduleObserverMode() {
       await autoTradePlayer();
       return;
     }
-    const nearby = getNearbyAgent();
-    if (nearby && Math.random() < 0.72) {
+    const nearby = pickObserverTarget(true);
+    if (nearby && observerTalkPenalty(nearby.id) < 80 && Math.random() < 0.58) {
       await autoInteract(nearby);
       return;
     }
@@ -2526,6 +2579,8 @@ observerModeBtn.addEventListener("click", () => {
   if (observerMode) {
     autoExplore = true;
     lastManualInput = 0;
+    observerRecentAgents.length = 0;
+    observerAgentCooldowns.clear();
     signalStatus.textContent = "观察模式已开启。玩家会自动移动、自动互动、自动推进时段。";
   } else {
     signalStatus.textContent = "观察模式已关闭。你可以重新手动控制玩家。";
