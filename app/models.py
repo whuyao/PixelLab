@@ -358,6 +358,14 @@ class GovernmentState(BaseModel):
     total_public_investment: int = 0
     last_audit_day: int = 0
     audit_cooldown_days: int = 4
+    current_agenda: str = "观察税收、游客和住房压力。"
+    last_agent_action: str = "财政周期还没有触发新的建设动作。"
+    last_agent_reason: str = "系统会根据游客、住房、储备和资产收益决定下一步。"
+    known_signals: list[str] = Field(default_factory=list)
+    last_agent_action_day: int = 0
+    daily_asset_revenue: int = 0
+    daily_asset_maintenance: int = 0
+    daily_asset_net: int = 0
     revenues: dict[str, int] = Field(
         default_factory=lambda: {
             "wage": 0,
@@ -415,6 +423,7 @@ class PropertyAsset(BaseModel):
     listed: bool = False
     built: bool = True
     status: str = "owned"
+    facility_kind: str = ""
     description: str = ""
 
 
@@ -557,7 +566,7 @@ class AnalysisPoint(BaseModel):
 
 
 class WorldState(BaseModel):
-    version: int = 41
+    version: int = 44
     world_width: int = 44
     world_height: int = 26
     day: int
@@ -581,6 +590,7 @@ class WorldState(BaseModel):
     geoai_milestones: list[int] = Field(default_factory=list)
     daily_briefings: list[DailyBriefing] = Field(default_factory=list)
     news_timeline: list[NewsTimelineItem] = Field(default_factory=list)
+    news_window_days: int = 7
     social_threads: list[SocialThread] = Field(default_factory=list)
     story_beats: list[StoryBeat] = Field(default_factory=list)
     loans: list[LoanRecord] = Field(default_factory=list)
@@ -606,6 +616,10 @@ class NewsRequest(BaseModel):
 
 class NewsTimelineRequest(BaseModel):
     horizon_slots: int = 6
+
+
+class NewsTimelinePolicyRequest(BaseModel):
+    window_days: Literal[3, 7, 14]
 
 
 class MacroNewsRequest(BaseModel):

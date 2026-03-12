@@ -50,11 +50,9 @@ def map_search_result_to_event(item: dict[str, str], topic: str, slot: TimeSlot,
         if any(keyword in combined_text for keyword in keywords):
             market_target = symbol
             break
-    market_strength = 2
+    market_strength = 4
     if abs(raw_tone) >= 2:
-        market_strength = 4
-    elif positive_hits or negative_hits:
-        market_strength = 3
+        market_strength = 5
     impacts = {
         "geoai_progress": 6 if category == "geoai" else 2,
         "collective_reasoning": 5 if category in {"geoai", "tech"} else 2,

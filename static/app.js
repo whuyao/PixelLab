@@ -18,6 +18,8 @@ const dialogueFilterLoan = document.getElementById("dialogueFilterLoan");
 const dialogueFilterGray = document.getElementById("dialogueFilterGray");
 const dialogueFilterDesire = document.getElementById("dialogueFilterDesire");
 const signalStatus = document.getElementById("signalStatus");
+const newsWindowSelect = document.getElementById("newsWindowSelect");
+const newsWindowSubmitBtn = document.getElementById("newsWindowSubmitBtn");
 const macroStatus = document.getElementById("macroStatus");
 const dailyBriefBox = document.getElementById("dailyBriefBox");
 const newsTimelineBox = document.getElementById("newsTimelineBox");
@@ -57,6 +59,9 @@ const marketAnalysisMeta = document.getElementById("marketAnalysisMeta");
 const capitalAnalysisCanvas = document.getElementById("capitalAnalysisCanvas");
 const capitalAnalysisCtx = capitalAnalysisCanvas?.getContext("2d");
 const capitalAnalysisMeta = document.getElementById("capitalAnalysisMeta");
+const fiscalAnalysisCanvas = document.getElementById("fiscalAnalysisCanvas");
+const fiscalAnalysisCtx = fiscalAnalysisCanvas?.getContext("2d");
+const fiscalAnalysisMeta = document.getElementById("fiscalAnalysisMeta");
 const socialAnalysisCanvas = document.getElementById("socialAnalysisCanvas");
 const socialAnalysisCtx = socialAnalysisCanvas?.getContext("2d");
 const socialAnalysisMeta = document.getElementById("socialAnalysisMeta");
@@ -95,7 +100,7 @@ const welfareBankruptcyInput = document.getElementById("welfareBankruptcyInput")
 const taxPolicyNoteInput = document.getElementById("taxPolicyNoteInput");
 const taxPolicySubmitBtn = document.getElementById("taxPolicySubmitBtn");
 const taxPolicyStatus = document.getElementById("taxPolicyStatus");
-const ASSET_VERSION = "20260312ak";
+const ASSET_VERSION = "20260313f";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -307,17 +312,46 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-function buildMiniTrendSvg(values, stroke = "#7b9c5c", fill = "rgba(123, 156, 92, 0.16)") {
+function buildMiniTrendSvg(values, stroke = "#7b9c5c", fill = "rgba(123, 156, 92, 0.16)", mode = "linear") {
   const series = (values || []).map((value) => Number(value || 0));
   if (!series.length) {
     return '<div class="mini-trend-empty">等待新数据</div>';
   }
+  if (mode === "bars-sqrt") {
+    const transformed = series.map((value) => Math.sqrt(Math.abs(value || 0)));
+    const max = Math.max(1, ...transformed);
+    const width = 220;
+    const height = 62;
+    const innerHeight = height - 14;
+    const gap = 4;
+    const barWidth = Math.max(8, Math.floor((width - 8 - gap * (series.length - 1)) / Math.max(1, series.length)));
+    const bars = transformed
+      .map((value, index) => {
+        const normalized = value / max;
+        const rawHeight = normalized * innerHeight;
+        const original = Math.abs(series[index] || 0);
+        const barHeight = original > 0 ? Math.max(4, rawHeight) : 2;
+        const x = 4 + index * (barWidth + gap);
+        const y = height - 6 - barHeight;
+        return `<rect x="${x}" y="${y.toFixed(1)}" width="${barWidth}" height="${barHeight.toFixed(1)}" rx="2" fill="${fill}" stroke="${stroke}" stroke-width="1.4"></rect>`;
+      })
+      .join("");
+    return `
+      <svg class="mini-trend-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
+        <polyline class="mini-trend-grid" points="4,10 ${width - 4},10" />
+        <polyline class="mini-trend-grid" points="4,31 ${width - 4},31" />
+        <polyline class="mini-trend-grid" points="4,${height - 6} ${width - 4},${height - 6}" />
+        ${bars}
+      </svg>
+    `;
+  }
+  const transformed = series.map((value) => (mode === "sqrt" ? Math.sign(value) * Math.sqrt(Math.abs(value)) : value));
   const width = 220;
   const height = 62;
-  const min = Math.min(...series);
-  const max = Math.max(...series);
+  const min = Math.min(...transformed);
+  const max = Math.max(...transformed);
   const range = Math.max(1, max - min);
-  const points = series
+  const points = transformed
     .map((value, index) => {
       const x = series.length === 1 ? width / 2 : (index / Math.max(1, series.length - 1)) * (width - 8) + 4;
       const y = height - 6 - (((value - min) / range) * (height - 12));
@@ -618,6 +652,13 @@ let highlightedEventId = "";
 let highlightedStoryId = "";
 let highlightedDialogueId = "";
 let highlightedGrayCaseId = "";
+let taxPolicyPending = false;
+let newsPolicyPending = false;
+let bankActionPending = false;
+let tradePending = false;
+let lifestylePending = false;
+let grayCasePending = false;
+let macroPending = false;
 let selectedConsumeItemId = "";
 let selectedOwnedPropertyId = "";
 let selectedListedPropertyId = "";
@@ -961,11 +1002,14 @@ function renderDailyBrief() {
 function renderNewsTimeline() {
   if (!newsTimelineBox) return;
   const items = (state?.news_timeline || []).slice(0, 40);
+  if (newsWindowSelect && document.activeElement !== newsWindowSelect) {
+    newsWindowSelect.value = String(state?.news_window_days || 7);
+  }
   if (!items.length) {
     newsTimelineBox.innerHTML = `
       <div class="daily-brief-empty">
         <strong>时间线还没排好</strong>
-        <p>系统会自动从 Brave 拉宏观、监管、地产、游客、GeoAI 和就业类消息；如果没有 Brave，就会自动编造市场新闻补足时间线。</p>
+        <p>系统会自动在未来 ${state?.news_window_days || 7} 天窗口内，从 Brave 拉宏观、监管、地产、游客、GeoAI 和就业类消息；如果没有 Brave，就会自动编造市场新闻补足时间线。</p>
       </div>
     `;
     return;
@@ -973,8 +1017,9 @@ function renderNewsTimeline() {
   newsTimelineBox.innerHTML = items.map((item) => {
     const statusLabel = item.status === "scheduled" ? "待触发" : item.status === "triggered" ? "已落地" : "已过期";
     const slotLabel = `${item.scheduled_day} 天 · ${timeLabels[item.scheduled_time_slot] || item.scheduled_time_slot}`;
+    const isStrongShock = (item.market_strength || 0) >= 4;
     return `
-      <article class="timeline-card timeline-${escapeHtml(item.status || "scheduled")}">
+      <article class="timeline-card timeline-${escapeHtml(item.status || "scheduled")} ${isStrongShock ? "timeline-strong-shock" : ""}">
         <div class="daily-brief-head">
           <div>
             <strong>${escapeHtml(item.title || item.theme || "主线新闻")}</strong>
@@ -982,7 +1027,7 @@ function renderNewsTimeline() {
           </div>
           <span class="panel-tag">${escapeHtml(statusLabel)}</span>
         </div>
-        <div class="metric-meta">${escapeHtml(item.source || "系统新闻台")} · ${escapeHtml(categoryLabels[item.category] || item.category || "综合")} · ${escapeHtml(item.market_target || "broad")}</div>
+        <div class="metric-meta">${escapeHtml(item.source || "系统新闻台")} · ${escapeHtml(categoryLabels[item.category] || item.category || "综合")} · ${escapeHtml(item.market_target || "broad")} · 波动强度 ${item.market_strength || 0}${isStrongShock ? " · 强波动预警" : ""}</div>
         <div class="dialogue-summary">${escapeHtml(item.summary || "一条可能影响主线推进的外部新闻。")}</div>
       </article>
     `;
@@ -1106,6 +1151,7 @@ function renderFiscalPanel() {
     .reduce((sum, record) => sum + Math.abs(Number(record.amount || 0)), 0);
   const revenues = government.revenues || {};
   const expenditures = government.expenditures || {};
+  const listedGovernmentAssets = (state.properties || []).filter((asset) => asset.owner_type === "government" && (asset.listed || asset.status === "listed"));
   fiscalSummary.innerHTML = `
     <article class="metric-summary-card">
       <strong>财政总览</strong>
@@ -1169,7 +1215,21 @@ function renderFiscalPanel() {
         <article class="tax-rate-item"><strong>政府投资累计</strong><span>$${government.total_public_investment || 0}</span></article>
         <article class="tax-rate-item"><strong>持有资产数</strong><span>${governmentAssets.length}</span></article>
       </div>
-      <div class="metric-meta">${governmentAssets.length ? governmentAssets.map((asset) => `${asset.name}（${propertyTypeLabel(asset.property_type)}）`).join(" · ") : "当前还没有政府持有资产。"}</div>
+      <div class="metric-meta">${governmentAssets.length ? governmentAssets.map((asset) => `${asset.name}（${facilityKindLabel(asset.facility_kind) || propertyTypeLabel(asset.property_type)}）`).join(" · ") : "当前还没有政府持有资产。"}</div>
+    </section>
+    <section class="metric-group">
+      <h3 class="metric-group-title">政府运营智能体</h3>
+      <div class="tax-rate-grid">
+        <article class="tax-rate-item"><strong>当前议程</strong><span>${escapeHtml(government.current_agenda || "观察游客、住房和财政储备。")}</span></article>
+        <article class="tax-rate-item"><strong>最近动作</strong><span>${escapeHtml(government.last_agent_action || "还没有新的建设动作。")}</span></article>
+        <article class="tax-rate-item"><strong>判断依据</strong><span>${escapeHtml(government.last_agent_reason || "会根据游客、住房和储备继续决策。")}</span></article>
+        <article class="tax-rate-item"><strong>今日设施收入</strong><span>$${government.daily_asset_revenue || 0}</span></article>
+        <article class="tax-rate-item"><strong>今日维护</strong><span>$${government.daily_asset_maintenance || 0}</span></article>
+        <article class="tax-rate-item"><strong>今日净额</strong><span>$${government.daily_asset_net || 0}</span></article>
+        <article class="tax-rate-item"><strong>挂牌出售</strong><span>${listedGovernmentAssets.length}</span></article>
+        <article class="tax-rate-item"><strong>上次动作日</strong><span>第 ${government.last_agent_action_day || 0} 天</span></article>
+      </div>
+      <div class="metric-meta">${(government.known_signals || []).length ? government.known_signals.map((signal) => escapeHtml(signal)).join(" · ") : "政府还在等待更多税收、游客和住房信号。"}</div>
     </section>
     <section class="metric-group">
       <h3 class="metric-group-title">当前税率</h3>
@@ -1294,7 +1354,7 @@ function classifyHeatLevel(metric, value, maxValue = 100) {
 
 function renderHeatStrip(metric, value, maxValue = 100) {
   const activeLevel = classifyHeatLevel(metric, value, maxValue);
-  const levels = ["low", "medium", "high", "danger"];
+  const levels = metric === "stress" ? ["low", "medium", "high", "danger"] : ["danger", "low", "medium", "high"];
   return `
     <div class="heat-strip" aria-hidden="true">
       ${levels.map((level) => `<span class="heat-cell level-${level} ${level === activeLevel ? "is-active" : ""}"></span>`).join("")}
@@ -1308,6 +1368,7 @@ function renderAnalysisPanel() {
   if (!history.length) {
     if (marketAnalysisMeta) marketAnalysisMeta.textContent = "等待分析数据。";
     if (capitalAnalysisMeta) capitalAnalysisMeta.textContent = "等待分析数据。";
+    if (fiscalAnalysisMeta) fiscalAnalysisMeta.textContent = "等待分析数据。";
     if (socialAnalysisMeta) socialAnalysisMeta.textContent = "等待分析数据。";
     if (eventAnalysisMeta) eventAnalysisMeta.textContent = "等待分析数据。";
     if (peopleAnalysis) peopleAnalysis.innerHTML = '<article class="analysis-person-card"><strong>暂无人物快照</strong><div class="metric-meta">世界再运行一会儿，这里会开始积累实时走势。</div></article>';
@@ -1334,16 +1395,29 @@ function renderAnalysisPanel() {
       { label: "团队总资产", values: history.map((item) => item.team_assets || item.team_cash), color: "#9b6ad4", axis: "left" },
       { label: "团队现金", values: history.map((item) => item.team_cash), color: "#c37a4f", axis: "left" },
       { label: "团队存款", values: history.map((item) => item.team_deposits || 0), color: "#6b8fbc", axis: "left" },
-      { label: "财政储备", values: history.map((item) => item.government_reserve || 0), color: "#6fa06d", axis: "left" },
-      { label: "玩家总资产", values: history.map((item) => item.player_assets || 0), color: "#c48bcb", axis: "right" },
     ],
     {
-      leftTopLabel: "团队资产高",
-      leftBottomLabel: "团队资产低",
-      rightTopLabel: "玩家资产高",
-      rightBottomLabel: "玩家资产低",
+      leftTopLabel: "团队资金高",
+      leftBottomLabel: "团队资金低",
       leftCaption: `最近 ${history.length} 段`,
       rightCaption: `${timeLabels[state.time_slot] || state.time_slot}`,
+    },
+  );
+  drawAnalysisChart(
+    fiscalAnalysisCtx,
+    fiscalAnalysisCanvas,
+    [
+      { label: "财政储备", values: history.map((item) => item.government_reserve || 0), color: "#6fa06d", axis: "left" },
+      { label: "玩家总资产", values: history.map((item) => item.player_assets || 0), color: "#c48bcb", axis: "left" },
+      { label: "游客日收入", values: history.map((item) => item.tourist_revenue_daily || 0), color: "#4d87a8", axis: "right" },
+    ],
+    {
+      leftTopLabel: "财政/玩家资产高",
+      leftBottomLabel: "财政/玩家资产低",
+      rightTopLabel: "游客收入高",
+      rightBottomLabel: "游客收入低",
+      leftCaption: `最近 ${history.length} 段`,
+      rightCaption: `第 ${history[history.length - 1].day} 天`,
     },
   );
   drawAnalysisChart(
@@ -1368,13 +1442,10 @@ function renderAnalysisPanel() {
       { label: "活跃事件", values: history.map((item) => item.active_events), color: "#857448", axis: "left" },
       { label: "灰案数量", values: history.map((item) => item.active_gray_cases), color: "#6d5f77", axis: "left" },
       { label: "在场游客", values: history.map((item) => item.tourists_active || 0), color: "#c37a4f", axis: "left" },
-      { label: "游客日收入", values: history.map((item) => item.tourist_revenue_daily || 0), color: "#4d87a8", axis: "right" },
     ],
     {
       leftTopLabel: "数量多",
       leftBottomLabel: "数量少",
-      rightTopLabel: "收入高",
-      rightBottomLabel: "收入低",
       leftCaption: `最近 ${history.length} 段`,
       rightCaption: `${timeLabels[state.time_slot] || state.time_slot}`,
     },
@@ -1389,14 +1460,20 @@ function renderAnalysisPanel() {
   if (capitalAnalysisMeta) {
     const teamCashDelta = latest.team_cash - previous.team_cash;
     const teamAssetDelta = (latest.team_assets || 0) - (previous.team_assets || 0);
+    const teamDepositDelta = (latest.team_deposits || 0) - (previous.team_deposits || 0);
+    capitalAnalysisMeta.textContent = `只保留团队量级接近的资金指标。团队现金 $${latest.team_cash}（${teamCashDelta >= 0 ? "+" : ""}${teamCashDelta}），团队总资产 $${latest.team_assets || 0}（${teamAssetDelta >= 0 ? "+" : ""}${teamAssetDelta}），团队存款 $${latest.team_deposits || 0}（${teamDepositDelta >= 0 ? "+" : ""}${teamDepositDelta}）。`;
+  }
+  if (fiscalAnalysisMeta) {
     const reserveDelta = (latest.government_reserve || 0) - (previous.government_reserve || 0);
-    capitalAnalysisMeta.textContent = `团队和财政资产单独成图。团队现金 $${latest.team_cash}（${teamCashDelta >= 0 ? "+" : ""}${teamCashDelta}），团队总资产 $${latest.team_assets || 0}（${teamAssetDelta >= 0 ? "+" : ""}${teamAssetDelta}），团队存款 $${latest.team_deposits || 0}，玩家总资产 $${latest.player_assets || 0}，财政储备 $${latest.government_reserve || 0}（${reserveDelta >= 0 ? "+" : ""}${reserveDelta}）。`;
+    const playerAssetDelta = (latest.player_assets || 0) - (previous.player_assets || 0);
+    const tourismDelta = (latest.tourist_revenue_daily || 0) - (previous.tourist_revenue_daily || 0);
+    fiscalAnalysisMeta.textContent = `财政、玩家资产和游客收入拆开成独立图。财政储备 $${latest.government_reserve || 0}（${reserveDelta >= 0 ? "+" : ""}${reserveDelta}），玩家总资产 $${latest.player_assets || 0}（${playerAssetDelta >= 0 ? "+" : ""}${playerAssetDelta}），游客日收入 $${latest.tourist_revenue_daily || 0}（${tourismDelta >= 0 ? "+" : ""}${tourismDelta}）。`;
   }
   if (socialAnalysisMeta) {
     socialAnalysisMeta.textContent = `只看人物状态。平均压力 ${latest.avg_stress}，平均满意 ${(latest.avg_satisfaction || 0).toFixed(1)}，平均信用 ${latest.avg_credit}。`;
   }
   if (eventAnalysisMeta) {
-    eventAnalysisMeta.textContent = `左轴只看事件和游客数量，右轴单独看游客收入。活跃事件 ${latest.active_events}，地下案件 ${latest.active_gray_cases}，在场游客 ${latest.tourists_active || 0}，今日游客收入 $${latest.tourist_revenue_daily || 0}。`;
+    eventAnalysisMeta.textContent = `这里只看计数，不再混收入。活跃事件 ${latest.active_events}，地下案件 ${latest.active_gray_cases}，在场游客 ${latest.tourists_active || 0}。`;
   }
   const actors = [
     {
@@ -1528,7 +1605,7 @@ function renderMarketModule() {
         <div class="metric-meta">热销方向 ${escapeHtml(popularItems.join(" · ") || "手冲咖啡 · 夜市小吃 · 集市小店")}</div>
         <div class="mini-trend-block">
           <div class="mini-trend-head"><span>近 10 天消费流</span><strong>${formatCompactCurrency(trailingConsumption.reduce((sum, value) => sum + value, 0))}</strong></div>
-          ${buildMiniTrendSvg(trailingConsumption, "#cf8850", "rgba(207, 136, 80, 0.18)")}
+          ${buildMiniTrendSvg(trailingConsumption, "#cf8850", "rgba(207, 136, 80, 0.28)", "bars-sqrt")}
         </div>
         <div class="metric-meta">${escapeHtml(tourismMessage)}</div>
       </article>
@@ -1538,12 +1615,15 @@ function renderMarketModule() {
         <strong>政府资产与收益</strong>
         <div class="metric-meta">持有资产 ${governmentAssets.length} · 今日净流 ${governmentDailyRevenue >= 0 ? "+" : "-"}${formatCompactCurrency(Math.abs(governmentDailyRevenue))}</div>
         <div class="metric-meta">累计政府资产收入 ${formatCompactCurrency((state.government?.revenues || {}).government_asset || 0)} · 公共投资 ${formatCompactCurrency(state.government?.total_public_investment || 0)}</div>
+        <div class="metric-meta">当前议程：${escapeHtml(state.government?.current_agenda || "观察游客、住房和财政储备。")}</div>
+        <div class="metric-meta">最近动作：${escapeHtml(state.government?.last_agent_action || "还没有新的建设动作。")}</div>
         <div class="mini-trend-block">
           <div class="mini-trend-head"><span>近 10 天财政资产曲线</span><strong>${formatCompactCurrency(trailingGovernmentRevenue.reduce((sum, value) => sum + value, 0))}</strong></div>
-          ${buildMiniTrendSvg(trailingGovernmentRevenue, "#4f9d92", "rgba(79, 157, 146, 0.18)")}
+          ${buildMiniTrendSvg(trailingGovernmentRevenue, "#4f9d92", "rgba(79, 157, 146, 0.28)", "bars-sqrt")}
         </div>
-        <div class="metric-meta">${governmentAssets.length ? escapeHtml(governmentAssets.slice(0, 3).map((asset) => asset.name).join(" · ")) : "财政暂未持有园区资产。"}</div>
+        <div class="metric-meta">${governmentAssets.length ? escapeHtml(governmentAssets.slice(0, 3).map((asset) => `${asset.name}${facilityKindLabel(asset.facility_kind) ? `（${facilityKindLabel(asset.facility_kind)}）` : ""}`).join(" · ")) : "财政暂未持有园区资产。"}</div>
         <div class="metric-meta">${escapeHtml(latestGovernmentFinance?.summary || state.government?.last_distribution_note || "下一轮财政动作会从这里体现。")}</div>
+        <div class="metric-meta">${escapeHtml((state.government?.known_signals || []).slice(0, 2).join(" · ") || "政府仍在观察游客、市场和住房信号。")}</div>
       </article>
     `;
     const playerPosition = `
@@ -1663,13 +1743,13 @@ function renderBankModule() {
     bankLoanList.innerHTML = `${playerLoanMarkup}${agentLoanMarkup}`;
   }
   if (bankBorrowBtn) {
-    bankBorrowBtn.disabled = busy;
+    bankBorrowBtn.disabled = bankActionPending;
   }
   if (bankDepositBtn) {
-    bankDepositBtn.disabled = busy;
+    bankDepositBtn.disabled = bankActionPending;
   }
   if (bankWithdrawBtn) {
-    bankWithdrawBtn.disabled = busy || (state.player.deposit_balance || 0) <= 0;
+    bankWithdrawBtn.disabled = bankActionPending || (state.player.deposit_balance || 0) <= 0;
   }
 }
 
@@ -1681,6 +1761,22 @@ function propertyTypeLabel(type) {
     shop: "小店铺",
     greenhouse: "温室",
   }[type] || type;
+}
+
+function facilityKindLabel(kind) {
+  return {
+    public_housing: "公共住房",
+    night_market_stall: "夜市摊位",
+    visitor_service_station: "游客服务站",
+  }[kind] || "";
+}
+
+function facilityKindBadge(kind) {
+  return {
+    public_housing: "住",
+    night_market_stall: "夜",
+    visitor_service_station: "服",
+  }[kind] || "公";
 }
 
 function tourismSeasonLabel(mode) {
@@ -1783,7 +1879,7 @@ function renderLifestylePanel() {
   if (!state) return;
   const catalog = state.lifestyle_catalog || [];
   const playerProperties = (state.properties || []).filter((asset) => asset.owner_type === "player" && asset.owner_id === state.player.id && asset.status === "owned");
-  const listedProperties = (state.properties || []).filter((asset) => asset.owner_type === "market" && asset.status === "listed");
+  const listedProperties = (state.properties || []).filter((asset) => ["market", "government"].includes(asset.owner_type) && asset.status === "listed");
   const teamAverageSatisfaction = state.agents.length
     ? Math.round(state.agents.reduce((sum, agent) => sum + (agent.life_satisfaction || 0), 0) / state.agents.length)
     : state.player.life_satisfaction || 0;
@@ -1875,11 +1971,11 @@ function renderLifestylePanel() {
               ? `
                 <label class="selection-label" for="ownedPropertySelect">持有资产</label>
                 <select id="ownedPropertySelect" class="selection-select">
-                  ${playerProperties.map((asset) => `<option value="${escapeHtml(asset.id)}" ${asset.id === selectedOwnedProperty.id ? "selected" : ""}>${escapeHtml(asset.name)} · ${escapeHtml(propertyTypeLabel(asset.property_type))}</option>`).join("")}
+                  ${playerProperties.map((asset) => `<option value="${escapeHtml(asset.id)}" ${asset.id === selectedOwnedProperty.id ? "selected" : ""}>${escapeHtml(asset.name)} · ${escapeHtml(facilityKindLabel(asset.facility_kind) || propertyTypeLabel(asset.property_type))}</option>`).join("")}
                 </select>
                 <div class="selection-detail">
                   <strong>${escapeHtml(selectedOwnedProperty.name)}</strong>
-                  <div class="metric-meta">${escapeHtml(propertyTypeLabel(selectedOwnedProperty.property_type))} · 估值 $${selectedOwnedProperty.estimated_value}</div>
+                  <div class="metric-meta">${escapeHtml(facilityKindLabel(selectedOwnedProperty.facility_kind) || propertyTypeLabel(selectedOwnedProperty.property_type))} · 估值 $${selectedOwnedProperty.estimated_value}</div>
                   <div class="metric-meta">日收益 $${selectedOwnedProperty.daily_income} · 维护 $${selectedOwnedProperty.daily_maintenance}</div>
                   <div class="metric-meta">舒适 +${selectedOwnedProperty.comfort_bonus} · 社交 +${selectedOwnedProperty.social_bonus}</div>
                   <div class="metric-meta">${escapeHtml(selectedOwnedProperty.description || "一处已经持有的地产。")}</div>
@@ -1897,14 +1993,14 @@ function renderLifestylePanel() {
               ? `
                 <label class="selection-label" for="listedPropertySelect">挂牌目录</label>
                 <select id="listedPropertySelect" class="selection-select">
-                  ${listedProperties.map((asset) => `<option value="${escapeHtml(asset.id)}" ${asset.id === selectedListedProperty.id ? "selected" : ""}>${escapeHtml(asset.name)} · 挂牌 $${asset.purchase_price}</option>`).join("")}
+                  ${listedProperties.map((asset) => `<option value="${escapeHtml(asset.id)}" ${asset.id === selectedListedProperty.id ? "selected" : ""}>${escapeHtml(asset.name)} · ${escapeHtml(facilityKindLabel(asset.facility_kind) || propertyTypeLabel(asset.property_type))} · 挂牌 $${asset.purchase_price}</option>`).join("")}
                 </select>
                 <div class="selection-detail">
                   <strong>${escapeHtml(selectedListedProperty.name)}</strong>
-                  <div class="metric-meta">${escapeHtml(propertyTypeLabel(selectedListedProperty.property_type))} · 挂牌价 $${selectedListedProperty.purchase_price}</div>
+                  <div class="metric-meta">${escapeHtml(facilityKindLabel(selectedListedProperty.facility_kind) || propertyTypeLabel(selectedListedProperty.property_type))} · 挂牌价 $${selectedListedProperty.purchase_price}</div>
                   <div class="metric-meta">日收益 $${selectedListedProperty.daily_income} · 维护 $${selectedListedProperty.daily_maintenance}</div>
                   <div class="metric-meta">舒适 +${selectedListedProperty.comfort_bonus} · 社交 +${selectedListedProperty.social_bonus}</div>
-                  <div class="metric-meta">${selectedListedProperty.buildable ? "空地可直接建造" : "已建成可直接接手"} · ${escapeHtml(selectedListedProperty.description || "一处可交易地产。")}</div>
+                  <div class="metric-meta">${selectedListedProperty.buildable ? "空地可直接建造" : "已建成可直接接手"} · ${selectedListedProperty.owner_type === "government" ? "财政挂牌" : "市场挂牌"} · ${escapeHtml(selectedListedProperty.description || "一处可交易地产。")}</div>
                 </div>
                 <div class="lifestyle-actions">
                   <button type="button" class="property-buy-btn" data-property-id="${escapeHtml(selectedListedProperty.id)}" data-financed="false">${selectedListedProperty.buildable ? "建造并买入" : "直接买入"}</button>
@@ -2087,7 +2183,7 @@ function renderTradeMeta() {
     tradeMeta.textContent = `现金：$${state.player.cash} · 存款：$${state.player.deposit_balance || 0} · ${symbol} 持仓：${held} 股 · 空仓：${shortHeld} 股 · 现价：${quote ? `$${quote.price.toFixed(2)}` : "--"} · 银行待还 $${bankDebt}`;
   }
   if (sellAllBtn) {
-    sellAllBtn.disabled = held <= 0 || busy;
+    sellAllBtn.disabled = held <= 0 || tradePending;
   }
 }
 
@@ -2164,7 +2260,7 @@ function renderEvents() {
     .slice(0, 200)
     .map(
       (event) => `
-        <article class="event-card event-${escapeHtml(event.category || "general")} ${highlightedEventId === event.id ? "is-highlighted" : ""}" data-event-id="${escapeHtml(event.id)}">
+        <article class="event-card event-${escapeHtml(event.category || "general")} ${String(event.title || "").startsWith("【政府决策】") ? "event-government-decision" : ""} ${highlightedEventId === event.id ? "is-highlighted" : ""}" data-event-id="${escapeHtml(event.id)}">
           <strong>${event.title}</strong>
           <div>${event.summary}</div>
           <div class="event-meta">${categoryLabels[event.category] || event.category} · ${event.source || "实验室"}</div>
@@ -3110,11 +3206,11 @@ function drawPropertyAssets(now) {
         ctx.setLineDash([]);
       }
     } else {
-      const bodyWidth = Math.max(28, Math.round(width * 0.62));
-      const bodyHeight = Math.max(22, Math.round(height * 0.48));
+      const bodyWidth = Math.max(24, Math.round(width * 0.5));
+      const bodyHeight = Math.max(18, Math.round(height * 0.38));
       const bodyX = Math.round(px + (width - bodyWidth) / 2);
-      const bodyY = Math.round(py + height - bodyHeight - 12);
-      const roofY = bodyY - 14;
+      const bodyY = Math.round(py + height - bodyHeight - 16);
+      const roofY = bodyY - 10;
       ctx.fillStyle = shadeColor(ownerColor, -18);
       ctx.fillRect(bodyX, bodyY, bodyWidth, bodyHeight);
       ctx.fillStyle = ownerColor;
@@ -3127,47 +3223,57 @@ function drawPropertyAssets(now) {
       ctx.closePath();
       ctx.fill();
       ctx.fillStyle = "#f6ebd6";
-      ctx.fillRect(bodyX + 6, bodyY + 8, 6, 8);
-      ctx.fillRect(bodyX + bodyWidth - 12, bodyY + 8, 6, 8);
+      ctx.fillRect(bodyX + 5, bodyY + 6, 5, 6);
+      ctx.fillRect(bodyX + bodyWidth - 10, bodyY + 6, 5, 6);
       if (asset.property_type === "shop") {
         ctx.fillStyle = "#f4d48a";
-        ctx.fillRect(bodyX + 4, bodyY - 4, bodyWidth - 8, 4);
+        ctx.fillRect(bodyX + 3, bodyY - 3, bodyWidth - 6, 3);
       }
       if (asset.property_type === "rental_house") {
         ctx.fillStyle = "#d5c6a6";
-        ctx.fillRect(bodyX + bodyWidth / 2 - 4, bodyY + 10, 8, 12);
+        ctx.fillRect(bodyX + bodyWidth / 2 - 3, bodyY + 8, 6, 9);
       } else {
         ctx.fillStyle = "#d5c6a6";
-        ctx.fillRect(bodyX + bodyWidth / 2 - 3, bodyY + 10, 6, 10);
+        ctx.fillRect(bodyX + bodyWidth / 2 - 2, bodyY + 8, 4, 8);
       }
     }
-    ctx.fillStyle = "rgba(48, 40, 31, 0.64)";
-    roundRect(px + 8, py - 14, Math.min(width - 16, 82), 12, 6, true);
-    ctx.fillStyle = "#fff8e8";
-    ctx.font = '10px "PingFang SC", sans-serif';
-    ctx.fillText(asset.name.slice(0, 7), px + 12, py - 5);
+    if (asset.owner_type !== "government") {
+      const labelWidth = Math.min(width - 22, 58);
+      ctx.fillStyle = "rgba(48, 40, 31, 0.6)";
+      roundRect(px + 10, py - 11, labelWidth, 10, 5, true);
+      ctx.fillStyle = "#fff8e8";
+      ctx.font = '9px "PingFang SC", sans-serif';
+      ctx.fillText(asset.name.slice(0, 5), px + 13, py - 3);
+    }
     if (asset.owner_type === "government") {
-      ctx.fillStyle = "rgba(79, 157, 146, 0.24)";
+      const badge = facilityKindBadge(asset.facility_kind);
+      const badgeLabel = ({
+        public_housing: "住房",
+        night_market_stall: "夜市",
+        visitor_service_station: "服务",
+      })[asset.facility_kind] || "公产";
+      ctx.fillStyle = "rgba(79, 157, 146, 0.2)";
       ctx.strokeStyle = "rgba(62, 114, 105, 0.85)";
-      ctx.lineWidth = 2;
-      roundRect(px + 4, py + 4, width - 8, height - 8, 10, true);
+      ctx.lineWidth = 1.5;
+      roundRect(px + 8, py + 8, width - 16, height - 16, 8, true);
       ctx.stroke();
       ctx.fillStyle = "#e7f8f1";
-      roundRect(px + width - 22, py - 14, 16, 14, 6, true);
+      roundRect(px + width - 18, py - 12, 12, 12, 5, true);
       ctx.fillStyle = "#376f69";
-      ctx.font = '11px "PingFang SC", sans-serif';
-      ctx.fillText("公", px + width - 18, py - 4);
-      ctx.fillStyle = "#dff5ee";
-      roundRect(px + 8, py + height - 16, Math.min(width - 16, 44), 10, 5, true);
-      ctx.fillStyle = "#3a746c";
       ctx.font = '9px "PingFang SC", sans-serif';
-      ctx.fillText("财政资产", px + 11, py + height - 8);
+      ctx.fillText(badge, px + width - 14, py - 3);
+      ctx.fillStyle = "#dff5ee";
+      roundRect(px + 8, py + height - 13, 28, 8, 4, true);
+      ctx.fillStyle = "#3a746c";
+      ctx.font = '8px "PingFang SC", sans-serif';
+      ctx.fillText(badgeLabel, px + 10, py + height - 7);
     }
     if (asset.listed) {
       ctx.fillStyle = "#f7e8bf";
-      ctx.fillRect(px + width - 16, py + 8, 10, 10);
+      ctx.fillRect(px + width - 14, py + 10, 8, 8);
       ctx.fillStyle = "#74583b";
-      ctx.fillText("售", px + width - 14, py + 16);
+      ctx.font = '8px "PingFang SC", sans-serif';
+      ctx.fillText("售", px + width - 12, py + 17);
     }
   });
 }
@@ -4510,8 +4616,9 @@ talkInput.addEventListener("input", () => {
 
 tradeForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (busy) return;
-  busy = true;
+  if (tradePending) return;
+  tradePending = true;
+  if (tradeSubmitBtn) tradeSubmitBtn.disabled = true;
   try {
     state = await api("/api/player/trade", {
       method: "POST",
@@ -4527,15 +4634,17 @@ tradeForm.addEventListener("submit", async (event) => {
   } catch (error) {
     signalStatus.textContent = error.message;
   } finally {
-    busy = false;
+    tradePending = false;
+    if (tradeSubmitBtn) tradeSubmitBtn.disabled = false;
+    renderPanels();
   }
 });
 
 if (bankBorrowForm) {
   bankBorrowForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (busy || !state) return;
-    busy = true;
+    if (bankActionPending || !state) return;
+    bankActionPending = true;
     if (bankBorrowBtn) bankBorrowBtn.disabled = true;
     try {
       state = await api("/api/bank/borrow", {
@@ -4551,7 +4660,7 @@ if (bankBorrowForm) {
     } catch (error) {
       signalStatus.textContent = error.message;
     } finally {
-      busy = false;
+      bankActionPending = false;
       if (bankBorrowBtn) bankBorrowBtn.disabled = false;
       renderPanels();
     }
@@ -4561,8 +4670,8 @@ if (bankBorrowForm) {
 if (bankDepositForm) {
   bankDepositForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (busy || !state) return;
-    busy = true;
+    if (bankActionPending || !state) return;
+    bankActionPending = true;
     if (bankDepositBtn) bankDepositBtn.disabled = true;
     try {
       state = await api("/api/bank/deposit", {
@@ -4577,7 +4686,7 @@ if (bankDepositForm) {
     } catch (error) {
       signalStatus.textContent = error.message;
     } finally {
-      busy = false;
+      bankActionPending = false;
       if (bankDepositBtn) bankDepositBtn.disabled = false;
       renderPanels();
     }
@@ -4586,8 +4695,8 @@ if (bankDepositForm) {
 
 if (bankWithdrawBtn) {
   bankWithdrawBtn.addEventListener("click", async () => {
-    if (busy || !state) return;
-    busy = true;
+    if (bankActionPending || !state) return;
+    bankActionPending = true;
     bankWithdrawBtn.disabled = true;
     try {
       state = await api("/api/bank/withdraw", {
@@ -4602,7 +4711,7 @@ if (bankWithdrawBtn) {
     } catch (error) {
       signalStatus.textContent = error.message;
     } finally {
-      busy = false;
+      bankActionPending = false;
       bankWithdrawBtn.disabled = false;
       renderPanels();
     }
@@ -4612,8 +4721,12 @@ if (bankWithdrawBtn) {
 if (taxPolicyForm) {
   taxPolicyForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (busy || !state) return;
-    busy = true;
+    if (!state) return;
+    if (taxPolicyPending) {
+      if (taxPolicyStatus) taxPolicyStatus.textContent = "税务参数正在提交，请稍等一秒。";
+      return;
+    }
+    taxPolicyPending = true;
     if (taxPolicySubmitBtn) taxPolicySubmitBtn.disabled = true;
     try {
       state = await api("/api/government/policy", {
@@ -4634,25 +4747,54 @@ if (taxPolicyForm) {
       });
       syncSceneEntities();
       renderPanels();
-      if (taxPolicyStatus) taxPolicyStatus.textContent = "税制参数已经更新，新的税率会直接进入后续工资、交易、消费和地产结算。";
+      if (taxPolicyStatus) {
+        taxPolicyStatus.textContent = `税制参数已更新：工资税 ${Number(state.government?.wage_tax_rate_pct || 0).toFixed(1)}%，证券税 ${Number(state.government?.securities_tax_rate_pct || 0).toFixed(1)}%，监管强度 ${state.government?.enforcement_level || 0}。`;
+      }
     } catch (error) {
       if (taxPolicyStatus) taxPolicyStatus.textContent = error.message;
     } finally {
-      busy = false;
+      taxPolicyPending = false;
       if (taxPolicySubmitBtn) taxPolicySubmitBtn.disabled = false;
     }
   });
 }
 
+if (newsWindowSubmitBtn) {
+  newsWindowSubmitBtn.addEventListener("click", async () => {
+    if (!state) return;
+    if (newsPolicyPending) {
+      if (signalStatus) signalStatus.textContent = "新闻窗口正在更新，请稍等。";
+      return;
+    }
+    newsPolicyPending = true;
+    newsWindowSubmitBtn.disabled = true;
+    try {
+      state = await api("/api/news/policy", {
+        method: "POST",
+        body: JSON.stringify({ window_days: Number(newsWindowSelect?.value || 7) }),
+      });
+      syncSceneEntities();
+      renderPanels();
+      if (signalStatus) signalStatus.textContent = `主线新闻窗口已更新为 ${state.news_window_days} 天，时间线已按新频率重排。`;
+    } catch (error) {
+      if (signalStatus) signalStatus.textContent = error.message;
+    } finally {
+      newsPolicyPending = false;
+      newsWindowSubmitBtn.disabled = false;
+    }
+  });
+}
+
 sellAllBtn.addEventListener("click", async () => {
-  if (busy || !state) return;
+  if (tradePending || !state) return;
   const symbol = tradeSymbol.value;
   const held = state.player.portfolio?.[symbol] || 0;
   if (held <= 0) {
     signalStatus.textContent = `你当前没有 ${symbol} 持仓可卖。`;
     return;
   }
-  busy = true;
+  tradePending = true;
+  sellAllBtn.disabled = true;
   try {
     state = await api("/api/player/trade", {
       method: "POST",
@@ -4668,7 +4810,8 @@ sellAllBtn.addEventListener("click", async () => {
   } catch (error) {
     signalStatus.textContent = error.message;
   } finally {
-    busy = false;
+    tradePending = false;
+    renderPanels();
   }
 });
 
@@ -4710,11 +4853,11 @@ if (dialogueFilterDesire) {
 if (grayCaseActionBox) {
   grayCaseActionBox.addEventListener("click", async (event) => {
     const button = event.target.closest(".gray-action-btn");
-    if (!button || busy) return;
+    if (!button || grayCasePending) return;
     const caseId = button.dataset.grayCaseId;
     const action = button.dataset.grayAction;
     if (!caseId || !action) return;
-    busy = true;
+    grayCasePending = true;
     try {
       state = await api(`/api/gray-cases/${caseId}/action`, {
         method: "POST",
@@ -4733,7 +4876,7 @@ if (grayCaseActionBox) {
     } catch (error) {
       signalStatus.textContent = error.message;
     } finally {
-      busy = false;
+      grayCasePending = false;
     }
   });
 }
@@ -4749,10 +4892,10 @@ if (dailyBriefBox) {
 if (bankLoanList) {
   bankLoanList.addEventListener("click", async (event) => {
     const button = event.target.closest(".bank-repay-btn");
-    if (!button || busy) return;
+    if (!button || bankActionPending) return;
     const loanId = button.dataset.bankLoanId;
     if (!loanId) return;
-    busy = true;
+    bankActionPending = true;
     try {
       state = await api(`/api/bank/repay/${loanId}`, {
         method: "POST",
@@ -4764,7 +4907,7 @@ if (bankLoanList) {
     } catch (error) {
       signalStatus.textContent = error.message;
     } finally {
-      busy = false;
+      bankActionPending = false;
       renderPanels();
     }
   });
@@ -4782,11 +4925,11 @@ if (consumeCatalog) {
   consumeCatalog.addEventListener("click", async (event) => {
     const button = event.target.closest(".consume-btn");
     if (!button) return;
-    if (busy) {
+    if (lifestylePending) {
       if (lifestyleStatus) lifestyleStatus.textContent = "系统正在刷新世界状态，请稍等一秒再消费。";
       return;
     }
-    busy = true;
+    lifestylePending = true;
     try {
       if (lifestyleStatus) {
         lifestyleStatus.textContent = button.dataset.recipientId && button.dataset.recipientId !== "player" ? "正在处理这笔消费和送礼..." : "正在处理这笔生活消费...";
@@ -4807,7 +4950,7 @@ if (consumeCatalog) {
     } catch (error) {
       if (lifestyleStatus) lifestyleStatus.textContent = error.message;
     } finally {
-      busy = false;
+      lifestylePending = false;
     }
   });
 }
@@ -4830,11 +4973,11 @@ if (propertyList) {
     const buyButton = event.target.closest(".property-buy-btn");
     const sellButton = event.target.closest(".property-sell-btn");
     if (!buyButton && !sellButton) return;
-    if (busy) {
+    if (lifestylePending) {
       if (lifestyleStatus) lifestyleStatus.textContent = "系统正在刷新世界状态，请稍等一秒再做地产操作。";
       return;
     }
-    busy = true;
+    lifestylePending = true;
     try {
       if (buyButton) {
         if (lifestyleStatus) lifestyleStatus.textContent = "正在处理地产买入...";
@@ -4856,7 +4999,7 @@ if (propertyList) {
     } catch (error) {
       if (lifestyleStatus) lifestyleStatus.textContent = error.message;
     } finally {
-      busy = false;
+      lifestylePending = false;
     }
   });
 }
@@ -4864,7 +5007,7 @@ if (propertyList) {
 if (macroNewsForm) {
   macroNewsForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (busy) {
+    if (macroPending) {
       setMacroStatus("系统正在刷新世界状态，请等一秒再发布。");
       signalStatus.textContent = "系统正在自动演化，宏观消息稍后再发。";
       return;
@@ -4877,7 +5020,7 @@ if (macroNewsForm) {
       document.getElementById("macroTitle")?.focus();
       return;
     }
-    busy = true;
+    macroPending = true;
     if (macroSubmitBtn) macroSubmitBtn.disabled = true;
     setMacroStatus("正在发布宏观消息…");
     signalStatus.textContent = "正在发布你设定的宏观消息…";
@@ -4903,7 +5046,7 @@ if (macroNewsForm) {
       signalStatus.textContent = error.message;
     } finally {
       if (macroSubmitBtn) macroSubmitBtn.disabled = false;
-      busy = false;
+      macroPending = false;
     }
   });
 }

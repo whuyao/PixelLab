@@ -22,13 +22,29 @@
 - 后端支持 section-diff 增量状态同步，降低前端重绘成本
 - SQLite 快照存档 + JSONL 行为日志
 
+## 页面预览
+
+桌面总览：
+
+![PixelLab 桌面总览](docs/images/overview.png)
+
+手机窄屏观察：
+
+![PixelLab 手机窄屏](docs/images/mobile-overview.png)
+
 ## 配置与部署
 
 ### 环境要求
 
-- Python `3.11+` 推荐
+- Python `3.11+` 推荐，当前开发环境实测为 `3.14`
 - macOS / Linux
-- 一个可用的 OpenAI 或 Qwen API key
+- 建议 `8GB+` 内存；长期运行和自动演化同时开启时，`16GB` 更稳
+- 现代浏览器：
+  - 桌面端推荐最新版 Chrome / Edge / Safari
+  - 手机端推荐 Safari 或 Chrome，当前做了轻量移动适配
+- 至少一套可用 LLM：
+  - OpenAI 兼容接口
+  - 或 Qwen OpenAI-compatible 接口
 - 可选：Brave Search API key
 
 ### 1. 获取代码
@@ -215,14 +231,16 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 
 核心技术文档都在 [docs](/Volumes/Yaoy/project/LocalFarmer/docs)：
 
-- [architecture_report.md](/Volumes/Yaoy/project/LocalFarmer/docs/architecture_report.md)：完整技术架构
-- [consumption_real_estate_design.md](/Volumes/Yaoy/project/LocalFarmer/docs/consumption_real_estate_design.md)：消费与地产设计
-- [undergrad_system_explainer.md](/Volumes/Yaoy/project/LocalFarmer/docs/undergrad_system_explainer.md)：面向本科生的系统解释
-- [system_development_retrospective.md](/Volumes/Yaoy/project/LocalFarmer/docs/system_development_retrospective.md)：系统发展过程复盘
-- [recent_100day_emergence_report.md](/Volumes/Yaoy/project/LocalFarmer/docs/recent_100day_emergence_report.md)：最近 100 天系统与智能体涌现报告
-- [simulation_day312_review.md](/Volumes/Yaoy/project/LocalFarmer/docs/simulation_day312_review.md)：312 天运行复盘
-- [simulation_day312_academic_analysis.md](/Volumes/Yaoy/project/LocalFarmer/docs/simulation_day312_academic_analysis.md)：学术分析版
-- [emergent_behavior_casebook.md](/Volumes/Yaoy/project/LocalFarmer/docs/emergent_behavior_casebook.md)：10 个涌现行为案例
+- 当前系统设计与实现：
+  - [architecture_report.md](/Volumes/Yaoy/project/LocalFarmer/docs/architecture_report.md)：完整技术架构
+  - [consumption_real_estate_design.md](/Volumes/Yaoy/project/LocalFarmer/docs/consumption_real_estate_design.md)：消费、地产与生活满意度系统设计
+  - [undergrad_system_explainer.md](/Volumes/Yaoy/project/LocalFarmer/docs/undergrad_system_explainer.md)：面向本科生的系统解释
+  - [system_development_retrospective.md](/Volumes/Yaoy/project/LocalFarmer/docs/system_development_retrospective.md)：系统发展过程复盘
+- 运行分析与历史案例：
+  - [recent_100day_emergence_report.md](/Volumes/Yaoy/project/LocalFarmer/docs/recent_100day_emergence_report.md)：最近 100 天系统与智能体涌现报告
+  - [emergent_behavior_casebook.md](/Volumes/Yaoy/project/LocalFarmer/docs/emergent_behavior_casebook.md)：10 个涌现行为案例
+  - [simulation_day312_review.md](/Volumes/Yaoy/project/LocalFarmer/docs/simulation_day312_review.md)：第 312 天阶段的历史运行复盘
+  - [simulation_day312_academic_analysis.md](/Volumes/Yaoy/project/LocalFarmer/docs/simulation_day312_academic_analysis.md)：第 312 天阶段的历史学术分析版
 
 ## 主要交互
 
@@ -276,7 +294,9 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
   - 按事件类型分色
 - 主线新闻时间线
   - 系统自动拉取或自动编造
+  - 频率可配置为 `3 / 7 / 14` 天窗口
   - 带滚动条
+  - 强波动新闻会单独标红预警
   - 展示未来几个时段的外部冲击
 
 ## 智能体系统
@@ -546,6 +566,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 - 游客有轻量短期记忆，会记住最近的入住、对话、消费和消息注入
 - 游客分为普通游客、回头客、高消费客户、潜在购房者
 - 游客流量受淡季 / 平季 / 旺季 / 活动日影响
+- 游客会把外部消息、消费趋势和看房意向带进系统，进一步影响市场、政府建设和智能体决策
 
 游客收入归属现在是显式分账的：
 
@@ -584,6 +605,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 1. 主线新闻时间线
 - 优先从 Brave 拉取真实外部新闻
 - 如果未配置 Brave 或抓取失败，会退回“系统新闻台”自动编造新闻
+- 默认按 `7` 天窗口随机注入少量主线新闻，避免过度扰动
 - 当前固定覆盖：
   - 宏观消费
   - 监管与税务
@@ -630,6 +652,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 - 板块主线
 - 财政速递和监管速递
 - 游客与消费消息
+- 政府设施建设、出售和公共资产收益
 - 借贷和灰色交易
 - 关系风波和八卦
 - 研究里程碑和故事线
@@ -712,7 +735,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 
 - 默认模型是 `gpt-5-mini`
 - 服务默认监听 `127.0.0.1:8765`
-- 当前世界状态版本为 `41`
+- 当前世界状态版本为 `44`
 - 旧存档如果版本落后会被自动丢弃，这是正常行为
 - 当前内部已经拆出 [market_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/market_engine.py)、[social_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/social_engine.py) 和 [lifestyle_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/lifestyle_engine.py)，`GameEngine` 主要负责总编排
 - 当前后端已经支持 section-diff 增量状态同步，前端会优先做模块级增量更新，而不是每轮整页重绘

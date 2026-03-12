@@ -491,7 +491,7 @@ class GameEngine:
         self.state.news_timeline = sorted(
             self.state.news_timeline,
             key=lambda item: (item.status != "scheduled", item.scheduled_day, SLOT_SEQUENCE.index(item.scheduled_time_slot)),
-        )[:60]
+        )[:24]
 
     def build_timeline_event(self, item: NewsTimelineItem) -> LabEvent:
         return LabEvent(
@@ -503,9 +503,9 @@ class GameEngine:
             time_slot=self.state.time_slot,
             impacts=dict(item.impacts),
             participants=[],
-            tone_hint=item.tone_hint,
+            tone_hint=item.tone_hint if item.tone_hint else (1 if self.random.random() < 0.5 else -1),
             market_target=item.market_target,
-            market_strength=item.market_strength,
+            market_strength=max(4, item.market_strength),
         )
 
     def slot_after(self, offset: int = 1) -> tuple[int, TimeSlot]:
@@ -604,6 +604,7 @@ class GameEngine:
         self._soft_shift_player_pressure()
         self._refresh_tasks()
         self._refresh_memory_streams()
+        self._refresh_government_agent_state()
         self._log("world_simulation_tick")
         return self.state
 
@@ -1603,12 +1604,22 @@ class GameEngine:
         elif active_gray_cases <= 1 and self.state.lab.team_atmosphere >= 72 and self.state.lab.research_progress >= 30:
             self.state.lab.reputation = self._bounded(self.state.lab.reputation + 1)
         player_relation_avg = int(sum(self.state.player.social_links.values()) / max(1, len(self.state.player.social_links))) if self.state.player.social_links else 0
+        recent_interventions = sum(1 for action in self.state.player.daily_actions if action.startswith("intervene:"))
         self.state.player.life_satisfaction = self._bounded(
             self.state.player.life_satisfaction
             + (2 if self.state.player.housing_quality >= 55 else -1)
             + (1 if self.state.player.cash >= 40 else -2 if self.state.player.cash <= 12 else 0)
             + (1 if player_relation_avg >= 18 else -1 if player_relation_avg <= -8 else 0)
         )
+        reputation_recovery = 0
+        if recent_interventions == 0 and player_relation_avg >= 18:
+            reputation_recovery += 1
+        if self.state.tourism.daily_revenue >= 40:
+            reputation_recovery += 1
+        if active_gray_cases == 0 and self.state.lab.team_atmosphere >= 70:
+            reputation_recovery += 1
+        if reputation_recovery:
+            self.state.player.reputation_score = self._bounded(self.state.player.reputation_score + min(2, reputation_recovery))
         for agent in self.state.agents:
             if agent.is_resting:
                 continue
@@ -4688,6 +4699,7 @@ class GameEngine:
             self._apply_property_cycle()
             self._settle_bank_deposit_interest()
             self._run_fiscal_distribution_cycle()
+            self._run_government_agent()
         for agent in self.state.agents:
             if agent.is_resting:
                 if slot == "morning" and day >= (agent.rest_until_day or day):
@@ -5066,36 +5078,376 @@ class GameEngine:
             and asset.property_type in {"rental_house", "shop", "greenhouse"}
         ]
 
-    def _government_build_public_asset(self, budget: int) -> PropertyAsset | None:
+    def _government_owned_assets(self) -> list[PropertyAsset]:
+        return [
+            asset
+            for asset in self.state.properties
+            if asset.owner_type == "government" and asset.status == "owned"
+        ]
+
+    def _government_facility_candidates(self, property_type: str, facility_kind: str = "") -> list[tuple[int, int]]:
+        facility_map: dict[str, list[tuple[int, int]]] = {
+            "public_housing": [
+                (24, 20), (28, 20), (32, 20), (38, 20),
+                (24, 23), (28, 23), (32, 23), (36, 23), (40, 23),
+                (24, 26), (28, 26), (32, 26), (36, 26),
+            ],
+            "night_market_stall": [
+                (5, 14), (9, 14), (13, 14), (17, 14), (21, 14),
+                (7, 17), (11, 17), (15, 17), (19, 17),
+            ],
+            "visitor_service_station": [
+                (23, 6), (27, 6), (31, 6), (35, 6),
+                (23, 9), (27, 9), (31, 9),
+            ],
+        }
+        if facility_kind and facility_kind in facility_map:
+            return facility_map[facility_kind]
+        type_map = {
+            "shop": facility_map["night_market_stall"],
+            "rental_house": facility_map["public_housing"],
+            "greenhouse": facility_map["visitor_service_station"],
+        }
+        return type_map.get(property_type, [(10, 10)])
+
+    def _government_facility_position(self, property_type: str, facility_kind: str = "") -> Point:
+        existing = {
+            (asset.position.x, asset.position.y)
+            for asset in self.state.properties
+            if asset.owner_type == "government"
+        }
+        reserved = {
+            (asset.position.x, asset.position.y)
+            for asset in self.state.properties
+            if asset.owner_type != "government"
+        }
+        candidates = self._government_facility_candidates(property_type, facility_kind)
+        for x, y in candidates:
+            if (x, y) not in existing and (x, y) not in reserved:
+                return Point(x=x, y=y)
+        for x, y in candidates:
+            if (x, y) not in existing:
+                return Point(x=x, y=y)
+        fallback = candidates[0] if candidates else (10, 10)
+        return Point(x=fallback[0], y=fallback[1])
+
+    def _rebalance_government_facilities(self) -> None:
+        occupied = {
+            (asset.position.x, asset.position.y)
+            for asset in self.state.properties
+            if asset.owner_type != "government"
+        }
+        seen: set[tuple[int, int]] = set()
+        kind_offsets: dict[str, int] = {}
+        government_assets = sorted(
+            [asset for asset in self.state.properties if asset.owner_type == "government"],
+            key=lambda asset: (asset.facility_kind or asset.property_type, asset.id),
+        )
+        for asset in government_assets:
+            candidates = self._government_facility_candidates(asset.property_type, asset.facility_kind)
+            current = (asset.position.x, asset.position.y)
+            duplicate = current in seen or current in occupied
+            if not duplicate and current in candidates:
+                seen.add(current)
+                continue
+            start = kind_offsets.get(asset.facility_kind or asset.property_type, 0)
+            placed = False
+            for idx in range(start, len(candidates)):
+                candidate = candidates[idx]
+                if candidate in seen or candidate in occupied:
+                    continue
+                asset.position = Point(x=candidate[0], y=candidate[1])
+                seen.add(candidate)
+                kind_offsets[asset.facility_kind or asset.property_type] = idx + 1
+                placed = True
+                break
+            if placed:
+                continue
+            for idx, candidate in enumerate(candidates):
+                if candidate in seen:
+                    continue
+                asset.position = Point(x=candidate[0], y=candidate[1])
+                seen.add(candidate)
+                kind_offsets[asset.facility_kind or asset.property_type] = idx + 1
+                placed = True
+                break
+            if not placed:
+                seen.add((asset.position.x, asset.position.y))
+
+    def _government_event_title(self, title: str) -> str:
+        return f"【政府决策】{title}"
+
+    def _refresh_government_agent_state(self) -> None:
+        government = self.state.government
+        assets = self._government_owned_assets()
+        daily_revenue = sum(max(0, asset.daily_income) for asset in assets)
+        daily_maintenance = sum(max(0, asset.daily_maintenance) for asset in assets)
+        government.daily_asset_revenue = daily_revenue
+        government.daily_asset_maintenance = daily_maintenance
+        government.daily_asset_net = daily_revenue - daily_maintenance
+        tourist_pressure = round(((len(self.state.tourists) / max(1, self.state.tourism.active_visitor_cap)) * 100))
+        average_satisfaction = round(
+            (sum(agent.life_satisfaction for agent in self.state.agents) + self.state.player.life_satisfaction)
+            / max(1, len(self.state.agents) + 1)
+        )
+        listed_assets = sum(1 for asset in self.state.properties if asset.owner_type == "government" and asset.listed)
+        signals: list[str] = [
+            f"游客承压 {tourist_pressure}/100，当前 {len(self.state.tourists)} 人在场",
+            f"财政储备 ${government.reserve_balance}，政府设施净流 ${government.daily_asset_net}",
+            f"住房支持 {government.housing_support_level}，居民平均满意 {average_satisfaction}",
+        ]
+        if self.state.tourism.latest_signal:
+            signals.append(self.state.tourism.latest_signal)
+        if listed_assets:
+            signals.append(f"当前有 {listed_assets} 项财政设施已挂牌，等待私人接手")
+        if self.state.market.regime == "risk":
+            signals.append("市场处于风险市，政府会更偏向稳就业和稳住房")
+        government.known_signals = signals[:4]
+
+    def _government_sale_candidate(self) -> PropertyAsset | None:
+        assets = [
+            asset
+            for asset in self._government_owned_assets()
+            if not asset.listed and asset.property_type in {"shop", "greenhouse", "rental_house"}
+        ]
+        if not assets:
+            return None
+        tourism_assets = [asset for asset in assets if asset.property_type in {"shop", "rental_house"}]
+        for asset in sorted(assets, key=lambda item: ((item.daily_income - item.daily_maintenance), item.estimated_value)):
+            if asset.property_type in {"shop", "rental_house"} and len(tourism_assets) <= 1:
+                continue
+            return asset
+        return assets[0]
+
+    def _run_government_agent(self) -> None:
+        government = self.state.government
+        self._refresh_government_agent_state()
+        if self.state.day - government.last_agent_action_day < 3:
+            return
+        assets = self._government_owned_assets()
+        tourist_ratio = len(self.state.tourists) / max(1, self.state.tourism.active_visitor_cap)
+        average_satisfaction = (
+            sum(agent.life_satisfaction for agent in self.state.agents) + self.state.player.life_satisfaction
+        ) / max(1, len(self.state.agents) + 1)
+        listed_market_assets = self._government_investment_targets()
+        maintenance_burden = government.daily_asset_maintenance
+        if government.reserve_balance < 120 and assets:
+            government.current_agenda = "回笼资金，准备把低效设施挂牌给私人。"
+            candidate = self._government_sale_candidate()
+            if candidate is not None:
+                candidate.listed = True
+                candidate.status = "listed"
+                candidate.estimated_value = max(candidate.purchase_price, candidate.estimated_value)
+                government.last_agent_action_day = self.state.day
+                government.last_agent_action = f"挂牌出售 {candidate.name}"
+                government.last_agent_reason = f"财政储备偏低（${government.reserve_balance}），先把低效设施推向市场。"
+                self._append_finance_record(
+                    actor_id="government",
+                    actor_name=government.name,
+                    category="government",
+                    action="list",
+                    summary=f"{government.name} 决定把 {candidate.name} 挂牌给私人，希望回笼财政资金。",
+                    amount=0,
+                    asset_name=candidate.name,
+                    counterparty="地产市场",
+                )
+                self.state.events.insert(
+                    0,
+                    build_internal_event(
+                        title=self._government_event_title("挂牌一处设施"),
+                        summary=f"{candidate.name} 被推向市场，原因是财政储备与维护压力都偏紧。",
+                        slot=self.state.time_slot,
+                        category="market",
+                    ),
+                )
+                self.state.events = self.state.events[:8]
+                self._refresh_government_agent_state()
+            return
+        if tourist_ratio >= 0.8 and government.reserve_balance >= 80:
+            government.current_agenda = "扩建旅馆和集市，承接游客与本地消费。"
+            preferred = "rental_house" if self.state.tourism.buyer_leads_total > 0 or tourist_ratio >= 0.95 else "shop"
+            preferred_kind = "public_housing" if preferred == "rental_house" else ("visitor_service_station" if self.state.tourism.daily_messages_count >= 2 else "night_market_stall")
+        elif average_satisfaction < 78 and government.reserve_balance >= 90:
+            government.current_agenda = "补住房和公共配套，优先稳住生活满意度。"
+            preferred = "rental_house"
+            preferred_kind = "public_housing"
+        elif maintenance_burden > max(8, government.daily_asset_revenue + 4) and assets:
+            government.current_agenda = "压缩财政维护负担，准备逐步出让部分资产。"
+            candidate = self._government_sale_candidate()
+            if candidate is not None:
+                candidate.listed = True
+                candidate.status = "listed"
+                government.last_agent_action_day = self.state.day
+                government.last_agent_action = f"启动 {candidate.name} 的资产出让"
+                government.last_agent_reason = f"设施维护 ${maintenance_burden} 高于日常收益 ${government.daily_asset_revenue}，先卖掉一处低效率资产。"
+                self._append_finance_record(
+                    actor_id="government",
+                    actor_name=government.name,
+                    category="government",
+                    action="list",
+                    summary=f"{government.name} 因维护负担过高，开始挂牌出让 {candidate.name}。",
+                    amount=0,
+                    asset_name=candidate.name,
+                    counterparty="地产市场",
+                )
+                self.state.events.insert(
+                    0,
+                    build_internal_event(
+                        title=self._government_event_title("出让财政设施"),
+                        summary=f"{candidate.name} 因维护压力过高被推向市场，后续可能由私人接手。",
+                        slot=self.state.time_slot,
+                        category="market",
+                    ),
+                )
+                self.state.events = self.state.events[:8]
+                self._refresh_government_agent_state()
+            return
+        elif listed_market_assets and government.reserve_balance >= 130 and self.state.market.regime != "risk":
+            government.current_agenda = "择机买入能承接游客和住房需求的挂牌资产。"
+            preferred = listed_market_assets[0].property_type
+            preferred_kind = ""
+        else:
+            government.current_agenda = "观察游客、住房和财政储备，暂时维持运营。"
+            government.last_agent_reason = "当前没有必要立刻建设或出让设施。"
+            self._refresh_government_agent_state()
+            return
+
+        target_asset = next(
+            (
+                asset
+                for asset in sorted(listed_market_assets, key=lambda item: item.purchase_price)
+                if asset.property_type == preferred and asset.purchase_price <= government.reserve_balance
+            ),
+            None,
+        )
+        if target_asset is not None:
+            target_asset.owner_type = "government"
+            target_asset.owner_id = "government"
+            target_asset.status = "owned"
+            target_asset.listed = False
+            government.reserve_balance -= target_asset.purchase_price
+            government.total_public_investment += target_asset.purchase_price
+            government.expenditures["investment"] = government.expenditures.get("investment", 0) + target_asset.purchase_price
+            if target_asset.id not in government.government_asset_ids:
+                government.government_asset_ids.append(target_asset.id)
+            government.last_agent_action_day = self.state.day
+            government.last_agent_action = f"买入 {target_asset.name}"
+            government.last_agent_reason = "当前挂牌资产能更快补足游客承接或住房供给，所以优先收购。"
+            self._append_finance_record(
+                actor_id="government",
+                actor_name=government.name,
+                category="government",
+                action="acquire",
+                summary=f"{government.name} 看中 {target_asset.name} 的公共用途，直接从市场买入。",
+                amount=target_asset.purchase_price,
+                asset_name=target_asset.name,
+                counterparty="地产市场",
+            )
+            self.state.events.insert(
+                0,
+                build_internal_event(
+                    title=self._government_event_title("收购一处设施"),
+                    summary=f"{target_asset.name} 被财政收购，后续会继续作为公共设施运营。",
+                    slot=self.state.time_slot,
+                    category="market",
+                ),
+            )
+            self.state.events = self.state.events[:8]
+            self._refresh_government_agent_state()
+            return
+
+        budget = min(government.reserve_balance, 150 if preferred == "rental_house" else 120)
+        built_asset = self._government_build_public_asset(budget, preferred_type=preferred, preferred_kind=preferred_kind)
+        if built_asset is None:
+            government.last_agent_reason = "想建新设施，但当前储备还不够。"
+            self._refresh_government_agent_state()
+            return
+        self.state.properties.append(built_asset)
+        government.reserve_balance -= built_asset.purchase_price
+        government.total_public_investment += built_asset.purchase_price
+        government.expenditures["investment"] = government.expenditures.get("investment", 0) + built_asset.purchase_price
+        government.government_asset_ids.append(built_asset.id)
+        government.last_agent_action_day = self.state.day
+        government.last_agent_action = f"新建 {built_asset.name}"
+        government.last_agent_reason = "根据游客承压、住房压力和财政储备，决定直接建设一处新设施。"
+        self._append_finance_record(
+            actor_id="government",
+            actor_name=government.name,
+            category="government",
+            action="build",
+            summary=f"{government.name} 决定新建 {built_asset.name}，希望让园区消费和公共服务更稳。",
+            amount=built_asset.purchase_price,
+            asset_name=built_asset.name,
+            counterparty="公共建设",
+        )
+        self.state.events.insert(
+            0,
+            build_internal_event(
+                title=self._government_event_title("新建一处设施"),
+                summary=f"{built_asset.name} 刚刚落地，后续会通过游客、居民和智能体使用来回收成本。",
+                slot=self.state.time_slot,
+                category="market",
+            ),
+        )
+        self.state.events = self.state.events[:8]
+        self._refresh_government_agent_state()
+
+    def _government_build_public_asset(
+        self,
+        budget: int,
+        preferred_type: str | None = None,
+        preferred_kind: str | None = None,
+    ) -> PropertyAsset | None:
         build_options = [
             {
                 "id": f"property-gov-stall-{uuid4().hex[:6]}",
                 "property_type": "shop",
-                "name": "公共集市摊位",
-                "position": Point(x=8, y=16),
+                "facility_kind": "night_market_stall",
+                "name": "夜市摊位",
                 "purchase_price": 68,
                 "estimated_value": 74,
-                "daily_income": 10,
+                "daily_income": 13,
                 "daily_maintenance": 3,
                 "comfort_bonus": 2,
-                "social_bonus": 4,
-                "description": "由财政投资建设的公共摊位，用来稳住游客消费和本地交易。",
+                "social_bonus": 6,
+                "description": "由财政投资建设的夜市摊位，用来承接游客夜间消费和本地交易。",
             },
             {
                 "id": f"property-gov-lodge-{uuid4().hex[:6]}",
                 "property_type": "rental_house",
-                "name": "公共旅馆附楼",
-                "position": Point(x=34, y=20),
+                "facility_kind": "public_housing",
+                "name": "公共住房",
                 "purchase_price": 92,
                 "estimated_value": 98,
-                "daily_income": 14,
+                "daily_income": 11,
                 "daily_maintenance": 4,
-                "comfort_bonus": 5,
-                "social_bonus": 3,
-                "description": "由财政投资建设的公共旅馆附楼，用来承接旺季游客和降低住宿压力。",
+                "comfort_bonus": 7,
+                "social_bonus": 2,
+                "description": "由财政投资建设的公共住房，用来缓解住房压力并承接临时居住需求。",
+            },
+            {
+                "id": f"property-gov-service-{uuid4().hex[:6]}",
+                "property_type": "greenhouse",
+                "facility_kind": "visitor_service_station",
+                "name": "游客服务站",
+                "purchase_price": 76,
+                "estimated_value": 82,
+                "daily_income": 9,
+                "daily_maintenance": 3,
+                "comfort_bonus": 3,
+                "social_bonus": 5,
+                "description": "由财政投资建设的游客服务站，用来承接咨询、导流和消息扩散。",
             },
         ]
         affordable = [option for option in build_options if option["purchase_price"] <= budget]
+        if preferred_type:
+            preferred = [option for option in affordable if option["property_type"] == preferred_type]
+            if preferred:
+                affordable = preferred
+        if preferred_kind:
+            preferred = [option for option in affordable if option["facility_kind"] == preferred_kind]
+            if preferred:
+                affordable = preferred
         if not affordable:
             return None
         option = affordable[-1]
@@ -5105,7 +5457,7 @@ class GameEngine:
             owner_id="government",
             property_type=option["property_type"],
             name=option["name"],
-            position=option["position"],
+            position=self._government_facility_position(str(option["property_type"]), str(option["facility_kind"])),
             purchase_price=option["purchase_price"],
             estimated_value=option["estimated_value"],
             daily_income=option["daily_income"],
@@ -5117,6 +5469,7 @@ class GameEngine:
             listed=False,
             built=True,
             status="owned",
+            facility_kind=option["facility_kind"],
             description=option["description"],
         )
 
@@ -6940,7 +7293,7 @@ class GameEngine:
 
     def _ensure_agent_runtime_fields(self) -> None:
         previous_version = self.state.version or 0
-        self.state.version = max(self.state.version, 42)
+        self.state.version = max(self.state.version, 44)
         if self.state.loans is None:
             self.state.loans = []
         if self.state.archived_tasks is None:
@@ -6955,6 +7308,8 @@ class GameEngine:
             self.state.news_timeline = []
         if getattr(self.state, "event_history", None) is None:
             self.state.event_history = []
+        if getattr(self.state, "news_window_days", None) is None:
+            self.state.news_window_days = 7
         for task in self.state.tasks:
             if task.category != "main":
                 continue
@@ -6977,6 +7332,21 @@ class GameEngine:
             self.state.lifestyle_catalog = build_initial_world().lifestyle_catalog
         if self.state.properties is None or not self.state.properties:
             self.state.properties = build_initial_world().properties
+        for asset in self.state.properties or []:
+            if asset.owner_type == "government" and not asset.facility_kind:
+                if "旅馆" in asset.name or asset.property_type == "rental_house":
+                    asset.facility_kind = "public_housing"
+                    if asset.name == "公共旅馆附楼":
+                        asset.name = "公共住房"
+                elif "集市" in asset.name or asset.property_type == "shop":
+                    asset.facility_kind = "night_market_stall"
+                    if asset.name == "公共集市摊位":
+                        asset.name = "夜市摊位"
+                elif asset.property_type == "greenhouse":
+                    asset.facility_kind = "visitor_service_station"
+                    if not asset.name:
+                        asset.name = "游客服务站"
+        self._rebalance_government_facilities()
         if self.state.finance_history is None:
             self.state.finance_history = []
         if self.state.tourists is None:
@@ -7220,6 +7590,16 @@ class GameEngine:
             self.state.government.government_asset_ids = []
         if self.state.government.last_distribution_note is None:
             self.state.government.last_distribution_note = "财政周期还没有触发。"
+        if self.state.government.current_agenda is None:
+            self.state.government.current_agenda = "观察税收、游客和住房压力。"
+        if self.state.government.last_agent_action is None:
+            self.state.government.last_agent_action = "财政周期还没有触发新的建设动作。"
+        if self.state.government.last_agent_reason is None:
+            self.state.government.last_agent_reason = "系统会根据游客、住房、储备和资产收益决定下一步。"
+        if self.state.government.known_signals is None:
+            self.state.government.known_signals = []
+        if self.state.government.last_agent_action_day is None:
+            self.state.government.last_agent_action_day = 0
         if self.state.government.last_distribution_day is None:
             self.state.government.last_distribution_day = 0
         if self.state.government.last_audit_day is None:
@@ -7239,6 +7619,12 @@ class GameEngine:
             self.state.government.last_cycle_tax_revenue = 0
         if self.state.government.last_cycle_nonfine_consumption is None:
             self.state.government.last_cycle_nonfine_consumption = 0
+        if self.state.government.daily_asset_revenue is None:
+            self.state.government.daily_asset_revenue = 0
+        if self.state.government.daily_asset_maintenance is None:
+            self.state.government.daily_asset_maintenance = 0
+        if self.state.government.daily_asset_net is None:
+            self.state.government.daily_asset_net = 0
         if self.state.government.expenditures is None:
             self.state.government.expenditures = {"welfare": 0}
         self.state.government.expenditures.setdefault("coupon", 0)
@@ -7254,6 +7640,7 @@ class GameEngine:
             self.state.government.revenues = {"wage": 0, "market": 0, "property": 0, "consumption": 0, "fine": 0, "government_asset": 0, "tourism_public": 0}
         self.state.government.revenues.setdefault("government_asset", 0)
         self.state.government.revenues.setdefault("tourism_public", 0)
+        self._refresh_government_agent_state()
         if self.state.company is None:
             self.state.company = build_initial_world().company
         if self.state.bank_loans is None:

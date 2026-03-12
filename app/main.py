@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import Settings, load_settings
 from app.engine.game_engine import GameEngine
-from app.models import AdvanceRequest, BankBorrowRequest, BankDepositRequest, BankRepayRequest, BankWithdrawRequest, ConsumeRequest, GrayCaseActionRequest, LabEvent, MacroNewsRequest, MoveRequest, NewsRequest, NewsTimelineRequest, PropertyFinanceRequest, SpeakRequest, StateDiffRequest, StateDiffResponse, TaxPolicyRequest, TimeSlot, TradeRequest, WorldState
+from app.models import AdvanceRequest, BankBorrowRequest, BankDepositRequest, BankRepayRequest, BankWithdrawRequest, ConsumeRequest, GrayCaseActionRequest, LabEvent, MacroNewsRequest, MoveRequest, NewsRequest, NewsTimelinePolicyRequest, NewsTimelineRequest, PropertyFinanceRequest, SpeakRequest, StateDiffRequest, StateDiffResponse, TaxPolicyRequest, TimeSlot, TradeRequest, WorldState
 from app.services.activity_logger import ActivityLogger
 from app.services.openai_dialogue_service import OpenAIDialogueError, OpenAIDialogueService
 from app.services.brave_service import BraveSearchError, BraveService
@@ -138,7 +138,18 @@ async def _rebuild_news_timeline() -> None:
     world = context.engine.get_state()
     context.engine.state.news_timeline = [item for item in context.engine.state.news_timeline if item.status != "scheduled"]
     created = 0
-    for offset, spec in enumerate(specs, start=1):
+    window_days = max(3, min(14, int(getattr(context.engine.state, "news_window_days", 7) or 7)))
+    sample_bounds = {
+        3: (1, 2),
+        7: (2, 4),
+        14: (4, 6),
+    }.get(window_days, (2, 4))
+    min_items, max_items = sample_bounds
+    sample_size = min(len(specs), context.engine.random.randint(min_items, max_items))
+    chosen_specs = context.engine.random.sample(specs, sample_size)
+    horizon_slots = window_days * 5
+    offsets = sorted(context.engine.random.sample(range(1, horizon_slots + 1), sample_size))
+    for offset, spec in zip(offsets, chosen_specs, strict=True):
         event = None
         if context.brave.api_key:
             try:
@@ -149,15 +160,31 @@ async def _rebuild_news_timeline() -> None:
                 event = None
         if event is None:
             event = _build_synthetic_timeline_event(spec, world.time_slot, world)
+        event.market_strength = max(4, event.market_strength)
+        if event.category == "market":
+            event.market_strength = 5
+        if event.tone_hint == 0:
+            event.tone_hint = 1 if context.engine.random.random() < 0.5 else -1
         scheduled_day, scheduled_slot = context.engine.slot_after(offset)
         context.engine.schedule_news_timeline_item(event, spec["query"], spec["theme"], scheduled_day, scheduled_slot)
         created += 1
-    context.engine.state.tourism.last_note = f"系统刚自动排好了 {created} 条主线新闻时间线。"
+    context.engine.state.tourism.last_note = f"系统刚自动排好了未来 {window_days} 天内的 {created} 条主线新闻。"
 
 
 async def _maybe_refresh_news_timeline() -> None:
-    scheduled = [item for item in context.engine.state.news_timeline if item.status == "scheduled"]
-    if len(scheduled) >= 3:
+    window_days = max(3, min(14, int(getattr(context.engine.state, "news_window_days", 7) or 7)))
+    min_items, max_items = {
+        3: (1, 2),
+        7: (2, 4),
+        14: (4, 6),
+    }.get(window_days, (2, 4))
+    scheduled = [
+        item
+        for item in context.engine.state.news_timeline
+        if item.status == "scheduled" and item.scheduled_day <= context.engine.state.day + window_days
+    ]
+    needs_rebuild = any((item.market_strength or 0) < 4 for item in scheduled)
+    if min_items <= len(scheduled) <= max_items and not needs_rebuild:
         return
     await _rebuild_news_timeline()
 
@@ -283,6 +310,13 @@ async def inject_news(payload: NewsRequest) -> WorldState:
 
 @app.post("/api/news/timeline", response_model=WorldState)
 async def refresh_news_timeline(payload: NewsTimelineRequest) -> WorldState:
+    await _rebuild_news_timeline()
+    return _persist_and_return_state()
+
+
+@app.post("/api/news/policy", response_model=WorldState)
+async def update_news_timeline_policy(payload: NewsTimelinePolicyRequest) -> WorldState:
+    context.engine.state.news_window_days = int(payload.window_days)
     await _rebuild_news_timeline()
     return _persist_and_return_state()
 

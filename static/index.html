@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GeoAI Pixel Lab Test (UrbanComp Lab)</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260312ak" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260313f" />
   </head>
   <body>
     <div class="project-banner">
@@ -284,7 +284,7 @@
         <section class="panel analysis-panel rail-analysis-panel">
           <div class="panel-head">
             <h2>实时分析</h2>
-            <span class="panel-tag">市场 / 资产 / 状态 / 事件</span>
+            <span class="panel-tag">市场 / 资金 / 财政 / 状态 / 事件</span>
           </div>
           <div class="analysis-layout">
             <section class="analysis-block">
@@ -293,9 +293,14 @@
               <p id="marketAnalysisMeta" class="market-meta">等待分析数据。</p>
             </section>
             <section class="analysis-block">
-              <h3>资产与储备</h3>
+              <h3>团队资金与存款</h3>
               <canvas id="capitalAnalysisCanvas" width="640" height="220"></canvas>
               <p id="capitalAnalysisMeta" class="market-meta">等待分析数据。</p>
+            </section>
+            <section class="analysis-block">
+              <h3>玩家与财政</h3>
+              <canvas id="fiscalAnalysisCanvas" width="640" height="220"></canvas>
+              <p id="fiscalAnalysisMeta" class="market-meta">等待分析数据。</p>
             </section>
             <section class="analysis-block">
               <h3>人群状态</h3>
@@ -303,7 +308,7 @@
               <p id="socialAnalysisMeta" class="market-meta">等待分析数据。</p>
             </section>
             <section class="analysis-block">
-              <h3>事件与游客</h3>
+              <h3>事件与游客数量</h3>
               <canvas id="eventAnalysisCanvas" width="640" height="220"></canvas>
               <p id="eventAnalysisMeta" class="market-meta">等待分析数据。</p>
             </section>
@@ -364,6 +369,18 @@
             <h2>主线新闻时间线</h2>
             <span class="panel-tag">系统自动拉取</span>
           </div>
+          <div class="signal-form timeline-toolbar">
+            <label class="policy-field">
+              <span class="policy-label">新闻频率窗口</span>
+              <span class="policy-hint">系统会在这个窗口内随机排入几条主线新闻。</span>
+              <select id="newsWindowSelect">
+                <option value="3">3 天</option>
+                <option value="7">7 天</option>
+                <option value="14">14 天</option>
+              </select>
+            </label>
+            <button id="newsWindowSubmitBtn" type="button">更新频率</button>
+          </div>
           <p class="composer-tip">系统会自动从 Brave 拉取主线新闻；如果未配置 Brave，则会自动编造市场新闻补足时间线。</p>
           <p id="signalStatus" class="signal-status"></p>
           <div id="newsTimelineBox" class="daily-brief-box scroll-panel-list">这里会显示未来几个时段排好的主线新闻。</div>
@@ -374,6 +391,6 @@
       <span>UrbanComp Lab (<a href="https://urbancomp.net" target="_blank" rel="noreferrer">https://urbancomp.net</a>) 开发</span>
       <span>GitHub：<a href="https://github.com/whuyao/PixelLab" target="_blank" rel="noreferrer">https://github.com/whuyao/PixelLab</a></span>
     </footer>
-    <script src="/static/app.js?v=20260312ak" type="module"></script>
+    <script src="/static/app.js?v=20260313f" type="module"></script>
   </body>
 </html>
