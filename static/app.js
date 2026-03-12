@@ -35,6 +35,10 @@ const bankBorrowForm = document.getElementById("bankBorrowForm");
 const bankBorrowAmount = document.getElementById("bankBorrowAmount");
 const bankBorrowTerm = document.getElementById("bankBorrowTerm");
 const bankBorrowBtn = document.getElementById("bankBorrowBtn");
+const bankDepositForm = document.getElementById("bankDepositForm");
+const bankDepositAmount = document.getElementById("bankDepositAmount");
+const bankDepositBtn = document.getElementById("bankDepositBtn");
+const bankWithdrawBtn = document.getElementById("bankWithdrawBtn");
 const bankBorrowHint = document.getElementById("bankBorrowHint");
 const bankStatusBox = document.getElementById("bankStatusBox");
 const bankLoanList = document.getElementById("bankLoanList");
@@ -85,7 +89,7 @@ const welfareBankruptcyInput = document.getElementById("welfareBankruptcyInput")
 const taxPolicyNoteInput = document.getElementById("taxPolicyNoteInput");
 const taxPolicySubmitBtn = document.getElementById("taxPolicySubmitBtn");
 const taxPolicyStatus = document.getElementById("taxPolicyStatus");
-const ASSET_VERSION = "20260312x";
+const ASSET_VERSION = "20260312ad";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -295,6 +299,78 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function buildMiniTrendSvg(values, stroke = "#7b9c5c", fill = "rgba(123, 156, 92, 0.16)") {
+  const series = (values || []).map((value) => Number(value || 0));
+  if (!series.length) {
+    return '<div class="mini-trend-empty">等待新数据</div>';
+  }
+  const width = 220;
+  const height = 62;
+  const min = Math.min(...series);
+  const max = Math.max(...series);
+  const range = Math.max(1, max - min);
+  const points = series
+    .map((value, index) => {
+      const x = series.length === 1 ? width / 2 : (index / Math.max(1, series.length - 1)) * (width - 8) + 4;
+      const y = height - 6 - (((value - min) / range) * (height - 12));
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+  const areaPoints = `4,${height - 6} ${points} ${width - 4},${height - 6}`;
+  return `
+    <svg class="mini-trend-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
+      <polyline class="mini-trend-grid" points="4,10 ${width - 4},10" />
+      <polyline class="mini-trend-grid" points="4,31 ${width - 4},31" />
+      <polyline class="mini-trend-grid" points="4,${height - 6} ${width - 4},${height - 6}" />
+      <polygon points="${areaPoints}" fill="${fill}"></polygon>
+      <polyline points="${points}" fill="none" stroke="${stroke}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></polyline>
+    </svg>
+  `;
+}
+
+function sumFinanceRecords(predicate) {
+  return (state.finance_history || []).filter(predicate).reduce((sum, record) => sum + Number(record.amount || 0), 0);
+}
+
+function recentGovernmentRevenueSeries(days = 10) {
+  const values = [];
+  const startDay = Math.max(1, (state.day || 1) - days + 1);
+  for (let day = startDay; day <= (state.day || 1); day += 1) {
+    const amount = (state.finance_history || [])
+      .filter((record) => record.day === day && record.category === "government")
+      .reduce((sum, record) => sum + Number(record.amount || 0), 0);
+    values.push(amount);
+  }
+  return values;
+}
+
+function recentConsumptionSeries(days = 10) {
+  const values = [];
+  const startDay = Math.max(1, (state.day || 1) - days + 1);
+  for (let day = startDay; day <= (state.day || 1); day += 1) {
+    const amount = (state.finance_history || [])
+      .filter((record) => record.day === day && (record.category === "consume" || record.category === "tourism"))
+      .reduce((sum, record) => sum + Math.abs(Number(record.amount || 0)), 0);
+    values.push(amount);
+  }
+  return values;
+}
+
+function topConsumptionItems(limit = 3) {
+  const totals = new Map();
+  (state.finance_history || [])
+    .filter((record) => ["consume", "tourism"].includes(record.category))
+    .slice(0, 80)
+    .forEach((record) => {
+      const key = record.asset_name || record.counterparty || record.summary || "综合消费";
+      totals.set(key, (totals.get(key) || 0) + Math.abs(Number(record.amount || 0)));
+    });
+  return [...totals.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, limit)
+    .map(([name, amount]) => `${name} ${formatCompactCurrency(amount)}`);
 }
 
 function serializeSignature(value) {
@@ -531,6 +607,7 @@ const expandedDialogueIds = new Set();
 const renderCache = new Map();
 const observerRecentAgents = [];
 const observerAgentCooldowns = new Map();
+const observerRecentRooms = [];
 let highlightedEventId = "";
 let highlightedStoryId = "";
 let highlightedDialogueId = "";
@@ -558,6 +635,7 @@ const agentVisuals = {
   jo: { coat: "#6f9362", hair: "#2f3348", accent: "#dcead7", skin: "#e8bc95" },
   rae: { coat: "#9a6289", hair: "#5b3a72", accent: "#f0d8ef", skin: "#f0c3a4" },
   kai: { coat: "#c18f32", hair: "#c26a45", accent: "#ffe4ab", skin: "#efc099" },
+  tourist: { coat: "#7c6fb5", hair: "#7a5439", accent: "#f7df98", skin: "#efc29d" },
 };
 
 const artAssets = {
@@ -578,6 +656,7 @@ const cottageOffsets = {
 const sceneEntities = {
   player: { x: 0, y: 0, targetX: 0, targetY: 0, facing: "front", spriteStyle: "scientist_b" },
   agents: new Map(),
+  tourists: new Map(),
 };
 
 function loadImageAsset(src, { transparentBlack = false } = {}) {
@@ -661,6 +740,27 @@ function syncSceneEntities() {
     syncEntity(entity, point.x, point.y);
     sceneEntities.agents.set(agent.id, entity);
   });
+  const activeTourists = new Set();
+  (state.tourists || []).forEach((tourist) => {
+    activeTourists.add(tourist.id);
+    const point = gridToPixels(tourist.position);
+    const entity = sceneEntities.tourists.get(tourist.id) || {
+      x: point.x,
+      y: point.y,
+      targetX: point.x,
+      targetY: point.y,
+      facing: "front",
+      spriteStyle: "tourist",
+      id: tourist.id,
+    };
+    entity.spriteStyle = "tourist";
+    entity.id = tourist.id;
+    syncEntity(entity, point.x, point.y);
+    sceneEntities.tourists.set(tourist.id, entity);
+  });
+  [...sceneEntities.tourists.keys()].forEach((id) => {
+    if (!activeTourists.has(id)) sceneEntities.tourists.delete(id);
+  });
 }
 
 function syncEntity(entity, targetX, targetY) {
@@ -718,7 +818,7 @@ function renderPanels() {
   );
   renderIfChanged(
     "analysis",
-    serverSignature("analysis", [state.analysis_history, state.agents, state.player, state.events, state.gray_cases, state.market]),
+    serverSignature("analysis", [state.analysis_history, state.agents, state.player, state.tourists, state.tourism, state.events, state.gray_cases, state.market]),
     () => renderAnalysisPanel(),
   );
   renderIfChanged(
@@ -743,7 +843,7 @@ function renderPanels() {
   );
   renderIfChanged(
     "dialogue-filters",
-    serverSignature("memory", state.agents.map((agent) => [agent.id, agent.name]), [dialogueFilterMode, dialogueFilterActor]),
+    serverSignature("memory", [...state.agents.map((agent) => [agent.id, agent.name]), ...(state.tourists || []).map((tourist) => [tourist.id, tourist.name])], [dialogueFilterMode, dialogueFilterActor]),
     () => renderDialogueFilterControls(),
   );
   renderIfChanged(
@@ -763,12 +863,12 @@ function renderPanels() {
   );
   renderIfChanged(
     "memory",
-    serverSignature("memory", [state.player, state.agents, state.properties, state.loans, state.bank_loans, state.dialogue_history?.slice(0, 40), state.company, state.time_slot, state.day], [selectedActorId]),
+    serverSignature("memory", [state.player, state.agents, state.tourists, state.tourism, state.properties, state.loans, state.bank_loans, state.dialogue_history?.slice(0, 40), state.company, state.time_slot, state.day], [selectedActorId]),
     () => renderMemory(),
   );
   renderIfChanged(
     "market-module",
-    serverSignature("market", [state.market, state.player, state.agents, state.bank, state.bank_loans], [busy]),
+    serverSignature("market", [state.market, state.player, state.agents, state.tourists, state.tourism, state.bank, state.bank_loans], [busy]),
     () => renderMarketModule(),
   );
   renderIfChanged(
@@ -783,7 +883,7 @@ function renderPanels() {
   );
   renderIfChanged(
     "lifestyle-panel",
-    serverSignature("lifestyle", [state.player, state.agents, state.properties, state.lifestyle_catalog, state.company], [selectedActorId, busy]),
+    serverSignature("lifestyle", [state.player, state.agents, state.tourists, state.tourism, state.properties, state.lifestyle_catalog, state.company], [selectedActorId, busy]),
     () => renderLifestylePanel(),
   );
   renderIfChanged(
@@ -952,11 +1052,15 @@ function renderMetrics() {
 function renderFiscalPanel() {
   if (!state || !fiscalSummary) return;
   const government = state.government || {};
+  const governmentAssets = (state.properties || []).filter((asset) => asset.owner_type === "government" && asset.status === "owned");
   const todayTaxes = (state.finance_history || [])
     .filter((record) => record.category === "tax" && record.day === state.day)
     .reduce((sum, record) => sum + Math.abs(Number(record.amount || 0)), 0);
   const todayWelfare = (state.finance_history || [])
     .filter((record) => record.category === "welfare" && record.day === state.day)
+    .reduce((sum, record) => sum + Math.abs(Number(record.amount || 0)), 0);
+  const todayGovernmentIncome = (state.finance_history || [])
+    .filter((record) => record.category === "government" && record.day === state.day)
     .reduce((sum, record) => sum + Math.abs(Number(record.amount || 0)), 0);
   const revenues = government.revenues || {};
   const expenditures = government.expenditures || {};
@@ -968,11 +1072,27 @@ function renderFiscalPanel() {
         <div class="status-pill"><strong>累计税收</strong><span>$${government.total_revenue || 0}</span></div>
         <div class="status-pill"><strong>财政储备</strong><span>$${government.reserve_balance || 0}</span></div>
         <div class="status-pill"><strong>今日保障</strong><span>$${todayWelfare}</span></div>
+        <div class="status-pill"><strong>今日财政动作</strong><span>$${todayGovernmentIncome}</span></div>
         <div class="status-pill"><strong>累计保障</strong><span>$${government.total_welfare_paid || 0}</span></div>
         <div class="status-pill"><strong>监管强度</strong><span>${government.enforcement_level || 0}</span></div>
         <div class="status-pill"><strong>最近政策</strong><span>${escapeHtml(government.last_policy_note || "维持默认税率")}</span></div>
       </div>
     </article>
+    <section class="metric-group">
+      <h3 class="metric-group-title">15 天财政结算</h3>
+      <div class="tax-rate-grid">
+        <article class="tax-rate-item"><strong>周期长度</strong><span>${government.fiscal_cycle_days || 15} 天</span></article>
+        <article class="tax-rate-item"><strong>下次结算</strong><span>第 ${government.next_distribution_day || 15} 天</span></article>
+        <article class="tax-rate-item"><strong>上次税收</strong><span>$${government.last_cycle_tax_revenue || 0}</span></article>
+        <article class="tax-rate-item"><strong>上次消费额</strong><span>$${government.last_cycle_nonfine_consumption || 0}</span></article>
+        <article class="tax-rate-item"><strong>定向补贴</strong><span>$${government.last_targeted_support || 0}</span></article>
+        <article class="tax-rate-item"><strong>消费券</strong><span>$${government.last_coupon_pool || 0}</span></article>
+        <article class="tax-rate-item"><strong>公共服务</strong><span>$${government.last_public_service_spend || 0}</span></article>
+        <article class="tax-rate-item"><strong>政府投资</strong><span>$${government.last_investment_spend || 0}</span></article>
+        <article class="tax-rate-item"><strong>储备保留</strong><span>$${government.last_reserve_retained || 0}</span></article>
+        <article class="tax-rate-item"><strong>结算备注</strong><span>${escapeHtml(government.last_distribution_note || "财政周期还没有触发。")}</span></article>
+      </div>
+    </section>
     <section class="metric-group">
       <h3 class="metric-group-title">分税种收入</h3>
       <div class="tax-rate-grid">
@@ -981,6 +1101,7 @@ function renderFiscalPanel() {
         <article class="tax-rate-item"><strong>地产税</strong><span>$${revenues.property || 0}</span></article>
         <article class="tax-rate-item"><strong>消费税</strong><span>$${revenues.consumption || 0}</span></article>
         <article class="tax-rate-item"><strong>罚缴</strong><span>$${revenues.fine || 0}</span></article>
+        <article class="tax-rate-item"><strong>政府资产</strong><span>$${revenues.government_asset || 0}</span></article>
         <article class="tax-rate-item"><strong>政府机构</strong><span>${escapeHtml(government.name || "园区财政与监管局")}</span></article>
       </div>
     </section>
@@ -991,9 +1112,21 @@ function renderFiscalPanel() {
         <article class="tax-rate-item"><strong>低收入补助</strong><span>$${government.welfare_base_support || 0}</span></article>
         <article class="tax-rate-item"><strong>破产救助</strong><span>$${government.welfare_bankruptcy_support || 0}</span></article>
         <article class="tax-rate-item"><strong>累计发放</strong><span>$${expenditures.welfare || 0}</span></article>
+        <article class="tax-rate-item"><strong>累计消费券</strong><span>$${government.total_coupons_issued || 0}</span></article>
         <article class="tax-rate-item"><strong>财政储备</strong><span>$${government.reserve_balance || 0}</span></article>
         <article class="tax-rate-item"><strong>覆盖说明</strong><span>低现金 / 破产兜底</span></article>
       </div>
+    </section>
+    <section class="metric-group">
+      <h3 class="metric-group-title">公共服务与政府资产</h3>
+      <div class="tax-rate-grid">
+        <article class="tax-rate-item"><strong>公共服务等级</strong><span>${government.public_service_level || 0}</span></article>
+        <article class="tax-rate-item"><strong>旅游支持</strong><span>${government.tourism_support_level || 0}</span></article>
+        <article class="tax-rate-item"><strong>住房支持</strong><span>${government.housing_support_level || 0}</span></article>
+        <article class="tax-rate-item"><strong>政府投资累计</strong><span>$${government.total_public_investment || 0}</span></article>
+        <article class="tax-rate-item"><strong>持有资产数</strong><span>${governmentAssets.length}</span></article>
+      </div>
+      <div class="metric-meta">${governmentAssets.length ? governmentAssets.map((asset) => `${asset.name}（${propertyTypeLabel(asset.property_type)}）`).join(" · ") : "当前还没有政府持有资产。"}</div>
     </section>
     <section class="metric-group">
       <h3 class="metric-group-title">当前税率</h3>
@@ -1245,6 +1378,18 @@ function renderMarketModule() {
         <div class="metric-meta">换手 ${Number(state.market?.turnover_ratio_pct || 0).toFixed(2)}%</div>
         <div class="metric-meta">成交额 ${formatCompactCurrency(state.market?.turnover_total || 0)}</div>
       </article>
+      <article class="market-state-card">
+        <strong>游客经济</strong>
+        <div class="metric-meta">${tourismSeasonLabel(state.tourism?.season_mode)} · 在场游客 ${state.tourists?.length || 0}/${state.tourism?.active_visitor_cap || 5}</div>
+        <div class="metric-meta">今到访 ${state.tourism?.daily_arrivals || 0} · 今离开 ${state.tourism?.daily_departures || 0} · 今日收入 $${state.tourism?.daily_revenue || 0}</div>
+        <div class="metric-meta">回头客 ${state.tourism?.repeat_customers_total || 0} · 高消费 ${state.tourism?.vip_customers_total || 0} · 看房线索 ${state.tourism?.buyer_leads_total || 0}</div>
+      </article>
+      <article class="market-state-card">
+        <strong>游客消息面</strong>
+        <div class="metric-meta">${escapeHtml(state.tourism?.event_day_title ? `今日主题：${state.tourism.event_day_title}` : "今天没有额外游客活动日。")}</div>
+        <div class="metric-meta">今日外来消息 ${state.tourism?.daily_messages_count || 0} 条</div>
+        <div class="metric-meta">${escapeHtml(state.tourism?.latest_signal || state.tourism?.last_note || "旅馆和集市会在这里汇总游客动向。")}</div>
+      </article>
     `;
     const quoteCards = quotes
       .map(
@@ -1265,17 +1410,54 @@ function renderMarketModule() {
     marketSummary.innerHTML = `${stateCards}${quoteCards}`;
   }
   if (marketPositions) {
+    const governmentAssets = (state.properties || []).filter((asset) => asset.owner_type === "government" && asset.status === "owned");
     const teamCash = state.agents.reduce((sum, agent) => sum + (agent.cash || 0), 0);
+    const teamDeposits = state.agents.reduce((sum, agent) => sum + (agent.deposit_balance || 0), 0);
     const teamBankDebt = (state.bank_loans || [])
       .filter((loan) => loan.borrower_type === "agent" && ["active", "overdue"].includes(loan.status))
       .reduce((sum, loan) => sum + (loan.amount_due || 0), 0);
     const playerBankDebt = activeBankLoansFor("player", state.player.id).reduce((sum, loan) => sum + (loan.amount_due || 0), 0);
+    const todayResidentConsumption = Math.abs(sumFinanceRecords((record) => record.day === state.day && record.category === "consume"));
+    const todayTouristConsumption = Math.abs(sumFinanceRecords((record) => record.day === state.day && record.category === "tourism"));
+    const trailingConsumption = recentConsumptionSeries(10);
+    const trailingGovernmentRevenue = recentGovernmentRevenueSeries(10);
+    const popularItems = topConsumptionItems(3);
+    const governmentDailyRevenue = trailingGovernmentRevenue[trailingGovernmentRevenue.length - 1] || 0;
+    const latestGovernmentFinance = (state.finance_history || []).find((record) => record.category === "government");
+    const tourismMessage = state.tourism?.latest_signal || state.tourism?.last_note || "游客正在旅馆和集市间带来新的消费信号。";
+    const touristObservation = `
+      <article class="position-card insight-card">
+        <strong>游客与消费流</strong>
+        <div class="metric-meta">${tourismSeasonLabel(state.tourism?.season_mode)} · 当前 ${state.tourists?.length || 0}/${state.tourism?.active_visitor_cap || 5} 位游客</div>
+        <div class="metric-meta">居民消费 ${formatCompactCurrency(todayResidentConsumption)} · 游客消费 ${formatCompactCurrency(todayTouristConsumption)}</div>
+        <div class="metric-meta">热销方向 ${escapeHtml(popularItems.join(" · ") || "手冲咖啡 · 夜市小吃 · 集市小店")}</div>
+        <div class="mini-trend-block">
+          <div class="mini-trend-head"><span>近 10 天消费流</span><strong>${formatCompactCurrency(trailingConsumption.reduce((sum, value) => sum + value, 0))}</strong></div>
+          ${buildMiniTrendSvg(trailingConsumption, "#cf8850", "rgba(207, 136, 80, 0.18)")}
+        </div>
+        <div class="metric-meta">${escapeHtml(tourismMessage)}</div>
+      </article>
+    `;
+    const governmentObservation = `
+      <article class="position-card insight-card government-card">
+        <strong>政府资产与收益</strong>
+        <div class="metric-meta">持有资产 ${governmentAssets.length} · 今日净流 ${governmentDailyRevenue >= 0 ? "+" : "-"}${formatCompactCurrency(Math.abs(governmentDailyRevenue))}</div>
+        <div class="metric-meta">累计政府资产收入 ${formatCompactCurrency((state.government?.revenues || {}).government_asset || 0)} · 公共投资 ${formatCompactCurrency(state.government?.total_public_investment || 0)}</div>
+        <div class="mini-trend-block">
+          <div class="mini-trend-head"><span>近 10 天财政资产曲线</span><strong>${formatCompactCurrency(trailingGovernmentRevenue.reduce((sum, value) => sum + value, 0))}</strong></div>
+          ${buildMiniTrendSvg(trailingGovernmentRevenue, "#4f9d92", "rgba(79, 157, 146, 0.18)")}
+        </div>
+        <div class="metric-meta">${governmentAssets.length ? escapeHtml(governmentAssets.slice(0, 3).map((asset) => asset.name).join(" · ")) : "财政暂未持有园区资产。"}</div>
+        <div class="metric-meta">${escapeHtml(latestGovernmentFinance?.summary || state.government?.last_distribution_note || "下一轮财政动作会从这里体现。")}</div>
+      </article>
+    `;
     const playerPosition = `
       <article class="position-card">
         <strong>玩家账户</strong>
-        <div class="metric-meta">现金 $${state.player.cash} · 信用 ${state.player.credit_score}</div>
+        <div class="metric-meta">现金 $${state.player.cash} · 存款 $${state.player.deposit_balance || 0} · 信用 ${state.player.credit_score}</div>
         <div class="metric-meta">持仓 ${formatPortfolio(state.player.portfolio)}</div>
         <div class="metric-meta">空仓 ${formatShortPortfolio(state.player.short_positions)}</div>
+        <div class="metric-meta">总资金 $${(state.player.cash || 0) + (state.player.deposit_balance || 0)}</div>
         <div class="metric-meta">银行待还 $${playerBankDebt}</div>
         <div class="metric-meta">${state.player.last_trade_summary || "今天还没有执行交易。"}</div>
       </article>
@@ -1284,6 +1466,8 @@ function renderMarketModule() {
       <article class="position-card">
         <strong>团队资金分布</strong>
         <div class="metric-meta">团队总现金 $${teamCash}</div>
+        <div class="metric-meta">团队总存款 $${teamDeposits}</div>
+        <div class="metric-meta">团队总资金 $${teamCash + teamDeposits}</div>
         <div class="metric-meta">团队银行待还 $${teamBankDebt}</div>
         <div class="metric-meta">有持仓的成员 ${(state.agents || []).filter((agent) => Object.values(agent.portfolio || {}).some((shares) => shares > 0)).length} 人</div>
       </article>
@@ -1295,8 +1479,9 @@ function renderMarketModule() {
           return `
           <article class="position-card">
             <strong>${agent.name}</strong>
-            <div class="metric-meta">现金 $${agent.cash} · 信用 ${agent.credit_score}</div>
+            <div class="metric-meta">现金 $${agent.cash} · 存款 $${agent.deposit_balance || 0} · 信用 ${agent.credit_score}</div>
             <div class="metric-meta">持仓 ${formatPortfolio(agent.portfolio)}</div>
+            <div class="metric-meta">总资金 $${(agent.cash || 0) + (agent.deposit_balance || 0)}</div>
             <div class="metric-meta">银行待还 $${debt}</div>
             <div class="metric-meta">${agent.last_trade_summary || "今天还没有明确买卖。"}</div>
           </article>
@@ -1304,7 +1489,7 @@ function renderMarketModule() {
         },
       )
       .join("");
-    marketPositions.innerHTML = `<div class="position-grid">${playerPosition}${teamPosition}${agentPositions}</div>`;
+    marketPositions.innerHTML = `<div class="position-grid">${touristObservation}${governmentObservation}${playerPosition}${teamPosition}${agentPositions}</div>`;
   }
 }
 
@@ -1315,15 +1500,18 @@ function renderBankModule() {
   const activeAgentLoans = (state.bank_loans || []).filter((loan) => loan.borrower_type === "agent" && ["active", "overdue"].includes(loan.status));
   const termDays = Number(bankBorrowTerm?.value || 1);
   const amount = Number(bankBorrowAmount?.value || 0);
+  const depositAmount = Number(bankDepositAmount?.value || 0);
   const limit = estimateBankCreditLine(state.player.credit_score || 0);
   const offer = estimateBankOffer(state.player.credit_score || 0, termDays);
   const projectedRepayment = amount > 0 ? amount + Math.max(1, Math.round((amount * offer.totalRate) / 100)) : 0;
+  const totalFunds = (state.player.cash || 0) + (state.player.deposit_balance || 0);
   if (bankStatusBox) {
     bankStatusBox.innerHTML = `
       <article class="position-card">
         <strong>${escapeHtml(bank.name || "青松合作银行")}</strong>
         <div class="metric-meta">流动性 $${bank.liquidity ?? 0} · 基准日利率 ${(bank.base_daily_rate_pct ?? 0).toFixed(2)}%</div>
-        <div class="metric-meta">当前风险溢价 ${(bank.risk_spread_pct ?? 0).toFixed(2)}% · 历史违约 ${bank.defaults_count ?? 0}</div>
+        <div class="metric-meta">当前风险溢价 ${(bank.risk_spread_pct ?? 0).toFixed(2)}% · 存款日利率 ${(bank.deposit_daily_rate_pct ?? 0).toFixed(2)}%</div>
+        <div class="metric-meta">总存款 $${bank.total_deposits ?? 0} · 已付利息 $${bank.total_interest_paid ?? 0} · 历史违约 ${bank.defaults_count ?? 0}</div>
       </article>
       <article class="position-card">
         <strong>你的授信</strong>
@@ -1331,13 +1519,19 @@ function renderBankModule() {
         <div class="metric-meta">${termDays} 天期估算：日利率 ${offer.dailyRate.toFixed(2)}% · 总利率 ${offer.totalRate.toFixed(2)}%</div>
         <div class="metric-meta">${amount > 0 ? `若借 $${amount}，预计应还 $${projectedRepayment}` : "输入金额后会显示预计应还。"} </div>
       </article>
+      <article class="position-card">
+        <strong>你的存款</strong>
+        <div class="metric-meta">现金 $${state.player.cash} · 存款 $${state.player.deposit_balance || 0} · 总资金 $${totalFunds}</div>
+        <div class="metric-meta">${depositAmount > 0 ? `若存入 $${depositAmount}，按日利率 ${(bank.deposit_daily_rate_pct ?? 0).toFixed(2)}% 结息。` : "存款会在每天早晨自动结息。"} </div>
+        <div class="metric-meta">观察模式下玩家不会自动拿存款继续追高，先保留一层现金缓冲。</div>
+      </article>
     `;
   }
   if (bankBorrowHint) {
     bankBorrowHint.textContent =
       amount > limit
         ? `按当前信用，这次最多建议申请 $${limit}。`
-        : `银行会结合信用、市场阶段和实验室口碑动态定价；${termDays} 天期总利率约 ${offer.totalRate.toFixed(2)}%。`;
+        : `银行会结合信用、市场阶段和实验室口碑动态定价；${termDays} 天期总利率约 ${offer.totalRate.toFixed(2)}%，存款日利率约 ${(bank.deposit_daily_rate_pct ?? 0).toFixed(2)}%。`;
   }
   if (bankLoanList) {
     const playerLoanMarkup = playerLoans.length
@@ -1376,6 +1570,12 @@ function renderBankModule() {
   if (bankBorrowBtn) {
     bankBorrowBtn.disabled = busy;
   }
+  if (bankDepositBtn) {
+    bankDepositBtn.disabled = busy;
+  }
+  if (bankWithdrawBtn) {
+    bankWithdrawBtn.disabled = busy || (state.player.deposit_balance || 0) <= 0;
+  }
 }
 
 function propertyTypeLabel(type) {
@@ -1386,6 +1586,24 @@ function propertyTypeLabel(type) {
     shop: "小店铺",
     greenhouse: "温室",
   }[type] || type;
+}
+
+function tourismSeasonLabel(mode) {
+  return {
+    off: "淡季",
+    normal: "平季",
+    peak: "旺季",
+    festival: "活动日",
+  }[mode] || mode || "平季";
+}
+
+function touristTierLabel(tier) {
+  return {
+    regular: "普通游客",
+    repeat: "回头客",
+    vip: "高消费客户",
+    buyer: "潜在购房者",
+  }[tier] || tier || "普通游客";
 }
 
 function itemCategoryLabel(type) {
@@ -1408,6 +1626,8 @@ function financeCategoryLabel(type) {
     gray: "灰市交易",
     tax: "税费",
     welfare: "财政保障",
+    tourism: "游客经济",
+    government: "财政调节",
   }[type] || type;
 }
 
@@ -1417,11 +1637,20 @@ function financeActionLabel(type) {
     sell: "卖出",
     borrow: "借入",
     repay: "归还",
+    deposit: "存款",
+    withdraw: "取款",
+    interest: "利息",
     settle: "结算",
     work: "上班",
     expense: "开销",
     receive: "收款",
     pay: "付款",
+    spend: "消费",
+    chat: "聊天",
+    visit: "到访",
+    coupon: "发券",
+    invest: "投资",
+    support: "补助",
   }[type] || type;
 }
 
@@ -1499,6 +1728,12 @@ function renderLifestylePanel() {
         <div class="metric-meta">工作地点：${state.company?.location_label || "石径工坊"}</div>
         <div class="metric-meta">现金低于 $${state.company?.low_cash_threshold || 50} 时，会明显倾向先去打工。</div>
         <div class="metric-meta">累计发薪 $${state.company?.total_wages_paid || 0} · 工作场次 ${state.company?.total_work_sessions || 0}</div>
+      </article>
+      <article class="position-card">
+        <strong>游客经济</strong>
+        <div class="metric-meta">${tourismSeasonLabel(state.tourism?.season_mode)} · 当前游客 ${state.tourists?.length || 0} / ${state.tourism?.active_visitor_cap || 5} · 今日收入 $${state.tourism?.daily_revenue || 0}</div>
+        <div class="metric-meta">累计到访 ${state.tourism?.total_arrivals || 0} 人 · 回头客 ${state.tourism?.repeat_customers_total || 0} · 高消费 ${state.tourism?.vip_customers_total || 0}</div>
+        <div class="metric-meta">${escapeHtml(state.tourism?.latest_signal || state.tourism?.last_note || "旅馆和集市会在这里汇总最新游客动向。")}</div>
       </article>
     `;
   }
@@ -1754,7 +1989,7 @@ function renderTradeMeta() {
   const shortHeld = state.player.short_positions?.[symbol] || 0;
   const bankDebt = activeBankLoansFor("player", state.player.id).reduce((sum, loan) => sum + (loan.amount_due || 0), 0);
   if (tradeMeta) {
-    tradeMeta.textContent = `可用资金：$${state.player.cash} · ${symbol} 持仓：${held} 股 · 空仓：${shortHeld} 股 · 现价：${quote ? `$${quote.price.toFixed(2)}` : "--"} · 银行待还 $${bankDebt}`;
+    tradeMeta.textContent = `现金：$${state.player.cash} · 存款：$${state.player.deposit_balance || 0} · ${symbol} 持仓：${held} 股 · 空仓：${shortHeld} 股 · 现价：${quote ? `$${quote.price.toFixed(2)}` : "--"} · 银行待还 $${bankDebt}`;
   }
   if (sellAllBtn) {
     sellAllBtn.disabled = held <= 0 || busy;
@@ -1886,7 +2121,7 @@ function renderDialogue() {
             <strong>当前聚焦</strong>
             <span class="dialogue-time">等待中</span>
           </div>
-          <div class="dialogue-summary">走近同事后按 E 开聊；观察模式下，你也可以只看他们自己吵、自己结盟、自己借钱。</div>
+          <div class="dialogue-summary">走近同事或游客后按 E 开聊；观察模式下，你也可以只看他们自己吵、自己结盟、自己借钱。</div>
         </article>
       `;
   if (!history.length && !latest) {
@@ -1922,6 +2157,7 @@ function renderDialogueFilterControls() {
     '<option value="all">全部人物</option>',
     '<option value="player">你</option>',
     ...state.agents.map((agent) => `<option value="${agent.id}">${agent.name}</option>`),
+    ...(state.tourists || []).map((tourist) => `<option value="${tourist.id}">${tourist.name}（游客）</option>`),
   ].join("");
   dialogueActorFilter.innerHTML = options;
   dialogueActorFilter.value = selected && [...dialogueActorFilter.options].some((option) => option.value === selected) ? selected : "all";
@@ -1952,7 +2188,7 @@ function recordMatchesDialogueFilters(record) {
 function renderMemory() {
   const subject = getSelectedCharacter();
   if (!subject) {
-    memoryBox.textContent = "点击地图中的玩家或同事，这里会显示他的主要信息、状态、记忆和关系。";
+    memoryBox.textContent = "点击地图中的玩家、同事或游客，这里会显示他的主要信息、状态、记忆和关系。";
     return;
   }
   if (subject.kind === "player") {
@@ -2016,6 +2252,8 @@ function renderMemory() {
         <div class="status-pill"><strong>生活满意度</strong><span>${state.player.life_satisfaction}</span></div>
         <div class="status-pill"><strong>消费意愿</strong><span>${state.player.consumption_desire}</span></div>
         <div class="status-pill"><strong>住房品质</strong><span>${state.player.housing_quality}</span></div>
+        <div class="status-pill"><strong>消费券余额</strong><span>$${state.player.consumption_coupon_balance || 0}</span></div>
+        <div class="status-pill"><strong>银行存款</strong><span>$${state.player.deposit_balance || 0}</span></div>
         <div class="status-pill"><strong>工作倾向</strong><span>${state.player.work_drive || 0}</span></div>
         <div class="status-pill"><strong>日开销基线</strong><span>$${state.player.daily_cost_baseline || 0}</span></div>
         <div class="status-pill"><strong>风险偏好</strong><span>${state.player.risk_appetite}</span></div>
@@ -2107,6 +2345,49 @@ function renderMemory() {
     `;
     return;
   }
+  if (subject.kind === "tourist") {
+    const tourist = subject.data;
+    const recentRecords = (state.dialogue_history || [])
+      .filter((record) => (record.participants || []).includes(tourist.id))
+      .slice(0, 4)
+      .map((record) => `<span class="memory-chip">${record.key_point || record.summary}</span>`)
+      .join("") || '<span class="memory-meta">这位游客暂时还没留下太多对话痕迹。</span>';
+    memoryBox.innerHTML = `
+      <h3>${tourist.name}</h3>
+      <div class="memory-meta">游客角色 · ${touristTierLabel(tourist.visitor_tier)} · ${tourist.archetype} · 坐标 (${tourist.position.x}, ${tourist.position.y})</div>
+      <div class="status-grid">
+        <div class="status-pill"><strong>当前位置</strong><span>${roomNames[tourist.current_location] || tourist.current_location}</span></div>
+        <div class="status-pill"><strong>停留到</strong><span>第 ${tourist.stay_until_day} 天</span></div>
+        <div class="status-pill"><strong>现金</strong><span>$${tourist.cash}</span></div>
+        <div class="status-pill"><strong>预算</strong><span>$${tourist.budget}</span></div>
+        <div class="status-pill"><strong>心情</strong><span>${tourist.mood}</span></div>
+        <div class="status-pill"><strong>消费意愿</strong><span>${tourist.spending_desire}</span></div>
+        <div class="status-pill"><strong>回头客</strong><span>${tourist.is_returning ? "是" : "否"}</span></div>
+        <div class="status-pill"><strong>看房意向</strong><span>${tourist.property_interest ? "有" : "无"}</span></div>
+      </div>
+      <div class="memory-section">
+        <strong>当前活动</strong>
+        <div>${tourist.current_activity || "正在园区里随便逛逛。"}</div>
+      </div>
+      <div class="memory-section">
+        <strong>当前气泡</strong>
+        <div>${tourist.current_bubble || "……"}</div>
+      </div>
+      <div class="memory-section">
+        <strong>关注点</strong>
+        <div><span class="memory-chip">${tourist.favorite_topic || "想知道哪里最值得看和花钱"}</span></div>
+      </div>
+      <div class="memory-section">
+        <strong>游客备注</strong>
+        <div>${tourist.brief_note || "这是一位更轻量的临时游客，不会像核心智能体那样积累复杂长期关系。"} </div>
+      </div>
+      <div class="memory-section">
+        <strong>最近互动</strong>
+        <div>${recentRecords}</div>
+      </div>
+    `;
+    return;
+  }
   const agent = subject.data;
   const shortTerm = (agent.short_term_memory || [])
     .map((memory) => `<span class="memory-chip">${memory.text}</span>`)
@@ -2154,6 +2435,8 @@ function renderMemory() {
       <div class="status-pill"><strong>金钱欲望</strong><span>${agent.money_desire} · ${moneyDesireLabel(agent.money_desire)}</span></div>
       <div class="status-pill"><strong>金钱压力</strong><span>${agent.money_urgency || agent.money_desire} · ${moneyUrgencyLabel(agent.money_urgency || agent.money_desire)}</span></div>
       <div class="status-pill"><strong>信用值</strong><span>${agent.credit_score} · ${creditLabel(agent.credit_score)}</span></div>
+      <div class="status-pill"><strong>消费券余额</strong><span>$${agent.consumption_coupon_balance || 0}</span></div>
+      <div class="status-pill"><strong>银行存款</strong><span>$${agent.deposit_balance || 0}</span></div>
       <div class="status-pill"><strong>工作倾向</strong><span>${agent.work_drive || 0}</span></div>
       <div class="status-pill"><strong>日开销基线</strong><span>$${agent.daily_cost_baseline || 0}</span></div>
       <div class="status-pill"><strong>风险偏好</strong><span>${agent.risk_appetite}</span></div>
@@ -2264,6 +2547,7 @@ function drawWorld(now) {
   drawRooms(now);
   drawDecorations(now);
   drawCompanyHub(now);
+  drawTourismFacilities(now);
   drawCottages(now);
   drawPropertyAssets(now);
   drawCharacters(now);
@@ -2543,14 +2827,83 @@ function drawCompanyHub(now) {
   ctx.fill();
 }
 
+function drawTourismFacilities(now) {
+  if (!state?.tourism) return;
+  const inn = gridToPixels(state.tourism.inn_position);
+  const market = gridToPixels(state.tourism.market_position);
+  drawTouristInn(inn.x - 28, inn.y - 30, now);
+  drawTouristMarket(market.x - 30, market.y - 26, now);
+}
+
+function drawTouristInn(x, y, now) {
+  const warm = 0.12 + (Math.sin(now / 380) + 1) * 0.05;
+  ctx.fillStyle = `rgba(255, 231, 170, ${warm})`;
+  ctx.fillRect(x - 5, y + 10, 58, 38);
+  ctx.fillStyle = "#8e6b4b";
+  ctx.fillRect(x, y + 16, 48, 28);
+  ctx.fillStyle = "#ccb08a";
+  ctx.fillRect(x + 3, y + 18, 42, 24);
+  ctx.fillStyle = "#714a35";
+  ctx.beginPath();
+  ctx.moveTo(x - 3, y + 18);
+  ctx.lineTo(x + 24, y + 1);
+  ctx.lineTo(x + 51, y + 18);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#f8edd5";
+  ctx.fillRect(x + 8, y + 24, 7, 8);
+  ctx.fillRect(x + 34, y + 24, 7, 8);
+  ctx.fillStyle = "#5a4230";
+  ctx.fillRect(x + 21, y + 28, 8, 14);
+  ctx.fillStyle = "#e5c77e";
+  roundRect(x + 4, y - 10, 54, 14, 5, true);
+  ctx.fillStyle = "#4c3826";
+  ctx.font = '10px "PingFang SC", sans-serif';
+  ctx.fillText("湖畔旅馆", x + 10, y);
+}
+
+function drawTouristMarket(x, y, now) {
+  const sway = Math.sin(now / 320) * 2;
+  ctx.fillStyle = "#76523b";
+  ctx.fillRect(x + 4, y + 20, 50, 24);
+  ctx.fillStyle = "#d0b98c";
+  ctx.fillRect(x + 6, y + 22, 46, 20);
+  ctx.fillStyle = "#c06c4d";
+  ctx.beginPath();
+  ctx.moveTo(x, y + 22);
+  ctx.lineTo(x + 15, y + 10 + sway);
+  ctx.lineTo(x + 28, y + 22);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(x + 26, y + 22);
+  ctx.lineTo(x + 39, y + 10 - sway);
+  ctx.lineTo(x + 54, y + 22);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#f2d7ab";
+  ctx.fillRect(x + 10, y + 27, 10, 7);
+  ctx.fillStyle = "#b46747";
+  ctx.fillRect(x + 24, y + 29, 9, 6);
+  ctx.fillStyle = "#85a75d";
+  ctx.fillRect(x + 36, y + 27, 9, 7);
+  ctx.fillStyle = "#f7e8c8";
+  roundRect(x + 2, y - 10, 58, 14, 5, true);
+  ctx.fillStyle = "#4c3826";
+  ctx.font = '10px "PingFang SC", sans-serif';
+  ctx.fillText("林间集市", x + 8, y);
+}
+
 function propertyOwnerColor(asset) {
   if (asset.owner_type === "player") return "#4f8ab8";
   if (asset.owner_type === "agent") return "#a87452";
+  if (asset.owner_type === "government") return "#4f9d92";
   return "#8a8a70";
 }
 
 function drawPropertyAssets(now) {
   (state.properties || []).forEach((asset) => {
+    if (asset.id === "property-tourist-inn" || asset.id === "property-tourist-market") return;
     const px = (asset.position.x - 1) * tile;
     const py = (asset.position.y - 1) * tile;
     const width = asset.width * tile;
@@ -2613,6 +2966,23 @@ function drawPropertyAssets(now) {
     ctx.fillStyle = "#fff8e8";
     ctx.font = '10px "PingFang SC", sans-serif';
     ctx.fillText(asset.name.slice(0, 7), px + 12, py - 5);
+    if (asset.owner_type === "government") {
+      ctx.fillStyle = "rgba(79, 157, 146, 0.24)";
+      ctx.strokeStyle = "rgba(62, 114, 105, 0.85)";
+      ctx.lineWidth = 2;
+      roundRect(px + 4, py + 4, width - 8, height - 8, 10, true);
+      ctx.stroke();
+      ctx.fillStyle = "#e7f8f1";
+      roundRect(px + width - 22, py - 14, 16, 14, 6, true);
+      ctx.fillStyle = "#376f69";
+      ctx.font = '11px "PingFang SC", sans-serif';
+      ctx.fillText("公", px + width - 18, py - 4);
+      ctx.fillStyle = "#dff5ee";
+      roundRect(px + 8, py + height - 16, Math.min(width - 16, 44), 10, 5, true);
+      ctx.fillStyle = "#3a746c";
+      ctx.font = '9px "PingFang SC", sans-serif';
+      ctx.fillText("财政资产", px + 11, py + height - 8);
+    }
     if (asset.listed) {
       ctx.fillStyle = "#f7e8bf";
       ctx.fillRect(px + width - 16, py + 8, 10, 10);
@@ -2633,8 +3003,16 @@ function drawCharacters(now) {
       highlight: nearbyAgent && nearbyAgent.id === agent.id,
       selected: selectedActorId === agent.id,
     })),
+    ...(state.tourists || []).map((tourist) => ({
+      id: tourist.id,
+      label: tourist.name,
+      entity: sceneEntities.tourists.get(tourist.id),
+      style: "tourist",
+      highlight: nearbyAgent && nearbyAgent.id === tourist.id,
+      selected: selectedActorId === tourist.id,
+    })),
     { id: "player", label: state.player.name, entity: sceneEntities.player, style: "scientist_b", highlight: false, selected: selectedActorId === "player" },
-  ].sort((left, right) => left.entity.y - right.entity.y);
+  ].filter((actor) => actor.entity).sort((left, right) => left.entity.y - right.entity.y);
 
   actors.forEach((actor) => {
     drawSprite(actor.id, actor.entity, now, actor.style || "scientist_a", actor.highlight, actor.selected, actor.label);
@@ -2642,7 +3020,7 @@ function drawCharacters(now) {
 }
 
 function drawSprite(id, entity, now, style, highlighted, selected, label) {
-  const visual = agentVisuals[id] || agentVisuals.player;
+  const visual = agentVisuals[id] || (id.startsWith("tourist") ? agentVisuals.tourist : agentVisuals.player);
   const bob = Math.round(Math.sin(now / 220 + entity.targetX / 50) * 1.4);
   const centerX = Math.round(entity.x);
   const baseY = Math.round(entity.y) + 10 + bob;
@@ -2782,6 +3160,11 @@ function drawBubbles() {
     if (!bubble) return;
     drawBubble(entity.x, entity.y - 68, bubble);
   });
+  (state.tourists || []).forEach((tourist) => {
+    const entity = sceneEntities.tourists.get(tourist.id);
+    if (!entity || !tourist.current_bubble) return;
+    drawBubble(entity.x, entity.y - 64, tourist.current_bubble);
+  });
 }
 
 function drawBubble(centerX, topY, text) {
@@ -2861,6 +3244,10 @@ function drawMiniMap(camera) {
   ctx.fillStyle = "#d16f54";
   state.agents.forEach((agent) => {
     ctx.fillRect(x + (agent.position.x - 1) * scaleX - 1, y + (agent.position.y - 1) * scaleY - 1, 4, 4);
+  });
+  ctx.fillStyle = "#8f73c7";
+  (state.tourists || []).forEach((tourist) => {
+    ctx.fillRect(x + (tourist.position.x - 1) * scaleX - 1, y + (tourist.position.y - 1) * scaleY - 1, 4, 4);
   });
   ctx.strokeStyle = "rgba(255, 248, 226, 0.92)";
   ctx.lineWidth = 2;
@@ -3238,7 +3625,12 @@ function getPlayerBubbleText() {
 
 function getNearbyAgent() {
   if (!state) return null;
-  return state.agents.find((agent) => manhattan(agent.position, state.player.position) <= 2) || null;
+  const targets = [...state.agents, ...(state.tourists || [])];
+  return (
+    targets
+      .filter((actor) => manhattan(actor.position, state.player.position) <= 2)
+      .sort((left, right) => manhattan(left.position, state.player.position) - manhattan(right.position, state.player.position))[0] || null
+  );
 }
 
 function trimObserverHistory() {
@@ -3270,8 +3662,8 @@ function observerRelationBias(agentId) {
 }
 
 function pickObserverTarget(requireNearby = false) {
-  if (!state?.agents?.length) return null;
-  const candidates = state.agents.filter((agent) => !agent.is_resting);
+  if (!state || (!(state.agents?.length) && !(state.tourists?.length))) return null;
+  const candidates = [...state.agents.filter((agent) => !agent.is_resting), ...(state.tourists || [])];
   const pool = requireNearby ? candidates.filter((agent) => manhattan(agent.position, state.player.position) <= 2) : candidates;
   if (!pool.length) return null;
   return pool
@@ -3281,14 +3673,16 @@ function pickObserverTarget(requireNearby = false) {
       const rightDistance = manhattan(right.position, state.player.position);
       const leftRecent = observerRecentAgents.includes(left.id) ? 28 + observerRecentAgents.lastIndexOf(left.id) * 8 : 0;
       const rightRecent = observerRecentAgents.includes(right.id) ? 28 + observerRecentAgents.lastIndexOf(right.id) * 8 : 0;
-      const leftScore = (requireNearby ? 0 : leftDistance * 5) + observerTalkPenalty(left.id) + leftRecent + observerRelationBias(left.id) * 0.65 + Math.random() * 8;
-      const rightScore = (requireNearby ? 0 : rightDistance * 5) + observerTalkPenalty(right.id) + rightRecent + observerRelationBias(right.id) * 0.65 + Math.random() * 8;
+      const leftBias = left.archetype ? 8 : observerRelationBias(left.id) * 0.65;
+      const rightBias = right.archetype ? 8 : observerRelationBias(right.id) * 0.65;
+      const leftScore = (requireNearby ? 0 : leftDistance * 5) + observerTalkPenalty(left.id) + leftRecent + leftBias + Math.random() * 8;
+      const rightScore = (requireNearby ? 0 : rightDistance * 5) + observerTalkPenalty(right.id) + rightRecent + rightBias + Math.random() * 8;
       return leftScore - rightScore;
     })[0];
 }
 
 function getFocusAgent() {
-  return getNearbyAgent() || state.agents.find((agent) => agent.id === state?.latest_dialogue?.agent_id) || state.agents[0];
+  return getNearbyAgent() || state.agents.find((agent) => agent.id === state?.latest_dialogue?.agent_id) || (state.tourists || []).find((tourist) => tourist.id === state?.latest_dialogue?.agent_id) || state.agents[0] || state.tourists?.[0];
 }
 
 function getSelectedCharacter() {
@@ -3301,10 +3695,14 @@ function getSelectedCharacter() {
     if (selectedAgent) {
       return { kind: "agent", data: selectedAgent };
     }
+    const selectedTourist = (state.tourists || []).find((tourist) => tourist.id === selectedActorId);
+    if (selectedTourist) {
+      return { kind: "tourist", data: selectedTourist };
+    }
   }
   const fallbackAgent = getFocusAgent();
   if (fallbackAgent) {
-    return { kind: "agent", data: fallbackAgent };
+    return { kind: fallbackAgent.archetype ? "tourist" : "agent", data: fallbackAgent };
   }
   return { kind: "player", data: state.player };
 }
@@ -3315,7 +3713,7 @@ function updateTalkTarget() {
     talkTarget.textContent = target ? `观察模式：自动接近 ${target.name}` : "观察模式：玩家自动行动中";
     return;
   }
-  talkTarget.textContent = target ? `当前对象：${target.name}` : "当前对象：未靠近任何同事";
+  talkTarget.textContent = target ? `当前对象：${target.name}` : "当前对象：未靠近任何可聊天的人";
 }
 
 function setComposerPending(pending, targetName = "") {
@@ -3364,12 +3762,22 @@ function buildPendingDialogue(target, text) {
         jo: "我先过一下实现",
         rae: "我在认真想这句",
         kai: "这句话有点信号",
+        tourist: "我想想怎么说",
       }[target.id] || "我想一下",
     effects: [],
   };
 }
 
 function buildObserverUtterance(target) {
+  if (target.archetype) {
+    const tourism = state?.tourism || {};
+    const pool = [
+      `${tourism.inn_name || "旅馆"} 住得还习惯吗？这边最值得逛的是哪一块？`,
+      `如果你想去 ${tourism.market_name || "集市"}，我可以给你指个方向。`,
+      `你这趟最想知道的，是${target.favorite_topic || "这里哪里最有意思"}吗？`,
+    ];
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
   const weather = weatherLabels[state.weather] || "天气";
   const slot = timeLabels[state.time_slot] || "这会儿";
   if (target.is_resting) {
@@ -3565,7 +3973,7 @@ async function interact() {
   }
   const target = getNearbyAgent();
   if (!target) {
-    signalStatus.textContent = "先靠近一位同事，再按 E 打开对话输入框。";
+    signalStatus.textContent = "先靠近一位同事或游客，再按 E 打开对话输入框。";
     return;
   }
   lastManualInput = Date.now();
@@ -3582,7 +3990,7 @@ async function submitTalk() {
   }
   const target = getNearbyAgent();
   if (!target) {
-    signalStatus.textContent = "附近没有可对话的同事。";
+    signalStatus.textContent = "附近没有可对话的人。";
     return;
   }
   const text = talkInput.value.trim();
@@ -3627,12 +4035,14 @@ function loop(now) {
   lastFrame = now;
   animateEntity(sceneEntities.player, delta);
   sceneEntities.agents.forEach((entity) => animateEntity(entity, delta));
+  sceneEntities.tourists.forEach((entity) => animateEntity(entity, delta));
   drawWorld(now);
   requestAnimationFrame(loop);
 }
 
 function chooseAutoMove() {
   if (!state || !autoExplore) return null;
+  const roomKeyForPoint = (point) => rooms.find((room) => point.x >= room.x && point.x < room.x + room.w && point.y >= room.y && point.y < room.y + room.h)?.key || "foyer";
   if (observerMode) {
     const target = pickObserverTarget(false);
     if (target && manhattan(target.position, state.player.position) > 2 && Math.random() < 0.82) {
@@ -3646,14 +4056,29 @@ function chooseAutoMove() {
     return chooseWalkableStep(state.player.position, focus.position);
   }
   const roomTargets = [
-    { x: 7, y: 20 },
-    { x: 14, y: 8 },
-    { x: 24, y: 7 },
-    { x: 36, y: 6 },
-    { x: 18, y: 18 },
-    { x: 34, y: 20 },
+    { x: 7, y: 20, room: "foyer" },
+    { x: 14, y: 8, room: "office" },
+    { x: 24, y: 7, room: "compute" },
+    { x: 36, y: 6, room: "data_wall" },
+    { x: 18, y: 18, room: "meeting" },
+    { x: 34, y: 20, room: "lounge" },
+    { x: 24, y: 18, room: "meeting" },
+    { x: 31, y: 8, room: "data_wall" },
+    { x: 10, y: 14, room: "meeting" },
+    { x: 39, y: 19, room: "lounge" },
   ];
-  const target = roomTargets[Math.floor(Math.random() * roomTargets.length)];
+  const currentRoom = roomKeyForPoint(state.player.position);
+  const rankedTargets = roomTargets
+    .map((target) => {
+      let score = Math.random();
+      if (target.room === currentRoom) score -= 1.25;
+      if (observerRecentRooms.includes(target.room)) score -= 1.1;
+      return { ...target, score };
+    })
+    .sort((left, right) => right.score - left.score);
+  const target = rankedTargets[0] || roomTargets[0];
+  observerRecentRooms.push(target.room);
+  while (observerRecentRooms.length > 4) observerRecentRooms.shift();
   return chooseWalkableStep(state.player.position, target);
 }
 
@@ -3953,6 +4378,57 @@ if (bankBorrowForm) {
   });
 }
 
+if (bankDepositForm) {
+  bankDepositForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (busy || !state) return;
+    busy = true;
+    if (bankDepositBtn) bankDepositBtn.disabled = true;
+    try {
+      state = await api("/api/bank/deposit", {
+        method: "POST",
+        body: JSON.stringify({
+          amount: Number(bankDepositAmount?.value || 0),
+        }),
+      });
+      syncSceneEntities();
+      renderPanels();
+      signalStatus.textContent = state.player.last_trade_summary || "银行存款已处理。";
+    } catch (error) {
+      signalStatus.textContent = error.message;
+    } finally {
+      busy = false;
+      if (bankDepositBtn) bankDepositBtn.disabled = false;
+      renderPanels();
+    }
+  });
+}
+
+if (bankWithdrawBtn) {
+  bankWithdrawBtn.addEventListener("click", async () => {
+    if (busy || !state) return;
+    busy = true;
+    bankWithdrawBtn.disabled = true;
+    try {
+      state = await api("/api/bank/withdraw", {
+        method: "POST",
+        body: JSON.stringify({
+          amount: Number(bankDepositAmount?.value || 0),
+        }),
+      });
+      syncSceneEntities();
+      renderPanels();
+      signalStatus.textContent = state.player.last_trade_summary || "银行取款已处理。";
+    } catch (error) {
+      signalStatus.textContent = error.message;
+    } finally {
+      busy = false;
+      bankWithdrawBtn.disabled = false;
+      renderPanels();
+    }
+  });
+}
+
 if (taxPolicyForm) {
   taxPolicyForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -4020,6 +4496,7 @@ tradeSymbol.addEventListener("change", renderTradeMeta);
 tradeSide.addEventListener("change", renderTradeMeta);
 bankBorrowAmount?.addEventListener("input", () => renderPanels());
 bankBorrowTerm?.addEventListener("change", () => renderPanels());
+bankDepositAmount?.addEventListener("input", () => renderPanels());
 if (dialogueActorFilter) {
   dialogueActorFilter.addEventListener("change", () => {
     dialogueFilterActor = dialogueActorFilter.value;
@@ -4302,6 +4779,7 @@ function pickActorAt(worldX, worldY) {
   const actors = [
     { id: "player", entity: sceneEntities.player, radiusX: 18, radiusY: 32 },
     ...state.agents.map((agent) => ({ id: agent.id, entity: sceneEntities.agents.get(agent.id), radiusX: 18, radiusY: 32 })),
+    ...(state.tourists || []).map((tourist) => ({ id: tourist.id, entity: sceneEntities.tourists.get(tourist.id), radiusX: 18, radiusY: 32 })),
   ].filter((actor) => actor.entity);
   return actors.find((actor) => Math.abs(worldX - actor.entity.x) <= actor.radiusX && Math.abs(worldY - (actor.entity.y - 24)) <= actor.radiusY) || null;
 }

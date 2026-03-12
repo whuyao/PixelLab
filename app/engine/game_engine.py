@@ -22,7 +22,7 @@ from app.engine.social_engine import SocialEngine
 from app.engine.task_system import apply_task_progress
 from app.engine.time_system import advance_time
 from app.engine.world_state import build_initial_world
-from app.models import AnalysisPoint, Agent, BankLoanRecord, ConsumableItem, DailyBriefItem, DailyBriefing, DialogueOutcome, DialogueRecord, FinanceRecord, GrayCase, IndexCandle, LabEvent, LoanRecord, MemoryEntry, Point, PropertyAsset, SocialThread, StateDiffResponse, StoryBeat, Task, WorldState
+from app.models import AnalysisPoint, Agent, BankLoanRecord, ConsumableItem, DailyBriefItem, DailyBriefing, DialogueOutcome, DialogueRecord, FinanceRecord, GrayCase, IndexCandle, LabEvent, LoanRecord, MemoryEntry, Point, PropertyAsset, SocialThread, StateDiffResponse, StoryBeat, Task, TouristAgent, TourismState, WorldState
 from app.services.activity_logger import ActivityLogger
 
 
@@ -138,6 +138,26 @@ SECTOR_BETA = {"GEO": 1.14, "AGR": 0.82, "SIG": 1.28}
 IDIOSYNCRATIC_VOL = {"GEO": 0.72, "AGR": 0.58, "SIG": 0.94}
 BASE_SHARES_OUTSTANDING = {"GEO": 180000, "AGR": 240000, "SIG": 150000}
 BASE_AVG_VOLUME = {"GEO": 5600, "AGR": 4800, "SIG": 5200}
+TOURIST_NAME_POOL = ["许栀", "沈禾", "顾岚", "孟遥", "程汐", "唐屿", "苏楠", "袁栩", "陆晴", "乔朔"]
+TOURIST_ARCHETYPES = [
+    {"archetype": "周末散客", "favorite_topic": "天气、住宿和集市小吃", "spending_desire": 54, "budget": 18},
+    {"archetype": "摄影游客", "favorite_topic": "果园、湖边和好看的角落", "spending_desire": 48, "budget": 16},
+    {"archetype": "短住买手", "favorite_topic": "集市、价格和什么值得带回去", "spending_desire": 68, "budget": 26},
+    {"archetype": "考察访客", "favorite_topic": "GeoAI、园区故事和谁最懂这里", "spending_desire": 42, "budget": 14},
+]
+TOURISM_EVENT_TITLES = [
+    "湖畔夜市",
+    "周末采风日",
+    "田园慢生活节",
+    "果园开放日",
+]
+TOURIST_SIGNAL_BANK = [
+    {"title": "游客带来外地买手消息", "summary": "几位游客提到外地渠道正在回补农食和文旅周边订单。", "category": "market", "tone": 1, "target": "AGR", "strength": 2},
+    {"title": "游客聊起一波空间智能参访热", "summary": "来访者频繁讨论园区里的 GeoAI 展示和空间智能体验，市场开始把相关能力当成新的卖点。", "category": "geoai", "tone": 1, "target": "GEO", "strength": 2},
+    {"title": "游客带来一条监管收紧风声", "summary": "短住买手在集市里谈到外地监管可能收紧交易和数据流通，大家情绪明显谨慎。", "category": "market", "tone": -1, "target": "SIG", "strength": 3},
+    {"title": "游客口中的消费回暖传闻", "summary": "回头客在旅馆里说，周边几个片区的消费人流比上月明显回暖。", "category": "general", "tone": 1, "target": "AGR", "strength": 2},
+    {"title": "游客散播一条地产观望消息", "summary": "看房游客普遍觉得短期房价偏高，购买动作可能会先放慢。", "category": "market", "tone": -1, "target": "AGR", "strength": 2},
+]
 
 
 class GameEngine:
@@ -188,7 +208,7 @@ class GameEngine:
         )
 
     def _refresh_state_signatures(self) -> None:
-        self.state.version = max(self.state.version, 31)
+        self.state.version = max(self.state.version, 36)
         self.state.section_signatures = self._sign_sections(self._build_state_sections())
 
     def _sign_sections(self, sections: dict[str, object]) -> dict[str, str]:
@@ -219,11 +239,14 @@ class GameEngine:
                 "geoai_milestones": list(state.geoai_milestones),
                 "market": dump(state.market),
                 "company": dump(state.company),
+                "tourism": dump(state.tourism),
             },
             "analysis": {
                 "analysis_history": dump(state.analysis_history[-40:]),
                 "agents": dump(state.agents),
                 "player": dump(state.player),
+                "tourists": dump(state.tourists),
+                "tourism": dump(state.tourism),
                 "events": dump(state.events),
                 "gray_cases": dump(state.gray_cases),
                 "market": dump(state.market),
@@ -259,6 +282,8 @@ class GameEngine:
             "memory": {
                 "player": dump(state.player),
                 "agents": dump(state.agents),
+                "tourists": dump(state.tourists),
+                "tourism": dump(state.tourism),
                 "properties": dump(state.properties),
                 "loans": dump(state.loans),
                 "bank_loans": dump(state.bank_loans),
@@ -271,6 +296,8 @@ class GameEngine:
                 "market": dump(state.market),
                 "player": dump(state.player),
                 "agents": dump(state.agents),
+                "tourists": dump(state.tourists),
+                "tourism": dump(state.tourism),
                 "bank": dump(state.bank),
                 "bank_loans": dump(state.bank_loans),
             },
@@ -283,6 +310,8 @@ class GameEngine:
             "lifestyle": {
                 "player": dump(state.player),
                 "agents": dump(state.agents),
+                "tourists": dump(state.tourists),
+                "tourism": dump(state.tourism),
                 "properties": dump(state.properties),
                 "lifestyle_catalog": dump(state.lifestyle_catalog),
                 "company": dump(state.company),
@@ -311,6 +340,18 @@ class GameEngine:
         return self.state
 
     def interact_with_agent(self, agent_id: str) -> DialogueOutcome:
+        if self.has_tourist(agent_id):
+            tourist = self.get_tourist(agent_id)
+            outcome = DialogueOutcome(
+                agent_id=tourist.id,
+                agent_name=tourist.name,
+                line=tourist.current_bubble or f"{tourist.name} 正在四处张望，像是想和人聊两句。",
+                topic=tourist.favorite_topic or "临时闲聊",
+                bubble_text=tourist.current_bubble or "这里还挺热闹。",
+                effects=["游客正在观察周围。"],
+            )
+            self.state.latest_dialogue = outcome
+            return outcome
         return self.social_engine.interact_with_agent(agent_id)
 
     def player_trade(self, symbol: str, side: str, shares: int) -> WorldState:
@@ -329,13 +370,80 @@ class GameEngine:
         return self.lifestyle_engine.player_sell_property(property_id)
 
     def speak_to_agent(self, agent_id: str, player_text: str) -> DialogueOutcome:
+        if self.has_tourist(agent_id):
+            return self.speak_to_tourist(agent_id, player_text, observer=False)
         return self.social_engine.speak_to_agent(agent_id, player_text)
 
     def commit_external_dialogue(self, agent_id: str, dialogue: DialogueOutcome, player_text: str) -> DialogueOutcome:
         return self.social_engine.commit_external_dialogue(agent_id, dialogue, player_text)
 
+    def speak_to_tourist(self, tourist_id: str, player_text: str, observer: bool = False) -> DialogueOutcome:
+        tourist = self._find_tourist(tourist_id)
+        cleaned = player_text.strip()
+        if not cleaned:
+            raise ValueError("先输入一句你想说的话。")
+        line = self._tourist_reply_line(tourist, cleaned)
+        mood_delta = 2 if any(token in cleaned for token in ["欢迎", "慢慢逛", "需要帮忙", "休息", "坐坐"]) else 1
+        tourist.mood = self._bounded(tourist.mood + mood_delta)
+        tourist.current_bubble = line
+        tourist.current_activity = f"刚和你聊了“{tourist.favorite_topic or '这地方'}”，看起来还想再逛逛。"
+        tourist.brief_note = f"对你刚才那句“{cleaned[:14]}”有印象，今天会更愿意在这里花钱和停留。"
+        if observer:
+            self.state.player.life_satisfaction = self._bounded(self.state.player.life_satisfaction + 1)
+        else:
+            self.state.player.reputation_score = self._bounded(self.state.player.reputation_score + 1)
+            self.state.player.life_satisfaction = self._bounded(self.state.player.life_satisfaction + 1)
+        outcome = DialogueOutcome(
+            agent_id=tourist.id,
+            agent_name=tourist.name,
+            player_text=cleaned,
+            line=line,
+            topic=tourist.favorite_topic or "旅途见闻",
+            bubble_text=line,
+            effects=["游客心情 +1", "园区人气 +1"],
+        )
+        self.state.latest_dialogue = outcome
+        self._append_dialogue_record(
+            DialogueRecord(
+                id=f"dialogue-{uuid4().hex[:8]}",
+                kind="player_dialogue",
+                day=self.state.day,
+                time_slot=self.state.time_slot,
+                participants=["player", tourist.id],
+                participant_names=[self.state.player.name, tourist.name],
+                topic=tourist.favorite_topic or "旅途见闻",
+                summary=f"你和 {tourist.name} 围绕“{tourist.favorite_topic or '旅途见闻'}”聊了一轮，游客对园区的印象被进一步拉高。",
+                key_point=f"{tourist.name} 主要在意“{tourist.favorite_topic or '旅途体验'}”，你的回应让他更愿意继续停留和消费。",
+                transcript=[f"你：{cleaned}", f"{tourist.name}：{line}"],
+                desire_labels={self.state.player.name: self._player_desire_label(cleaned), tourist.name: "想把这趟行程过得舒服一点"},
+                mood="warm",
+            )
+        )
+        self._append_finance_record(
+            actor_id=tourist.id,
+            actor_name=tourist.name,
+            category="tourism",
+            action="chat",
+            summary=f"{tourist.name} 刚和你聊了一会儿，接下来更可能去旅馆或集市消费。",
+            amount=0,
+            asset_name=self.state.tourism.market_name,
+            counterparty=self.state.player.name,
+        )
+        self._log(
+            "tourist_player_dialogue",
+            tourist={"id": tourist.id, "name": tourist.name, "archetype": tourist.archetype},
+            dialogue={"player_text": cleaned, "reply": line},
+        )
+        return outcome
+
     def get_agent(self, agent_id: str) -> Agent:
         return self._find_agent(agent_id)
+
+    def has_tourist(self, tourist_id: str) -> bool:
+        return any(tourist.id == tourist_id for tourist in self.state.tourists)
+
+    def get_tourist(self, tourist_id: str) -> TouristAgent:
+        return self._find_tourist(tourist_id)
 
     def inject_event(self, event: LabEvent) -> WorldState:
         return self._ingest_event(event, player_injected=True)
@@ -401,8 +509,10 @@ class GameEngine:
         self._move_agents_autonomously()
         self._trigger_work_activity()
         self._trigger_bank_activity()
+        self._run_tourism_activity()
         self._trigger_gray_market_activity()
         self.lifestyle_engine.run_tick()
+        self._trigger_property_market_activity()
         self.social_engine.run_tick()
         self._advance_gray_cases(daily_roll=False)
         self._settle_due_loans()
@@ -415,6 +525,13 @@ class GameEngine:
 
     def _move_agents_autonomously(self) -> None:
         moved_agents: list[dict[str, object]] = []
+        side_trip_targets = {
+            "morning": [(24, 6), (34, 5), (40, 5), (14, 8)],
+            "noon": [(13, 17), (18, 17), (33, 18), (36, 20), (31, 20)],
+            "afternoon": [(23, 7), (31, 6), (35, 8), (18, 6)],
+            "evening": [(17, 17), (29, 18), (34, 20), (12, 18), (38, 19)],
+            "night": [(11, 8), (20, 18), (31, 20), (37, 21)],
+        }
         for agent in self.state.agents:
             previous = agent.position.model_copy()
             if agent.is_resting:
@@ -448,27 +565,12 @@ class GameEngine:
                     )
                 continue
             hub_x, hub_y = HUBS[agent.id][self.state.time_slot]
-            room = self._room(agent.current_location)
-            target_x = hub_x + self.random.randint(-2, 2)
-            target_y = hub_y + self.random.randint(-1, 1)
-            target = self._nearest_walkable(room.clamp(target_x, target_y), room)
-            step_x = 0 if target.x == agent.position.x else (1 if target.x > agent.position.x else -1)
-            step_y = 0 if target.y == agent.position.y else (1 if target.y > agent.position.y else -1)
-            prefer_x = abs(target.x - agent.position.x) >= abs(target.y - agent.position.y)
-            options: list[tuple[int, int]] = []
-            if step_x != 0 or step_y != 0:
-                if prefer_x:
-                    options.extend([(step_x, 0), (0, step_y), (step_x, step_y)])
-                else:
-                    options.extend([(0, step_y), (step_x, 0), (step_x, step_y)])
-            options.extend(
-                [
-                    (step_x, 0),
-                    (0, step_y),
-                    (0, 0),
-                ]
-            )
-            agent.position = self._move_in_room(agent.position, room, options)
+            target = Point(x=hub_x + self.random.randint(-2, 2), y=hub_y + self.random.randint(-1, 1))
+            if self.random.random() < 0.34:
+                alt_x, alt_y = self.random.choice(side_trip_targets.get(self.state.time_slot, [(hub_x, hub_y)]))
+                target = Point(x=alt_x + self.random.randint(-1, 1), y=alt_y + self.random.randint(-1, 1))
+            target = self._nearest_walkable(target, self._room(self._room_for(target.x, target.y)))
+            agent.position = self._step_toward_point(agent.position, target)
             agent.current_location = self._room_for(agent.position.x, agent.position.y)
             drain = 3 if self.state.time_slot == "night" else 1
             agent.state.energy = max(0, agent.state.energy - drain)
@@ -844,11 +946,12 @@ class GameEngine:
 
     def _money_pressure(self, agent: Agent) -> int:
         pressure = agent.money_desire
-        if agent.cash < self.state.company.low_cash_threshold:
+        total_funds = self._agent_total_funds(agent)
+        if total_funds < self.state.company.low_cash_threshold:
             pressure = max(pressure, 88)
-        if agent.cash < 10:
+        if total_funds < 10:
             pressure = max(pressure, 96)
-        elif agent.cash < 25:
+        elif total_funds < 25:
             pressure = max(pressure, 82)
         if any(loan.borrower_id == agent.id and loan.status in {"active", "overdue"} for loan in self.state.loans):
             pressure = max(pressure, 74)
@@ -860,7 +963,10 @@ class GameEngine:
             quote = self._quote(symbol)
             if quote is not None:
                 holdings_value += int(round(quote.price * shares))
-        return agent.cash + holdings_value - self._bank_liability_for("agent", agent.id)
+        return agent.cash + agent.deposit_balance + holdings_value - self._bank_liability_for("agent", agent.id)
+
+    def _agent_total_funds(self, agent: Agent) -> int:
+        return agent.cash + agent.deposit_balance
 
     def _player_net_worth(self) -> int:
         holdings_value = 0
@@ -868,7 +974,18 @@ class GameEngine:
             quote = self._quote(symbol)
             if quote is not None:
                 holdings_value += int(round(quote.price * shares))
-        return self.state.player.cash + holdings_value - self._bank_liability_for("player", self.state.player.id)
+        return self.state.player.cash + self.state.player.deposit_balance + holdings_value - self._bank_liability_for("player", self.state.player.id)
+
+    def _player_total_funds(self) -> int:
+        return self.state.player.cash + self.state.player.deposit_balance
+
+    def _player_total_assets(self) -> int:
+        property_value = sum(asset.estimated_value for asset in self.state.properties if asset.owner_type == "player" and asset.owner_id == self.state.player.id and asset.status == "owned")
+        return self._player_net_worth() + property_value
+
+    def _agent_total_assets(self, agent: Agent) -> int:
+        property_value = sum(asset.estimated_value for asset in self.state.properties if asset.owner_type == "agent" and asset.owner_id == agent.id and asset.status == "owned")
+        return self._agent_net_worth(agent) + property_value
 
     def _team_net_worth(self) -> int:
         return sum(self._agent_net_worth(agent) for agent in self.state.agents)
@@ -1404,6 +1521,12 @@ class GameEngine:
             for record in self.state.finance_history
             if record.day == previous_day and record.category == "tax"
         )
+        previous_tourist_revenue = sum(
+            abs(record.amount)
+            for record in self.state.finance_history
+            if record.day == previous_day and record.category == "tourism" and record.action == "spend"
+        )
+        previous_tourist_signals = [event for event in self.state.events if event.title.startswith("游客消息：")]
         policy_event = next((event for event in self.state.events if event.category == "general" and ("税制" in event.title or "监管" in event.title)), None)
         audit_event = next((event for event in self.state.events if "监管抽查" in event.title), None)
         if previous_candle is not None:
@@ -1416,6 +1539,18 @@ class GameEngine:
             add_entry(
                 f"财政速递：昨日政府合计收税 ${previous_tax_revenue}，累计财政收入来到 ${self.state.government.total_revenue}。",
                 target_kind="market",
+            )
+        if previous_tourist_revenue > 0:
+            add_entry(
+                f"游客速递：昨天游客带来约 ${previous_tourist_revenue} 的本地收入，{self.state.tourism.market_name} 和 {self.state.tourism.inn_name} 都更热闹了；累计回头客 {self.state.tourism.repeat_customers_total}、高消费客户 {self.state.tourism.vip_customers_total}。",
+                target_kind="market",
+            )
+        if previous_tourist_signals:
+            latest_signal = previous_tourist_signals[0]
+            add_entry(
+                f"游客耳语：{latest_signal.title}，这条外来消息昨天已经影响到园区判断和盘面气氛。",
+                target_kind="event",
+                target_id=latest_signal.id,
             )
         if policy_event is not None:
             add_entry(
@@ -1829,12 +1964,25 @@ class GameEngine:
             key=lambda quote: quote.change_pct + quote.day_change_pct * 0.32 + quote.turnover_pct * 0.22 + max(0.0, (quote.fair_value - quote.price) / max(0.01, quote.price) * 100) * 0.34,
         )
         held = self.state.player.portfolio.get(preferred.symbol, 0)
+        total_funds = max(1, self.state.player.cash + self.state.player.deposit_balance)
+        current_equity = 0
+        for symbol, shares in self.state.player.portfolio.items():
+            quote = self._quote(symbol)
+            if quote is not None:
+                current_equity += int(round(quote.price * shares))
+        reserve_cash = max(40, int(total_funds * 0.22))
+        max_exposure = int(total_funds * max(0.28, min(0.46, 0.32 + (self.state.player.risk_appetite - 50) / 260)))
         if held > 0 and (preferred.day_change_pct >= 4.8 or preferred.change_pct <= -2.0):
             return (preferred.symbol, "sell", min(held, 2), "观察模式下先做一次止盈或止损。")
-        if self.state.player.cash >= preferred.price:
-            budget = min(self.state.player.cash, 24 + self.state.player.risk_appetite // 2 + max(0, 60 - self.state.player.cash) // 3)
+        if current_equity >= max_exposure:
+            for symbol, shares in sorted(self.state.player.portfolio.items(), key=lambda item: item[1], reverse=True):
+                if shares > 0:
+                    return (symbol, "sell", min(shares, 2), "当前仓位已经偏重，先降一点风险。")
+        if self.state.player.cash >= preferred.price and self.state.player.cash > reserve_cash:
+            budget = min(max(0, self.state.player.cash - reserve_cash), 18 + self.state.player.risk_appetite // 3)
             shares = max(1, min(4, int(budget // preferred.price)))
-            return (preferred.symbol, "buy", shares, "观察模式下，玩家判断这条线值得先小仓位试试。")
+            if shares > 0:
+                return (preferred.symbol, "buy", shares, "观察模式下，玩家判断这条线值得先小仓位试试。")
         for symbol, shares in self.state.player.portfolio.items():
             if shares > 0:
                 return (symbol, "sell", min(shares, 2), "手头现金偏紧，先卖一点。")
@@ -2115,6 +2263,11 @@ class GameEngine:
         default_pressure = min(2.6, overdue_count * 0.65 + self.state.bank.defaults_count * 0.08)
         reputation_tilt = 0.35 if self.state.lab.reputation <= 18 else -0.15 if self.state.lab.reputation >= 62 else 0.0
         self.state.bank.risk_spread_pct = round(max(0.0, min(4.5, 0.2 + liquidity_pressure + default_pressure + reputation_tilt)), 2)
+        regime = self.state.market.regime or "bull"
+        regime_boost = {"bull": -0.04, "sideways": 0.06, "risk": 0.14}.get(regime, 0.05)
+        liquidity_boost = 0.18 if self.state.bank.liquidity <= 420 else 0.09 if self.state.bank.liquidity <= 820 else -0.02
+        spread_boost = self.state.bank.risk_spread_pct * 0.08
+        self.state.bank.deposit_daily_rate_pct = round(max(0.06, min(1.25, self.state.bank.base_deposit_daily_rate_pct + regime_boost + liquidity_boost + spread_boost)), 2)
 
     def _bank_offer_rate(self, credit_score: int, term_days: int) -> tuple[float, float]:
         base_daily = self.state.bank.base_daily_rate_pct + self.state.bank.risk_spread_pct + self._bank_regime_adjustment()
@@ -2133,6 +2286,118 @@ class GameEngine:
         daily_rate = max(0.8, min(9.5, round(base_daily + term_premium + credit_premium + reputation_premium, 2)))
         total_rate = round(daily_rate * term_days, 2)
         return daily_rate, total_rate
+
+    def _bank_holder_name(self, holder_type: str, holder_id: str) -> str:
+        if holder_type == "player":
+            return self.state.player.name
+        return self._find_agent(holder_id).name
+
+    def _bank_holder_deposit_balance(self, holder_type: str, holder_id: str) -> int:
+        if holder_type == "player":
+            return self.state.player.deposit_balance
+        return self._find_agent(holder_id).deposit_balance
+
+    def _adjust_bank_holder_deposit(self, holder_type: str, holder_id: str, delta: int) -> None:
+        if holder_type == "player":
+            self.state.player.deposit_balance = max(0, self.state.player.deposit_balance + delta)
+            return
+        holder = self._find_agent(holder_id)
+        holder.deposit_balance = max(0, holder.deposit_balance + delta)
+
+    def _bank_deposit(self, holder_type: str, holder_id: str, amount: int, *, manual: bool = False, reason: str = "") -> int:
+        if amount <= 0:
+            raise ValueError("存款金额必须大于 0。")
+        holder_name, cash = self._bank_borrower_cash_ref(holder_type, holder_id)
+        if cash < amount:
+            raise ValueError("手头现金不够，存不了这么多。")
+        self._adjust_bank_borrower_cash(holder_type, holder_id, -amount)
+        self._adjust_bank_holder_deposit(holder_type, holder_id, amount)
+        self.state.bank.liquidity += amount
+        self.state.bank.total_deposits += amount
+        self._append_finance_record(
+            actor_id=holder_id,
+            actor_name=holder_name,
+            category="bank",
+            action="deposit",
+            summary=f"{holder_name} 向 {self.state.bank.name} 存入了 ${amount}。",
+            amount=amount,
+            asset_name="银行存款",
+            counterparty=self.state.bank.name,
+            interest_rate=self.state.bank.deposit_daily_rate_pct,
+        )
+        if holder_type == "player":
+            self.state.player.last_trade_summary = f"你刚向{self.state.bank.name}存入了 ${amount}，当前日利率 {self.state.bank.deposit_daily_rate_pct:.2f}%。"
+        else:
+            holder = self._find_agent(holder_id)
+            holder.last_trade_summary = f"刚往{self.state.bank.name}存入 ${amount}，先把现金放稳。"
+        self._log("bank_deposit", holder={"type": holder_type, "id": holder_id, "name": holder_name}, amount=amount, manual=manual)
+        self._refresh_bank_state()
+        return amount
+
+    def _bank_withdraw(self, holder_type: str, holder_id: str, amount: int, *, manual: bool = False, reason: str = "") -> int:
+        if amount <= 0:
+            raise ValueError("取款金额必须大于 0。")
+        balance = self._bank_holder_deposit_balance(holder_type, holder_id)
+        if balance < amount:
+            raise ValueError("存款余额不够，取不了这么多。")
+        if self.state.bank.liquidity < amount:
+            raise ValueError("银行当前流动性不足，这笔取款暂时提不出来。")
+        holder_name = self._bank_holder_name(holder_type, holder_id)
+        self._adjust_bank_holder_deposit(holder_type, holder_id, -amount)
+        self._adjust_bank_borrower_cash(holder_type, holder_id, amount)
+        self.state.bank.liquidity = max(0, self.state.bank.liquidity - amount)
+        self.state.bank.total_deposits = max(0, self.state.bank.total_deposits - amount)
+        self._append_finance_record(
+            actor_id=holder_id,
+            actor_name=holder_name,
+            category="bank",
+            action="withdraw",
+            summary=f"{holder_name} 从 {self.state.bank.name} 取出了 ${amount}。",
+            amount=amount,
+            asset_name="银行存款",
+            counterparty=self.state.bank.name,
+            interest_rate=self.state.bank.deposit_daily_rate_pct,
+        )
+        if holder_type == "player":
+            self.state.player.last_trade_summary = f"你刚从{self.state.bank.name}取出 ${amount}，回到现金账户。"
+        else:
+            holder = self._find_agent(holder_id)
+            holder.last_trade_summary = f"刚从{self.state.bank.name}取出 ${amount}，准备当现金用。"
+        self._log("bank_withdraw", holder={"type": holder_type, "id": holder_id, "name": holder_name}, amount=amount, manual=manual)
+        self._refresh_bank_state()
+        return amount
+
+    def _settle_bank_deposit_interest(self) -> None:
+        if self.state.time_slot != "morning":
+            return
+        rate = self.state.bank.deposit_daily_rate_pct
+        for holder_type, holder_id, holder_name, balance in [
+            ("player", self.state.player.id, self.state.player.name, self.state.player.deposit_balance),
+            *[( "agent", agent.id, agent.name, agent.deposit_balance) for agent in self.state.agents],
+        ]:
+            if balance <= 0:
+                continue
+            interest = max(1, round(balance * rate / 100))
+            if self.state.bank.liquidity < interest:
+                interest = max(0, min(interest, self.state.bank.liquidity))
+            if interest <= 0:
+                continue
+            self._adjust_bank_holder_deposit(holder_type, holder_id, interest)
+            self.state.bank.liquidity = max(0, self.state.bank.liquidity - interest)
+            self.state.bank.total_interest_paid += interest
+            self.state.bank.total_deposits += interest
+            self._append_finance_record(
+                actor_id=holder_id,
+                actor_name=holder_name,
+                category="bank",
+                action="interest",
+                summary=f"{holder_name} 从 {self.state.bank.name} 收到存款利息 ${interest}。",
+                amount=interest,
+                asset_name="银行存款",
+                counterparty=self.state.bank.name,
+                interest_rate=rate,
+            )
+        self._refresh_bank_state()
 
     def _bank_credit_line(self, credit_score: int) -> int:
         if credit_score >= 85:
@@ -2297,8 +2562,28 @@ class GameEngine:
         self._refresh_memory_streams()
         return self.state
 
+    def player_bank_deposit(self, amount: int) -> WorldState:
+        self._bank_deposit("player", self.state.player.id, amount, manual=True, reason="玩家主动存款")
+        self._refresh_tasks()
+        self._refresh_memory_streams()
+        return self.state
+
+    def player_bank_withdraw(self, amount: int) -> WorldState:
+        self._bank_withdraw("player", self.state.player.id, amount, manual=True, reason="玩家主动取款")
+        self._refresh_tasks()
+        self._refresh_memory_streams()
+        return self.state
+
     def _settle_bank_loan(self, loan: BankLoanRecord, payment_limit: int | None = None) -> int:
         borrower_name, borrower_cash = self._bank_borrower_cash_ref(loan.borrower_type, loan.borrower_id)
+        target_payment = min(payment_limit if payment_limit is not None else loan.amount_due, loan.amount_due)
+        deposit_balance = self._bank_holder_deposit_balance(loan.borrower_type, loan.borrower_id)
+        if borrower_cash < target_payment and deposit_balance > 0:
+            try:
+                self._bank_withdraw(loan.borrower_type, loan.borrower_id, min(deposit_balance, target_payment - borrower_cash), reason="贷款到期前自动从存款补足还款现金。")
+                borrower_name, borrower_cash = self._bank_borrower_cash_ref(loan.borrower_type, loan.borrower_id)
+            except ValueError:
+                pass
         payment = min(payment_limit if payment_limit is not None else borrower_cash, borrower_cash, loan.amount_due)
         if payment > 0:
             self._adjust_bank_borrower_cash(loan.borrower_type, loan.borrower_id, -payment)
@@ -2369,8 +2654,8 @@ class GameEngine:
             raise ValueError("这笔银行贷款已经结清了。")
         if amount is not None and amount <= 0:
             raise ValueError("还款金额必须大于 0。")
-        if self.state.player.cash <= 0:
-            raise ValueError("你手头没有可用于归还银行贷款的现金。")
+        if self.state.player.cash <= 0 and self.state.player.deposit_balance <= 0:
+            raise ValueError("你手头没有可用于归还银行贷款的现金或存款。")
         payment_limit = amount if amount is not None else None
         paid = self._settle_bank_loan(loan, payment_limit=payment_limit)
         if paid <= 0:
@@ -2410,6 +2695,13 @@ class GameEngine:
         if not self.state.market.is_open:
             return
         for agent in self.state.agents:
+            if agent.deposit_balance > 0 and (agent.cash < self.state.company.low_cash_threshold or agent.money_urgency >= 80) and self.random.random() < 0.48:
+                try:
+                    self._bank_withdraw("agent", agent.id, min(agent.deposit_balance, max(8, self.state.company.low_cash_threshold - agent.cash + 8)))
+                    agent.current_bubble = "先把存款拿一点出来。"
+                    continue
+                except ValueError:
+                    pass
             active_loans = self._borrower_bank_loans("agent", agent.id)
             overdue = next((loan for loan in active_loans if loan.status == "overdue"), None)
             if overdue is not None and agent.cash >= max(8, overdue.amount_due // 3) and self.random.random() < 0.42:
@@ -2429,17 +2721,541 @@ class GameEngine:
                 self._bank_borrow("agent", agent.id, amount, term_days, "现金和体力都偏紧，先从银行周转。")
             except ValueError:
                 continue
+            continue
+        for agent in self.state.agents:
+            if agent.cash <= 90 or agent.money_urgency >= 62 or agent.is_resting:
+                continue
+            if self.random.random() > 0.18:
+                continue
+            amount = min(max(10, int(agent.cash * 0.24)), max(0, agent.cash - 60))
+            if amount <= 0:
+                continue
+            try:
+                self._bank_deposit("agent", agent.id, amount, reason="把暂时不用的现金先放进银行。")
+                agent.current_bubble = "先存一笔，别全放手上。"
+            except ValueError:
+                continue
+
+    def _run_tourism_activity(self) -> None:
+        self._refresh_tourist_turnover()
+        if self.state.time_slot != "night":
+            self._maybe_spawn_tourist()
+        self._move_tourists()
+        self._trigger_tourist_spending()
+        self._trigger_tourist_conversations()
+        self._trigger_tourist_signals()
+
+    def _refresh_tourist_turnover(self) -> None:
+        remaining: list[TouristAgent] = []
+        for tourist in self.state.tourists:
+            should_leave = tourist.stay_until_day < self.state.day or tourist.cash <= 3
+            if should_leave:
+                self.state.tourism.total_departures += 1
+                self.state.tourism.daily_departures += 1
+                self.state.tourism.last_note = f"{tourist.name} 结束停留离开了，手里还剩 ${tourist.cash}。"
+                self.state.events.insert(
+                    0,
+                    build_internal_event(
+                        title=f"{tourist.name} 离开园区",
+                        summary=f"{tourist.name} 结束了这次短住，带着“{tourist.favorite_topic or '这里挺有意思'}”的印象离开了。",
+                        slot=self.state.time_slot,
+                        category="general",
+                    ),
+                )
+                self.state.events = self.state.events[:8]
+                continue
+            remaining.append(tourist)
+        self.state.tourists = remaining
+
+    def _maybe_spawn_tourist(self) -> None:
+        tourism = self.state.tourism
+        if len(self.state.tourists) >= tourism.active_visitor_cap:
+            return
+        weather_bonus = {"sunny": 0.09, "breezy": 0.06, "cloudy": 0.02, "drizzle": -0.01}[self.state.weather]
+        reputation_bonus = max(0.0, (self.state.lab.reputation - 18) / 260)
+        market_bonus = max(0.0, self.state.market.sentiment / 320)
+        season_bonus = {"off": -0.06, "normal": 0.0, "peak": 0.08, "festival": 0.14}.get(tourism.season_mode, 0.0)
+        public_support_bonus = max(0.0, self.state.government.tourism_support_level / 500)
+        chance = min(0.58, 0.07 + weather_bonus + reputation_bonus + market_bonus + season_bonus + public_support_bonus)
+        if not self.state.tourists:
+            chance = max(chance, 0.24)
+        if self.random.random() > chance:
+            return
+        template = self.random.choice(TOURIST_ARCHETYPES)
+        arrival_index = tourism.total_arrivals + 1
+        base_name = TOURIST_NAME_POOL[(arrival_index - 1) % len(TOURIST_NAME_POOL)]
+        name = base_name if not any(item.name == base_name for item in self.state.tourists) else f"{base_name}{arrival_index}"
+        has_property_inventory = any(asset.status == "listed" for asset in self.state.properties if asset.owner_type == "market")
+        tier_roll = self.random.random()
+        visitor_tier = "regular"
+        if has_property_inventory and tier_roll < 0.1:
+            visitor_tier = "buyer"
+        elif tier_roll < 0.22:
+            visitor_tier = "vip"
+        elif tier_roll < 0.4:
+            visitor_tier = "repeat"
+        tier_cash_bonus = {"regular": (26, 86), "repeat": (42, 112), "vip": (74, 168), "buyer": (96, 220)}[visitor_tier]
+        cash = self.random.randint(*tier_cash_bonus)
+        budget = min(cash - 6, int(template["budget"]) + self.random.randint(0, 8))
+        spending_desire = max(30, min(95, int(template["spending_desire"]) + self.random.randint(-10, 12)))
+        if visitor_tier == "vip":
+            budget += 12
+            spending_desire += 10
+        elif visitor_tier == "repeat":
+            budget += 5
+            spending_desire += 4
+        elif visitor_tier == "buyer":
+            budget += 18
+            spending_desire += 6
+        tourist = TouristAgent(
+            id=f"tourist-{uuid4().hex[:8]}",
+            name=name,
+            archetype=str(template["archetype"]),
+            visitor_tier=visitor_tier,
+            is_returning=visitor_tier == "repeat",
+            property_interest=visitor_tier == "buyer",
+            message_influence=3 if visitor_tier == "vip" else 2 if visitor_tier in {"repeat", "buyer"} else 1,
+            favorite_topic=str(template["favorite_topic"]),
+            position=tourism.inn_position.model_copy(),
+            current_location=tourism.inn_location,
+            cash=cash,
+            budget=max(10, budget),
+            mood=58 + self.random.randint(-8, 10),
+            spending_desire=spending_desire,
+            stay_until_day=self.state.day + self.random.randint(1, 3),
+            current_activity=f"刚在{tourism.inn_name}放下行李，准备先看看集市和湖边。",
+            current_bubble="这地方比想象中舒服。",
+            brief_note=self._tourist_brief_note(visitor_tier, str(template["favorite_topic"])),
+        )
+        self.state.tourists.append(tourist)
+        tourism.total_arrivals += 1
+        tourism.daily_arrivals += 1
+        if tourist.is_returning:
+            tourism.repeat_customers_total += 1
+        if tourist.visitor_tier == "vip":
+            tourism.vip_customers_total += 1
+        if tourist.property_interest:
+            tourism.buyer_leads_total += 1
+        tourism.last_note = f"{tourist.name} 刚到 {tourism.inn_name}，准备逛逛 {tourism.market_name}。"
+        self._route_tourism_income(tourist, amount=min(12, max(6, tourist.budget // 2)), spend_type="stay", note="入住旅馆")
+        self.state.events.insert(
+            0,
+            build_internal_event(
+                title=f"{tourist.name} 搬进了 {tourism.inn_name}",
+                summary=f"{tourist.name} 作为 {tourist.archetype} 来到园区短住，身份偏向{self._tourist_tier_label(tourist.visitor_tier)}，可能会去 {tourism.market_name} 消费、和人聊天，并给本地经济带来一点热度。",
+                slot=self.state.time_slot,
+                category="general",
+            ),
+        )
+        self.state.events = self.state.events[:8]
+
+    def _move_tourists(self) -> None:
+        for tourist in self.state.tourists:
+            if tourist.linger_ticks > 0 and tourist.target_position is not None and tourist.position == tourist.target_position:
+                tourist.linger_ticks = max(0, tourist.linger_ticks - 1)
+                tourist.current_location = self._room_for(tourist.position.x, tourist.position.y)
+                tourist.current_activity = f"正在 {ROOM_LABELS.get(tourist.current_location, tourist.current_location)} 附近慢慢停留。"
+                continue
+            if tourist.target_position is None or tourist.position == tourist.target_position:
+                destination = self._tourist_destination(tourist)
+                tourist.target_position = destination.model_copy()
+                tourist.target_location = self._room_for(destination.x, destination.y)
+                tourist.linger_ticks = self.random.randint(1, 3)
+            else:
+                destination = tourist.target_position.model_copy()
+            previous = tourist.position.model_copy()
+            tourist.position = self._step_toward_point(tourist.position, destination)
+            tourist.current_location = self._room_for(tourist.position.x, tourist.position.y)
+            if tourist.position == destination:
+                if not tourist.last_locations or tourist.last_locations[-1] != tourist.current_location:
+                    tourist.last_locations.append(tourist.current_location)
+                    tourist.last_locations = tourist.last_locations[-4:]
+                if destination == self.state.tourism.market_position:
+                    tourist.current_activity = f"正在 {self.state.tourism.market_name} 东看西看，顺手打听这里的价钱和故事。"
+                    tourist.current_bubble = self.random.choice(["这边摊子还挺密。", "这里买东西好像不贵。", "有人愿意给我讲讲这里吗？"])
+                elif destination == self.state.tourism.inn_position:
+                    tourist.current_activity = f"正在 {self.state.tourism.inn_name} 歇脚，准备下一轮出门。"
+                    tourist.current_bubble = self.random.choice(["先回旅馆缓一缓。", "我晚点再出去。"])
+                else:
+                    tourist.current_activity = "正在湖边和广场之间慢慢闲逛。"
+                    tourist.current_bubble = self.random.choice(["湖边真适合发呆。", "这里比我想的热闹。"])
+            elif tourist.position != previous:
+                tourist.current_activity = "正在往下一个想逛的地方慢慢走。"
+
+    def _tourist_destination(self, tourist: TouristAgent) -> Point:
+        tourism = self.state.tourism
+        if self.state.time_slot == "night":
+            return tourism.inn_position.model_copy()
+        if tourist.cash <= 8:
+            return tourism.inn_position.model_copy()
+        candidates = [
+            tourism.market_position.model_copy(),
+            Point(x=33, y=18),
+            Point(x=17, y=18),
+            Point(x=24, y=7),
+            Point(x=34, y=6),
+            Point(x=13, y=8),
+            Point(x=8, y=14),
+            Point(x=29, y=20),
+            Point(x=37, y=20),
+            Point(x=21, y=6),
+        ]
+        room_loads: dict[str, int] = {}
+        for other in self.state.tourists:
+            room = other.target_location or other.current_location
+            room_loads[room] = room_loads.get(room, 0) + 1
+        recent_rooms = set((tourist.last_locations or [])[-2:])
+
+        def score(point: Point) -> float:
+            room = self._room_for(point.x, point.y)
+            if room == tourist.current_location:
+                return -999.0
+            score = 1.0
+            if room in recent_rooms:
+                score -= 1.15
+            score -= room_loads.get(room, 0) * 0.9
+            if tourist.property_interest and room in {"meeting", "data_wall"}:
+                score += 1.6
+            if tourist.visitor_tier == "vip" and room in {"lounge", "data_wall"}:
+                score += 1.25
+            if room == tourism.market_location:
+                score += 0.75 if tourist.cash >= 14 else 0.25
+            if room == tourism.inn_location:
+                score -= 0.45
+            return score + self.random.uniform(-0.18, 0.18)
+
+        ranked = sorted(candidates, key=score, reverse=True)
+        if tourist.current_location == tourism.inn_location:
+            return ranked[0].model_copy()
+        if tourist.property_interest:
+            buyer_targets = [Point(x=34, y=19), Point(x=23, y=18), Point(x=35, y=8), Point(x=24, y=7)]
+            ranked_buyers = sorted(buyer_targets, key=score, reverse=True)
+            return ranked_buyers[0].model_copy()
+        if tourist.visitor_tier == "vip":
+            vip_targets = [Point(x=29, y=20), Point(x=34, y=6), tourism.market_position.model_copy(), Point(x=24, y=7)]
+            ranked_vip = sorted(vip_targets, key=score, reverse=True)
+            return ranked_vip[0].model_copy()
+        return ranked[0].model_copy()
+
+    def _rebalance_tourists_if_clustered(self) -> None:
+        tourists = self.state.tourists or []
+        if len(tourists) < 4:
+            return
+        counts: dict[str, int] = {}
+        for tourist in tourists:
+            counts[tourist.current_location] = counts.get(tourist.current_location, 0) + 1
+        crowded_room, crowded_count = max(counts.items(), key=lambda item: item[1])
+        if crowded_count < len(tourists) - 1:
+            return
+        scatter_points = [
+            self.state.tourism.market_position.model_copy(),
+            Point(x=34, y=19),
+            Point(x=24, y=7),
+            Point(x=34, y=6),
+            Point(x=17, y=18),
+        ]
+        for tourist, point in zip(tourists, scatter_points):
+            destination = self._nearest_walkable(point, self._room(self._room_for(point.x, point.y)))
+            tourist.position = destination
+            tourist.current_location = self._room_for(destination.x, destination.y)
+            tourist.target_position = destination.model_copy()
+            tourist.target_location = tourist.current_location
+            tourist.linger_ticks = self.random.randint(1, 2)
+            tourist.last_locations = [crowded_room, tourist.current_location]
+            tourist.current_activity = f"刚从拥挤的{ROOM_LABELS.get(crowded_room, crowded_room)}散开，准备在{ROOM_LABELS.get(tourist.current_location, tourist.current_location)}看看。"
+
+    def _step_toward_point(self, point: Point, target: Point) -> Point:
+        dx = 0 if target.x == point.x else (1 if target.x > point.x else -1)
+        dy = 0 if target.y == point.y else (1 if target.y > point.y else -1)
+        options: list[tuple[int, int]] = []
+        if abs(target.x - point.x) >= abs(target.y - point.y):
+            options.extend([(dx, 0), (0, dy), (dx, dy)])
+        else:
+            options.extend([(0, dy), (dx, 0), (dx, dy)])
+        options.extend([(0, 0)])
+        for step_x, step_y in options:
+            moved = self._move_with_collision(point, step_x, step_y)
+            if moved != point or (step_x == 0 and step_y == 0):
+                return moved
+        return point
+
+    def _trigger_tourist_spending(self) -> None:
+        if not self.state.tourists:
+            return
+        for tourist in self.state.tourists:
+            if tourist.cash <= 5 or self.random.random() > 0.34:
+                continue
+            multiplier = {"regular": 1.0, "repeat": 1.15, "vip": 1.42, "buyer": 1.18}.get(tourist.visitor_tier, 1.0)
+            if tourist.current_location == self.state.tourism.market_location:
+                amount = int(round(max(4, min(22, tourist.spending_desire // 6 + self.random.randint(0, 5))) * multiplier))
+                amount = min(tourist.cash, amount)
+                self._route_tourism_income(tourist, amount=amount, spend_type="market", note="在集市消费")
+                tourist.current_bubble = self.random.choice(["这笔买得值。", "这里真容易花钱。", "我想把这个也带走。"])
+                tourist.mood = self._bounded(tourist.mood + 2)
+            elif tourist.current_location == self.state.tourism.inn_location and self.random.random() < 0.24:
+                amount = int(round(max(3, min(14, tourist.budget // 3)) * multiplier))
+                amount = min(tourist.cash, amount)
+                self._route_tourism_income(tourist, amount=amount, spend_type="stay", note="在旅馆加购服务")
+                tourist.current_bubble = "旅馆这边倒是挺省心。"
+                tourist.mood = self._bounded(tourist.mood + 1)
+            if tourist.property_interest and tourist.current_location == self.state.tourism.market_location and self.random.random() < 0.18:
+                self._append_finance_record(
+                    actor_id=tourist.id,
+                    actor_name=tourist.name,
+                    category="tourism",
+                    action="visit",
+                    summary=f"{tourist.name} 顺手打听了几处挂牌资产，已经算一个潜在购房线索。",
+                    amount=0,
+                    asset_name="看房咨询",
+                    counterparty=self.state.tourism.market_name,
+                )
+                self.state.tourism.last_note = f"{tourist.name} 在 {self.state.tourism.market_name} 问了看房和买卖行情。"
+
+    def _route_tourism_income(self, tourist: TouristAgent, amount: int, spend_type: str, note: str) -> None:
+        if amount <= 0 or tourist.cash <= 0:
+            return
+        actual_amount = min(amount, tourist.cash)
+        tourist.cash -= actual_amount
+        tourism = self.state.tourism
+        if spend_type == "stay":
+            candidates = [asset for asset in self.state.properties if asset.status == "owned" and asset.property_type == "rental_house" and asset.owner_type != "market"]
+            facility_name = tourism.inn_name
+        else:
+            candidates = [
+                asset
+                for asset in self.state.properties
+                if asset.status == "owned" and asset.property_type in {"shop", "farm_plot", "greenhouse"} and asset.owner_type != "market"
+            ]
+            facility_name = tourism.market_name
+        owner_name = facility_name
+        owner_type = "market"
+        owner_id = facility_name
+        if candidates:
+            asset = self.random.choice(candidates)
+            facility_name = asset.name
+            owner_type = asset.owner_type
+            owner_id = asset.owner_id
+            owner_name = self._property_owner_name(asset)
+            if owner_type == "player":
+                self.state.player.cash += actual_amount
+                self.state.player.last_trade_summary = f"{tourist.name} 刚在 {asset.name} 花了 ${actual_amount}。"
+            elif owner_type == "agent":
+                owner = self._find_agent(owner_id)
+                owner.cash += actual_amount
+                owner.last_trade_summary = f"{tourist.name} 刚在 {asset.name} 留下 ${actual_amount} 的收入。"
+                owner.current_bubble = "今天游客倒是挺愿意花钱。"
+            elif owner_type == "government":
+                self.state.government.reserve_balance += actual_amount
+                self.state.government.revenues["government_asset"] = self.state.government.revenues.get("government_asset", 0) + actual_amount
+                self.state.government.last_distribution_note = f"政府持有资产 {asset.name} 刚收到游客收入 ${actual_amount}。"
+        tourism.daily_revenue += actual_amount
+        tourism.total_revenue += actual_amount
+        tourism.last_note = f"{tourist.name} 刚在 {facility_name} 花了 ${actual_amount}。"
+        tax = self._collect_tax(
+            payer_type="tourist",
+            payer_id=tourist.id,
+            payer_name=tourist.name,
+            revenue_key="consumption",
+            label=f"{note}",
+            base_amount=actual_amount,
+            rate_pct=self.state.government.consumption_tax_rate_pct,
+        )
+        self._append_finance_record(
+            actor_id=tourist.id,
+            actor_name=tourist.name,
+            category="tourism",
+            action="spend",
+            summary=f"{tourist.name} {note}，在 {facility_name} 留下了 ${actual_amount}。",
+            amount=-actual_amount,
+            asset_name=facility_name,
+            counterparty=owner_name,
+        )
+        if owner_type in {"player", "agent", "government"}:
+            self._append_finance_record(
+                actor_id=owner_id,
+                actor_name=owner_name,
+                category="government" if owner_type == "government" else "tourism",
+                action="receive",
+                summary=f"{owner_name} 因游客消费从 {facility_name} 收到 ${actual_amount} 的收入。",
+                amount=actual_amount,
+                asset_name=facility_name,
+                counterparty=tourist.name,
+            )
+        if tax > 0:
+            self.state.tourism.last_note = f"{tourist.name} 在 {facility_name} 消费 ${actual_amount}，其中缴税 ${tax}。"
+
+    def _trigger_tourist_conversations(self) -> None:
+        if not self.state.tourists or self.random.random() > 0.46:
+            return
+        tourist = self.random.choice(self.state.tourists)
+        nearby_agents = [
+            agent
+            for agent in self.state.agents
+            if not agent.is_resting and agent.current_location == tourist.current_location and abs(agent.position.x - tourist.position.x) + abs(agent.position.y - tourist.position.y) <= 4
+        ]
+        if not nearby_agents:
+            return
+        agent = self.random.choice(nearby_agents)
+        tourist_line, agent_line = self._tourist_ambient_lines(tourist, agent)
+        tourist.current_bubble = tourist_line
+        agent.current_bubble = agent_line
+        tourist.current_activity = f"刚和 {agent.name} 聊起了“{tourist.favorite_topic or '这里的生活'}”。"
+        agent.current_activity = f"刚和游客 {tourist.name} 接了一轮短对话。"
+        self._remember(agent, f"刚和游客 {tourist.name} 聊了“{tourist.favorite_topic or '这里的生活'}”。", 1)
+        agent.state.mood = self._bounded(agent.state.mood + 1)
+        self.state.lab.team_atmosphere = self._bounded(self.state.lab.team_atmosphere + 1)
+        self._append_dialogue_record(
+            DialogueRecord(
+                id=f"dialogue-{uuid4().hex[:8]}",
+                kind="ambient_dialogue",
+                day=self.state.day,
+                time_slot=self.state.time_slot,
+                participants=[tourist.id, agent.id],
+                participant_names=[tourist.name, agent.name],
+                topic=tourist.favorite_topic or "旅途见闻",
+                summary=f"{tourist.name} 在 {ROOM_LABELS.get(tourist.current_location, tourist.current_location)} 和 {agent.name} 短聊了一轮，游客视角给了园区一点新鲜感。",
+                key_point=f"{tourist.name} 主要在问“{tourist.favorite_topic or '这里值得看什么'}”，{agent.name} 顺手把园区的节奏讲给他听。",
+                transcript=[f"{tourist.name}：{tourist_line}", f"{agent.name}：{agent_line}"],
+                desire_labels={tourist.name: "想把旅途过得有意思一点", agent.name: DESIRE_LABELS.get(dominant_desire_for_agent(self.state, agent)[0], "想先观察局势")},
+                mood="warm",
+            )
+        )
+        self._append_finance_record(
+            actor_id=tourist.id,
+            actor_name=tourist.name,
+            category="tourism",
+            action="chat",
+            summary=f"{tourist.name} 刚和 {agent.name} 聊了一轮，后续更可能继续消费或留宿。",
+            amount=0,
+            asset_name=self.state.tourism.market_name,
+            counterparty=agent.name,
+        )
+        self._log(
+            "tourist_ambient_dialogue",
+            tourist={"id": tourist.id, "name": tourist.name},
+            agent={"id": agent.id, "name": agent.name},
+            topic=tourist.favorite_topic,
+        )
+
+    def _trigger_tourist_signals(self) -> None:
+        tourism = self.state.tourism
+        if not self.state.tourists or tourism.daily_messages_count >= 2:
+            return
+        chance = 0.09 + (0.06 if tourism.season_mode in {"peak", "festival"} else 0.0) + min(0.08, len(self.state.tourists) * 0.015)
+        if self.random.random() > chance:
+            return
+        tourist = self.random.choice(self.state.tourists)
+        signal = self.random.choice(TOURIST_SIGNAL_BANK)
+        event = LabEvent(
+            id=f"tourist-signal-{uuid4().hex[:8]}",
+            category=signal["category"],
+            title=f"游客消息：{signal['title']}",
+            summary=f"{tourist.name} 带来的外部说法：{signal['summary']}",
+            source=tourist.name,
+            time_slot=self.state.time_slot,
+            impacts={"collective_reasoning": 1, "research_progress": 1 if signal["category"] in {"geoai", "tech"} else 0},
+            participants=[tourist.id],
+            tone_hint=int(signal["tone"]) * tourist.message_influence,
+            market_target=str(signal["target"]),
+            market_strength=min(5, int(signal["strength"]) + tourist.message_influence - 1),
+        )
+        tourism.daily_messages_count += 1
+        tourism.latest_signal = event.title
+        tourism.last_note = f"{tourist.name} 带来一条外部消息：{signal['title']}。"
+        tourist.current_bubble = self.random.choice([
+            "我刚听到一条外面的风声。",
+            "这消息不一定准，但外面已经在传了。",
+            "我在旅馆里听到一个值得提一下的说法。",
+        ])
+        tourist.brief_note = f"刚把一条外部消息带进园区：{signal['title']}。"
+        self._ingest_event(event, player_injected=False)
+
+    def _tourist_ambient_lines(self, tourist: TouristAgent, agent: Agent) -> tuple[str, str]:
+        tourist_openers = [
+            f"这里最值得逛的是哪一块？我主要想看看{tourist.favorite_topic or '好玩的地方'}。",
+            f"我刚从{self.state.tourism.inn_name}那边过来，这里比我想的热闹。",
+            "你们这边平时也会这么多人吗？",
+        ]
+        agent_replies = {
+            "rational": f"如果你想看得更值一点，可以先去{ROOM_LABELS.get(agent.current_location, agent.current_location)}附近转一圈。",
+            "creative": "你可以别按路线走，绕一下湖边和集市中间，会更有意思。",
+            "engineering": "先去集市，再回旅馆，会比较顺路。",
+            "empathetic": "你别赶，慢慢逛就行。累了就回旅馆坐会儿。",
+            "opportunist": "如果你想听新鲜事，先去集市，消息都在那里。",
+        }
+        return self.random.choice(tourist_openers), agent_replies.get(agent.persona, "先随便逛逛，哪里有感觉就停一下。")
+
+    def _tourist_reply_line(self, tourist: TouristAgent, player_text: str) -> str:
+        if any(token in player_text for token in ["住", "旅馆", "休息"]):
+            return f"{self.state.tourism.inn_name} 倒挺安静的，我可能今晚就住那边。"
+        if any(token in player_text for token in ["买", "集市", "逛", "吃"]):
+            return f"{self.state.tourism.market_name} 挺有意思，我刚刚已经在那里花掉一笔了。"
+        if any(token in player_text for token in ["GeoAI", "实验", "研究", "空间智能"]):
+            return "原来这里不只是田园，我还真想听听你们在研究什么。"
+        return self.random.choice(
+            [
+                "我主要是来住两天、逛逛集市，再听听这里的人都在聊什么。",
+                "这边节奏挺舒服的，我本来只想路过，结果想多待一会儿。",
+                "我现在最想知道，哪里最值得逛，哪里最值得花钱。",
+            ]
+        )
+
+    def _tourist_tier_label(self, visitor_tier: str) -> str:
+        return {
+            "regular": "普通游客",
+            "repeat": "回头客",
+            "vip": "高消费客户",
+            "buyer": "潜在购房者",
+        }.get(visitor_tier, visitor_tier)
+
+    def _tourist_brief_note(self, visitor_tier: str, topic: str) -> str:
+        tier_note = {
+            "regular": "更容易被轻松氛围和集市吸引，会带来稳定的小额消费。",
+            "repeat": "这是回头客，熟悉园区节奏，更容易再次消费和传播消息。",
+            "vip": "这是高消费客户，出手更大方，也更容易影响周边人的判断。",
+            "buyer": "这是潜在购房者，会顺手打听旅馆、集市和挂牌房产。",
+        }.get(visitor_tier, "会在停留期间带来额外消费。")
+        return f"{tier_note} 这趟尤其在意“{topic}”。"
+
+    def _refresh_tourism_cycle(self) -> None:
+        cycle = self.state.day % 12
+        tourism = self.state.tourism
+        if cycle in {0, 6}:
+            tourism.season_mode = "festival"
+            tourism.event_day_title = TOURISM_EVENT_TITLES[(self.state.day // 3) % len(TOURISM_EVENT_TITLES)]
+        elif cycle in {4, 5, 7}:
+            tourism.season_mode = "peak"
+            tourism.event_day_title = ""
+        elif cycle in {1, 2}:
+            tourism.season_mode = "off"
+            tourism.event_day_title = ""
+        else:
+            tourism.season_mode = "normal"
+            tourism.event_day_title = ""
+        tourism.last_note = (
+            f"今天是{self._tourism_season_label(tourism.season_mode)}，主题是“{tourism.event_day_title}”。"
+            if tourism.event_day_title
+            else f"今天游客流量处在{self._tourism_season_label(tourism.season_mode)}。"
+        )
+
+    def _tourism_season_label(self, season_mode: str) -> str:
+        return {
+            "off": "淡季",
+            "normal": "平季",
+            "peak": "旺季",
+            "festival": "活动日",
+        }.get(season_mode, season_mode)
 
     def _trigger_work_activity(self) -> None:
         if not self.state.market.is_open:
             return
         if self._player_should_work():
-            self._run_player_work_shift(forced=self.state.player.cash < self.state.company.low_cash_threshold)
+            self._run_player_work_shift(forced=self._player_total_funds() < self.state.company.low_cash_threshold)
         for agent in self.state.agents:
             if agent.is_resting:
                 continue
             if self._agent_should_work(agent):
-                self._run_agent_work_shift(agent, forced=agent.cash < self.state.company.low_cash_threshold)
+                self._run_agent_work_shift(agent, forced=self._agent_total_funds(agent) < self.state.company.low_cash_threshold)
 
     def _trigger_gray_market_activity(self) -> None:
         active_cases = sum(1 for case in self.state.gray_cases if case.status == "active")
@@ -2548,19 +3364,21 @@ class GameEngine:
 
     def _player_should_work(self) -> bool:
         threshold = self.state.company.low_cash_threshold
-        if self.state.player.cash < threshold:
+        total_funds = self._player_total_funds()
+        if total_funds < threshold:
             return True
-        urge = max(0, threshold + 18 - self.state.player.cash)
+        urge = max(0, threshold + 18 - total_funds)
         work_score = self.state.player.work_drive + urge + self.state.player.monthly_burden // 2
         return self.random.random() < min(0.32, 0.05 + work_score / 320)
 
     def _agent_should_work(self, agent: Agent) -> bool:
         threshold = self.state.company.low_cash_threshold
-        if agent.cash < threshold:
+        total_funds = self._agent_total_funds(agent)
+        if total_funds < threshold:
             return True
         if agent.state.energy <= 18:
             return False
-        work_score = agent.work_drive + max(0, threshold + 18 - agent.cash) + agent.money_urgency // 2 + agent.monthly_burden // 3
+        work_score = agent.work_drive + max(0, threshold + 18 - total_funds) + agent.money_urgency // 2 + agent.monthly_burden // 3
         return self.random.random() < min(0.36, 0.04 + work_score / 300)
 
     def _work_effort_from_drive(self, work_drive: int, cash: int, threshold: int) -> int:
@@ -2684,6 +3502,7 @@ class GameEngine:
         property_count = sum(1 for asset in self.state.properties if asset.owner_type != "market" and asset.status == "owned")
         total_cash = self._team_cash_total() + self.state.player.cash
         total_daily_burden = self.state.player.daily_cost_baseline + sum(agent.daily_cost_baseline for agent in self.state.agents)
+        service_relief = (self.state.government.public_service_level + self.state.government.housing_support_level) / 34
         regime_bias = {"bull": 2.8, "sideways": 1.2, "risk": -1.4}.get(self.state.market.regime or "bull", 1.0)
         sentiment_bias = (self.state.market.sentiment or 0) / 18
         wealth_bias = min(14.0, total_cash / 5200)
@@ -2693,7 +3512,7 @@ class GameEngine:
         burden_bias = min(6.0, total_daily_burden / 110)
         reputation_bias = max(0.0, (self.state.lab.reputation - 45) / 18)
         weather_bias = {"sunny": 0.3, "breezy": 0.6, "cloudy": 0.8, "drizzle": 1.2}.get(self.state.weather, 0.4)
-        target = max(99.0, min(172.0, 100.0 + regime_bias + sentiment_bias + wealth_bias + property_bias + wage_bias + day_bias + burden_bias + reputation_bias + weather_bias))
+        target = max(96.0, min(172.0, 100.0 + regime_bias + sentiment_bias + wealth_bias + property_bias + wage_bias + day_bias + burden_bias + reputation_bias + weather_bias - service_relief))
         previous = self.state.market.inflation_index or 100.0
         next_value = max(96.0, min(170.0, previous + ((target - previous) * 0.32)))
         next_value = round(next_value, 2)
@@ -2703,7 +3522,7 @@ class GameEngine:
             daily_pct = round(((next_value - previous) / previous) * 100, 2)
         self.state.market.inflation_index = next_value
         self.state.market.daily_inflation_pct = daily_pct
-        pressure = ((next_value - 100.0) * 1.35) + property_count + (total_daily_burden / 36) + max(0, total_cash - 6000) / 3000
+        pressure = ((next_value - 100.0) * 1.35) + property_count + (total_daily_burden / 36) + max(0, total_cash - 6000) / 3000 - ((self.state.government.public_service_level + self.state.government.housing_support_level) / 18)
         if self.state.market.regime == "risk":
             pressure += 3
         self.state.market.living_cost_pressure = self._bounded(round(pressure))
@@ -2720,7 +3539,8 @@ class GameEngine:
     ) -> None:
         inflation_multiplier = max(1.0, (self.state.market.inflation_index or 100.0) / 100)
         pressure_surcharge = max(0, round((self.state.market.living_cost_pressure or 0) / 18))
-        cost = max(4, min(48, round(base_cost * inflation_multiplier) + pressure_surcharge))
+        service_discount = max(0, round((self.state.government.public_service_level + self.state.government.housing_support_level) / 22))
+        cost = max(4, min(48, round(base_cost * inflation_multiplier) + pressure_surcharge - service_discount))
         payment = min(current_cash, cost)
         consumption_tax = max(1, int(round(payment * self.state.government.consumption_tax_rate_pct / 100))) if payment > 0 else 0
         actual_tax = 0
@@ -2753,13 +3573,16 @@ class GameEngine:
                 counterparty=self.state.government.name,
             )
         post_cash = self.state.player.cash if actor_type == "player" else agent.cash if agent is not None else 0
-        if post_cash <= self.state.government.welfare_low_cash_threshold:
+        post_funds = post_cash + (self.state.player.deposit_balance if actor_type == "player" else agent.deposit_balance if agent is not None else 0)
+        total_assets = self._player_total_assets() if actor_type == "player" else self._agent_total_assets(agent) if agent is not None else post_funds
+        if post_funds <= self.state.government.welfare_low_cash_threshold:
             payout = self._disburse_welfare(
                 recipient_type=actor_type,
                 recipient_id=actor_id,
                 recipient_name=actor_name,
                 current_cash=post_cash,
-                bankruptcy=post_cash <= 0,
+                total_assets=total_assets,
+                bankruptcy=post_funds <= 0,
                 agent=agent,
             )
             if payout > 0:
@@ -2767,7 +3590,7 @@ class GameEngine:
                     0,
                     build_internal_event(
                         title=f"{actor_name} 获得财政保障",
-                        summary=f"{self.state.government.name} 向 {actor_name} 发放了 ${payout} 的{'破产' if post_cash <= 0 else '低收入'}保障金，防止现金链立刻断掉。",
+                        summary=f"{self.state.government.name} 向 {actor_name} 发放了 ${payout} 的{'破产' if post_funds <= 0 else '低收入'}保障金，防止现金链立刻断掉。",
                         slot=self.state.time_slot,
                         category="general",
                     ),
@@ -2801,6 +3624,8 @@ class GameEngine:
             return self.state.player.name
         if asset.owner_type == "agent":
             return self._find_agent(asset.owner_id).name
+        if asset.owner_type == "government":
+            return self.state.government.name
         return "市场"
 
     def _active_property_assets(self, owner_type: str, owner_id: str) -> list[PropertyAsset]:
@@ -2830,6 +3655,18 @@ class GameEngine:
     def _adjust_agent_satisfaction(self, agent: Agent, delta: int) -> None:
         agent.life_satisfaction = self._bounded(agent.life_satisfaction + delta)
 
+    def _consume_coupon(self, *, holder_type: str, holder_id: str, amount: int) -> int:
+        if amount <= 0:
+            return 0
+        if holder_type == "player":
+            applied = min(amount, self.state.player.consumption_coupon_balance)
+            self.state.player.consumption_coupon_balance = max(0, self.state.player.consumption_coupon_balance - applied)
+            return applied
+        agent = self._find_agent(holder_id)
+        applied = min(amount, agent.consumption_coupon_balance)
+        agent.consumption_coupon_balance = max(0, agent.consumption_coupon_balance - applied)
+        return applied
+
     def _player_consume_item(self, item_id: str, recipient_id: str, financed: bool = False) -> None:
         item = self._item_by_id(item_id)
         recipient_name = self.state.player.name
@@ -2840,22 +3677,24 @@ class GameEngine:
             if not item.giftable:
                 raise ValueError("这件物品不适合送给别人。")
             recipient_name = recipient_agent.name
-        self._maybe_player_finance_gap(item.price, f"购买{item.name}", financed=financed and item.debt_eligible, term_days=1)
-        self.state.player.cash = max(0, self.state.player.cash - item.price)
+        coupon_used = self._consume_coupon(holder_type="player", holder_id=self.state.player.id, amount=item.price)
+        net_payment = max(0, item.price - coupon_used)
+        self._maybe_player_finance_gap(net_payment, f"购买{item.name}", financed=financed and item.debt_eligible, term_days=1)
+        self.state.player.cash = max(0, self.state.player.cash - net_payment)
         consume_tax = self._collect_tax(
             payer_type="player",
             payer_id=self.state.player.id,
             payer_name=self.state.player.name,
             revenue_key="consumption",
             label="消费支出",
-            base_amount=item.price,
+            base_amount=net_payment,
             rate_pct=self.state.government.consumption_tax_rate_pct + (self.state.government.luxury_tax_rate_pct if item.price >= 18 else 0.0),
         )
         self._adjust_player_satisfaction(item.satisfaction_gain + (1 if recipient_agent else 0))
         self.state.player.monthly_burden = self._player_lifestyle_burden()
         if recipient_agent is None:
             self.state.player.housing_quality = self._bounded(self.state.player.housing_quality + item.comfort_gain)
-            self.state.player.last_trade_summary = f"刚花 ${item.price} 买了{item.name}，另缴税 ${consume_tax}。"
+            self.state.player.last_trade_summary = f"刚买了{item.name}，现金支出 ${net_payment}，消费券抵扣 ${coupon_used}，另缴税 ${consume_tax}。"
             summary = f"你刚买了{item.name}，生活满意度有些回升。"
         else:
             recipient_agent.state.mood = self._bounded(recipient_agent.state.mood + item.mood_gain)
@@ -2864,7 +3703,7 @@ class GameEngine:
             self._adjust_agent_satisfaction(recipient_agent, item.satisfaction_gain)
             relation_delta = item.relation_bonus or 1
             self._adjust_player_relation(recipient_agent, relation_delta, f"你送了 {recipient_agent.name} 一份{item.name}。")
-            self.state.player.last_trade_summary = f"刚花 ${item.price} 给 {recipient_agent.name} 买了{item.name}，另缴税 ${consume_tax}。"
+            self.state.player.last_trade_summary = f"刚给 {recipient_agent.name} 买了{item.name}，现金支出 ${net_payment}，消费券抵扣 ${coupon_used}，另缴税 ${consume_tax}。"
             recipient_agent.current_bubble = f"{item.name} 还挺让人开心。"
             recipient_agent.last_interaction = f"你刚送了他一份{item.name}。"
             self._remember(recipient_agent, f"玩家刚送了你一份{item.name}。", 2)
@@ -2890,11 +3729,11 @@ class GameEngine:
                 participant_names=[self.state.player.name] + ([recipient_agent.name] if recipient_agent else []),
                 topic=f"消费：{item.name}",
                 summary=summary,
-                key_point=f"你花了 ${item.price} 购买{item.name}，另缴税 ${consume_tax}，生活满意度 {item.satisfaction_gain:+d}。",
+                key_point=f"你支付 ${net_payment}，消费券抵扣 ${coupon_used}，购买{item.name}，另缴税 ${consume_tax}，生活满意度 {item.satisfaction_gain:+d}。",
                 transcript=[f"你：先买个{item.name}。", f"{recipient_name}：这笔消费让这会儿舒服多了。"],
                 desire_labels={self.state.player.name: "把日子过舒服一点", recipient_name: "获得一点现实回报"},
                 mood="warm",
-                financial_note=f"消费 ${item.price}，满意度 +{item.satisfaction_gain}，关系变化 {relation_delta:+d}",
+                financial_note=f"现金消费 ${net_payment}，消费券 ${coupon_used}，满意度 +{item.satisfaction_gain}，关系变化 {relation_delta:+d}",
             )
         )
         self._append_finance_record(
@@ -2902,8 +3741,8 @@ class GameEngine:
             actor_name=self.state.player.name,
             category="consume",
             action="buy",
-            summary=f"你购买了 {item.name}，花费 ${item.price}，税费 ${consume_tax}。{f' 送给了 {recipient_name}。' if recipient_agent else ''}",
-            amount=item.price + consume_tax,
+            summary=f"你购买了 {item.name}，现金支出 ${net_payment}，消费券抵扣 ${coupon_used}，税费 ${consume_tax}。{f' 送给了 {recipient_name}。' if recipient_agent else ''}",
+            amount=net_payment + consume_tax,
             asset_name=item.name,
             counterparty=recipient_name if recipient_agent else "生活消费",
             financed=financed and item.debt_eligible,
@@ -2913,8 +3752,9 @@ class GameEngine:
 
     def _player_buy_property(self, property_id: str, financed: bool = False) -> None:
         asset = self._property_by_id(property_id)
-        if asset.owner_type != "market" or asset.status != "listed":
+        if asset.owner_type not in {"market", "government"} or asset.status != "listed":
             raise ValueError("这处地产当前不在出售。")
+        seller_type = asset.owner_type
         self._maybe_player_finance_gap(asset.purchase_price, f"购买地产 {asset.name}", financed=financed and asset.debt_eligible, term_days=3)
         self.state.player.cash = max(0, self.state.player.cash - asset.purchase_price)
         transfer_tax = self._collect_tax(
@@ -2955,7 +3795,7 @@ class GameEngine:
             summary=f"你买下了 {asset.name}，成交价 ${asset.purchase_price}，过户税 ${transfer_tax}。",
             amount=asset.purchase_price + transfer_tax,
             asset_name=asset.name,
-            counterparty="地产市场",
+            counterparty="财政资产" if seller_type == "government" else "地产市场",
             financed=financed and asset.debt_eligible,
         )
         self._log("player_property_purchase", property=asset.model_dump(), financed=financed)
@@ -3040,6 +3880,93 @@ class GameEngine:
                 - agent.monthly_burden // 4
             )
 
+    def _trigger_property_market_activity(self) -> None:
+        listed_assets = [asset for asset in self.state.properties if asset.status == "listed" and asset.owner_type in {"market", "government"}]
+        if not listed_assets:
+            return
+        for agent in self.state.agents:
+            if agent.is_resting or agent.cash < 90 or len(agent.owned_property_ids or []) >= 3:
+                continue
+            buy_bias = (
+                0.06
+                + max(0, 62 - agent.housing_quality) / 220
+                + max(0, agent.cash - 110) / 850
+                + (0.08 if agent.persona in {"opportunist", "empathetic"} else 0.0)
+            )
+            if self.random.random() > min(0.24, buy_bias):
+                continue
+            affordable = [asset for asset in listed_assets if asset.purchase_price <= max(agent.cash, agent.cash + min(30, agent.credit_score // 2))]
+            if not affordable:
+                continue
+            asset = sorted(
+                affordable,
+                key=lambda item: (
+                    item.property_type not in {"rental_house", "shop"},
+                    abs(item.comfort_bonus - max(4, 12 - agent.housing_quality // 12)),
+                    item.purchase_price,
+                ),
+            )[0]
+            financed = asset.purchase_price > agent.cash and asset.debt_eligible and agent.credit_score >= 55
+            if financed:
+                gap = asset.purchase_price - agent.cash
+                try:
+                    self._bank_borrow("agent", agent.id, gap, 3, f"想买下 {asset.name} 做长期资产。")
+                except ValueError:
+                    continue
+            if agent.cash < asset.purchase_price:
+                continue
+            seller_type = asset.owner_type
+            agent.cash -= asset.purchase_price
+            transfer_tax = self._collect_tax(
+                payer_type="agent",
+                payer_id=agent.id,
+                payer_name=agent.name,
+                revenue_key="property",
+                label="地产过户",
+                base_amount=asset.purchase_price,
+                rate_pct=self.state.government.property_transfer_tax_rate_pct,
+            )
+            if seller_type == "government":
+                if asset.id in self.state.government.government_asset_ids:
+                    self.state.government.government_asset_ids.remove(asset.id)
+                self.state.government.reserve_balance += asset.purchase_price
+                self.state.government.revenues["government_asset"] = self.state.government.revenues.get("government_asset", 0) + asset.purchase_price
+            asset.owner_type = "agent"
+            asset.owner_id = agent.id
+            asset.status = "owned"
+            asset.listed = False
+            asset.built = True
+            if asset.id not in agent.owned_property_ids:
+                agent.owned_property_ids.append(asset.id)
+            agent.housing_quality = self._bounded(agent.housing_quality + asset.comfort_bonus)
+            self._adjust_agent_satisfaction(agent, 5 + asset.social_bonus)
+            agent.last_trade_summary = f"刚买下 {asset.name}，成交 ${asset.purchase_price}，税费 ${transfer_tax}。"
+            self._remember(agent, f"你刚买下 {asset.name}，想用它改善住处和现金流。", 3, long_term=True)
+            self.state.events.insert(
+                0,
+                build_internal_event(
+                    title=f"{agent.name} 买下了 {asset.name}",
+                    summary=f"{agent.name} 花 ${asset.purchase_price} 买下 {asset.name}，准备把它当成长期资产来运营。",
+                    slot=self.state.time_slot,
+                    category="market",
+                ),
+            )
+            self._append_finance_record(
+                actor_id=agent.id,
+                actor_name=agent.name,
+                category="property",
+                action="buy",
+                summary=f"{agent.name} 买下了 {asset.name}，成交价 ${asset.purchase_price}，过户税 ${transfer_tax}。",
+                amount=asset.purchase_price + transfer_tax,
+                asset_name=asset.name,
+                counterparty="财政资产" if seller_type == "government" else "地产市场",
+                financed=financed,
+            )
+            listed_assets = [candidate for candidate in listed_assets if candidate.id != asset.id]
+            if not listed_assets:
+                break
+        self.state.events = self.state.events[:8]
+
     def _settle_property_income(self) -> None:
         for asset in self.state.properties:
             if asset.status != "owned":
@@ -3083,6 +4010,13 @@ class GameEngine:
                 self._adjust_agent_satisfaction(owner, max(-2, asset.comfort_bonus // 3))
                 if asset.daily_income or asset.daily_maintenance:
                     owner.last_trade_summary = f"{asset.name} 昨天税后净额 ${max(0, net_income - holding_tax)}。"
+            elif asset.owner_type == "government":
+                self.state.government.reserve_balance = max(0, self.state.government.reserve_balance + net_income)
+                self.state.government.revenues["government_asset"] = self.state.government.revenues.get("government_asset", 0) + max(0, net_income)
+                if holding_tax:
+                    self.state.government.revenues["property"] = self.state.government.revenues.get("property", 0) + holding_tax
+                    self.state.government.total_revenue += holding_tax
+                self.state.government.last_distribution_note = f"政府资产 {asset.name} 昨天结算净额 ${max(0, net_income - holding_tax)}。"
             if asset.daily_income or asset.daily_maintenance:
                 self.state.events.insert(
                     0,
@@ -3097,7 +4031,7 @@ class GameEngine:
                 self._append_finance_record(
                     actor_id=owner_id,
                     actor_name=owner_name,
-                    category="property",
+                    category="government" if asset.owner_type == "government" else "property",
                     action="settle",
                     summary=f"{owner_name} 的 {asset.name} 完成日结，净额 ${net_income}，持有税 ${holding_tax}。",
                     amount=net_income - holding_tax,
@@ -3115,9 +4049,10 @@ class GameEngine:
                 continue
             candidate_items = []
             for item in self.state.lifestyle_catalog:
-                if item.price <= agent.cash:
+                effective_cash = agent.cash + agent.consumption_coupon_balance
+                if item.price <= effective_cash:
                     candidate_items.append(item)
-                elif item.debt_eligible and agent.credit_score >= 55 and agent.cash >= max(4, item.price // 3):
+                elif item.debt_eligible and agent.credit_score >= 55 and effective_cash >= max(4, item.price // 3):
                     candidate_items.append(item)
             if not candidate_items:
                 continue
@@ -3138,16 +4073,18 @@ class GameEngine:
                     self._bank_borrow("agent", agent.id, gap, 1, f"想买{item.name}，先周转一下。")
                 except ValueError:
                     continue
-            if agent.cash < item.price:
+            coupon_used = self._consume_coupon(holder_type="agent", holder_id=agent.id, amount=item.price)
+            net_payment = max(0, item.price - coupon_used)
+            if agent.cash < net_payment:
                 continue
-            agent.cash -= item.price
+            agent.cash -= net_payment
             consume_tax = self._collect_tax(
                 payer_type="agent",
                 payer_id=agent.id,
                 payer_name=agent.name,
                 revenue_key="consumption",
                 label="消费支出",
-                base_amount=item.price,
+                base_amount=net_payment,
                 rate_pct=self.state.government.consumption_tax_rate_pct + (self.state.government.luxury_tax_rate_pct if item.price >= 18 else 0.0),
             )
             agent.state.mood = self._bounded(agent.state.mood + item.mood_gain)
@@ -3155,8 +4092,8 @@ class GameEngine:
             agent.housing_quality = self._bounded(agent.housing_quality + item.comfort_gain)
             self._adjust_agent_satisfaction(agent, item.satisfaction_gain)
             agent.current_bubble = f"先花点钱把这会儿过舒服。"
-            agent.last_trade_summary = f"刚买了{item.name}，花了 ${item.price}，另缴税 ${consume_tax}。"
-            self._remember(agent, f"你刚花 ${item.price} 买了{item.name}。", 2)
+            agent.last_trade_summary = f"刚买了{item.name}，现金支出 ${net_payment}，消费券抵扣 ${coupon_used}，另缴税 ${consume_tax}。"
+            self._remember(agent, f"你刚花 ${net_payment} 现金并用 ${coupon_used} 消费券买了{item.name}。", 2)
             summary = f"{agent.name} 刚买了{item.name}，生活满意度和状态往上提了一点。"
             if target is not None:
                 target.state.mood = self._bounded(target.state.mood + item.mood_gain)
@@ -3170,8 +4107,8 @@ class GameEngine:
                 actor_name=agent.name,
                 category="consume",
                 action="buy",
-                summary=f"{agent.name} 购买了 {item.name}，花费 ${item.price}，税费 ${consume_tax}。{f' 目标是 {target.name}。' if target else ''}",
-                amount=item.price + consume_tax,
+                summary=f"{agent.name} 购买了 {item.name}，现金支出 ${net_payment}，消费券抵扣 ${coupon_used}，税费 ${consume_tax}。{f' 目标是 {target.name}。' if target else ''}",
+                amount=net_payment + consume_tax,
                 asset_name=item.name,
                 counterparty=target.name if target else "生活消费",
                 financed=False,
@@ -3557,6 +4494,12 @@ class GameEngine:
         self.state.weather = self._roll_weather()
         self._sync_market_clock()
         if slot == "morning":
+            self._refresh_tourism_cycle()
+            self.state.tourism.daily_revenue = 0
+            self.state.tourism.daily_arrivals = 0
+            self.state.tourism.daily_departures = 0
+            self.state.tourism.daily_messages_count = 0
+            self.state.tourism.latest_signal = ""
             self.state.market.sentiment = int(self.state.market.sentiment * 0.6)
             self._apply_opening_gap()
             for quote in self.state.market.stocks:
@@ -3574,6 +4517,8 @@ class GameEngine:
             self._tick_relation_cooldowns()
             self._apply_relation_rebound()
             self._apply_property_cycle()
+            self._settle_bank_deposit_interest()
+            self._run_fiscal_distribution_cycle()
         for agent in self.state.agents:
             if agent.is_resting:
                 if slot == "morning" and day >= (agent.rest_until_day or day):
@@ -3633,6 +4578,12 @@ class GameEngine:
             if agent.id == agent_id:
                 return agent
         raise KeyError(f"未知角色：{agent_id}")
+
+    def _find_tourist(self, tourist_id: str) -> TouristAgent:
+        for tourist in self.state.tourists:
+            if tourist.id == tourist_id:
+                return tourist
+        raise KeyError(f"未知游客：{tourist_id}")
 
     def _night_returns_home(self, agent: Agent) -> bool:
         preference = 0.7
@@ -3853,6 +4804,7 @@ class GameEngine:
         recipient_id: str,
         recipient_name: str,
         current_cash: int,
+        total_assets: int = 0,
         bankruptcy: bool = False,
         agent: Agent | None = None,
     ) -> int:
@@ -3860,6 +4812,9 @@ class GameEngine:
         if government.reserve_balance <= 0:
             return 0
         threshold = government.welfare_low_cash_threshold
+        asset_ceiling = threshold * (2 if bankruptcy else 4)
+        if total_assets > asset_ceiling:
+            return 0
         if current_cash > threshold and not bankruptcy:
             return 0
         support_floor = government.welfare_bankruptcy_support if bankruptcy else government.welfare_base_support
@@ -3892,6 +4847,269 @@ class GameEngine:
         )
         return payout
 
+    def _issue_consumption_coupon(self, *, recipient_type: str, recipient_id: str, recipient_name: str, amount: int, note: str) -> int:
+        if amount <= 0 or self.state.government.reserve_balance <= 0:
+            return 0
+        issued = min(max(0, amount), self.state.government.reserve_balance)
+        self.state.government.reserve_balance -= issued
+        if recipient_type == "player":
+            self.state.player.consumption_coupon_balance += issued
+            self.state.player.consumption_desire = self._bounded(self.state.player.consumption_desire + max(1, issued // 6))
+        else:
+            agent = self._find_agent(recipient_id)
+            agent.consumption_coupon_balance += issued
+            agent.consumption_desire = self._bounded(agent.consumption_desire + max(1, issued // 6))
+            agent.last_trade_summary = f"财政发来 ${issued} 的消费券，理由是：{note}"
+        self.state.government.total_coupons_issued += issued
+        self.state.government.expenditures["coupon"] = self.state.government.expenditures.get("coupon", 0) + issued
+        self._append_finance_record(
+            actor_id=recipient_id,
+            actor_name=recipient_name,
+            category="government",
+            action="coupon",
+            summary=f"{recipient_name} 领到 ${issued} 的消费券。{note}",
+            amount=issued,
+            asset_name="消费券",
+            counterparty=self.state.government.name,
+        )
+        return issued
+
+    def _recent_finance_records(self, days: int) -> list[FinanceRecord]:
+        floor = max(1, self.state.day - days + 1)
+        return [record for record in self.state.finance_history if record.day >= floor]
+
+    def _recent_nonfine_consumption(self, actor_id: str, actor_name: str, days: int) -> int:
+        total = 0
+        for record in self._recent_finance_records(days):
+            if record.actor_id != actor_id or record.actor_name != actor_name:
+                continue
+            if record.category != "consume" or record.action not in {"buy", "expense"}:
+                continue
+            total += abs(int(record.amount or 0))
+        return total
+
+    def _government_investment_targets(self) -> list[PropertyAsset]:
+        return [
+            asset
+            for asset in self.state.properties
+            if asset.owner_type == "market"
+            and asset.status == "listed"
+            and asset.property_type in {"rental_house", "shop", "greenhouse"}
+        ]
+
+    def _government_build_public_asset(self, budget: int) -> PropertyAsset | None:
+        build_options = [
+            {
+                "id": f"property-gov-stall-{uuid4().hex[:6]}",
+                "property_type": "shop",
+                "name": "公共集市摊位",
+                "position": Point(x=8, y=16),
+                "purchase_price": 68,
+                "estimated_value": 74,
+                "daily_income": 10,
+                "daily_maintenance": 3,
+                "comfort_bonus": 2,
+                "social_bonus": 4,
+                "description": "由财政投资建设的公共摊位，用来稳住游客消费和本地交易。",
+            },
+            {
+                "id": f"property-gov-lodge-{uuid4().hex[:6]}",
+                "property_type": "rental_house",
+                "name": "公共旅馆附楼",
+                "position": Point(x=34, y=20),
+                "purchase_price": 92,
+                "estimated_value": 98,
+                "daily_income": 14,
+                "daily_maintenance": 4,
+                "comfort_bonus": 5,
+                "social_bonus": 3,
+                "description": "由财政投资建设的公共旅馆附楼，用来承接旺季游客和降低住宿压力。",
+            },
+        ]
+        affordable = [option for option in build_options if option["purchase_price"] <= budget]
+        if not affordable:
+            return None
+        option = affordable[-1]
+        return PropertyAsset(
+            id=option["id"],
+            owner_type="government",
+            owner_id="government",
+            property_type=option["property_type"],
+            name=option["name"],
+            position=option["position"],
+            purchase_price=option["purchase_price"],
+            estimated_value=option["estimated_value"],
+            daily_income=option["daily_income"],
+            daily_maintenance=option["daily_maintenance"],
+            comfort_bonus=option["comfort_bonus"],
+            social_bonus=option["social_bonus"],
+            debt_eligible=False,
+            buildable=False,
+            listed=False,
+            built=True,
+            status="owned",
+            description=option["description"],
+        )
+
+    def _run_fiscal_distribution_cycle(self) -> None:
+        government = self.state.government
+        if self.state.day < government.next_distribution_day or self.state.day == government.last_distribution_day:
+            return
+        recent_records = self._recent_finance_records(government.fiscal_cycle_days)
+        cycle_tax = sum(abs(int(record.amount or 0)) for record in recent_records if record.category == "tax")
+        if cycle_tax <= 0 and government.reserve_balance < 40:
+            government.next_distribution_day = self.state.day + government.fiscal_cycle_days
+            government.last_distribution_note = "本轮税收和储备都偏低，财政周期暂缓执行。"
+            return
+        base_pool = max(0, int(round(cycle_tax * 0.6 + max(0, government.reserve_balance - 120) * 0.4)))
+        base_pool = min(base_pool, max(0, government.reserve_balance - 40))
+        if base_pool <= 0:
+            government.next_distribution_day = self.state.day + government.fiscal_cycle_days
+            government.last_distribution_note = "财政池不足，本轮优先保留储备。"
+            return
+        support_pool = int(round(base_pool * 0.35))
+        coupon_pool = int(round(base_pool * 0.25))
+        public_service_spend = int(round(base_pool * 0.20))
+        investment_pool = int(round(base_pool * 0.15))
+        reserve_retained = max(0, base_pool - support_pool - coupon_pool - public_service_spend - investment_pool)
+
+        payouts = 0
+        support_targets: list[tuple[str, str, str, float]] = []
+        player_weight = max(0.0, (55 - self.state.player.cash) * 0.5 + self.state.player.monthly_burden * 0.35 + max(0, 60 - self.state.player.life_satisfaction) * 0.2)
+        if player_weight > 0:
+            support_targets.append(("player", self.state.player.id, self.state.player.name, player_weight))
+        for agent in self.state.agents:
+            weight = max(0.0, (55 - agent.cash) * 0.5 + agent.monthly_burden * 0.35 + max(0, 60 - agent.life_satisfaction) * 0.2)
+            if weight > 0:
+                support_targets.append(("agent", agent.id, agent.name, weight))
+        weight_sum = sum(weight for *_, weight in support_targets) or 1.0
+        for recipient_type, recipient_id, recipient_name, weight in support_targets:
+            amount = int(round(support_pool * (weight / weight_sum)))
+            if amount <= 0 or government.reserve_balance <= 0:
+                continue
+            payout = self._disburse_welfare(
+                recipient_type=recipient_type,
+                recipient_id=recipient_id,
+                recipient_name=recipient_name,
+                current_cash=self.state.player.cash if recipient_type == "player" else self._find_agent(recipient_id).cash,
+                total_assets=self._player_total_assets() if recipient_type == "player" else self._agent_total_assets(self._find_agent(recipient_id)),
+                bankruptcy=False,
+                agent=None if recipient_type == "player" else self._find_agent(recipient_id),
+            )
+            payouts += payout
+
+        issued_coupons = 0
+        coupon_scores: list[tuple[str, str, str, float]] = []
+        player_consumption = self._recent_nonfine_consumption(self.state.player.id, self.state.player.name, government.fiscal_cycle_days)
+        player_score = (player_consumption ** 0.5) + max(0, 35 - self.state.player.cash) * 0.16
+        if player_score > 0:
+            coupon_scores.append(("player", self.state.player.id, self.state.player.name, player_score))
+        for agent in self.state.agents:
+            essential = self._recent_nonfine_consumption(agent.id, agent.name, government.fiscal_cycle_days)
+            score = (essential ** 0.5) + max(0, 35 - agent.cash) * 0.16
+            if score > 0:
+                coupon_scores.append(("agent", agent.id, agent.name, score))
+        coupon_sum = sum(score for *_, score in coupon_scores) or 1.0
+        for recipient_type, recipient_id, recipient_name, score in coupon_scores:
+            amount = int(round(coupon_pool * (score / coupon_sum)))
+            if amount <= 0:
+                continue
+            issued_coupons += self._issue_consumption_coupon(
+                recipient_type=recipient_type,
+                recipient_id=recipient_id,
+                recipient_name=recipient_name,
+                amount=amount,
+                note="用于鼓励下一轮本地消费和社交支出。",
+            )
+
+        actual_public_service = min(government.reserve_balance, public_service_spend)
+        if actual_public_service > 0:
+            government.reserve_balance -= actual_public_service
+            government.expenditures["public_service"] = government.expenditures.get("public_service", 0) + actual_public_service
+            government.public_service_level = self._bounded(government.public_service_level + max(1, actual_public_service // 18))
+            government.tourism_support_level = self._bounded(government.tourism_support_level + max(1, actual_public_service // 22))
+            government.housing_support_level = self._bounded(government.housing_support_level + max(1, actual_public_service // 26))
+            for agent in self.state.agents:
+                agent.life_satisfaction = self._bounded(agent.life_satisfaction + 1)
+            self.state.player.life_satisfaction = self._bounded(self.state.player.life_satisfaction + 2)
+
+        actual_investment = 0
+        invested_any = False
+        for asset in sorted(self._government_investment_targets(), key=lambda item: (item.property_type != "rental_house", item.purchase_price)):
+            if investment_pool <= 0 or government.reserve_balance <= 0:
+                break
+            if asset.purchase_price > min(investment_pool, government.reserve_balance):
+                continue
+            asset.owner_type = "government"
+            asset.owner_id = "government"
+            asset.status = "owned"
+            asset.listed = False
+            asset.built = True
+            government.reserve_balance -= asset.purchase_price
+            investment_pool -= asset.purchase_price
+            actual_investment += asset.purchase_price
+            government.total_public_investment += asset.purchase_price
+            government.expenditures["investment"] = government.expenditures.get("investment", 0) + asset.purchase_price
+            if asset.id not in government.government_asset_ids:
+                government.government_asset_ids.append(asset.id)
+            invested_any = True
+            self._append_finance_record(
+                actor_id="government",
+                actor_name=government.name,
+                category="government",
+                action="invest",
+                summary=f"{government.name} 买入了 {asset.name}，准备把它当作公共服务或稳定性资产来运营。",
+                amount=asset.purchase_price,
+                asset_name=asset.name,
+                counterparty="地产市场",
+            )
+        if not invested_any and investment_pool > 0 and government.reserve_balance > 0:
+            built_asset = self._government_build_public_asset(min(investment_pool, government.reserve_balance))
+            if built_asset is not None:
+                self.state.properties.append(built_asset)
+                government.reserve_balance -= built_asset.purchase_price
+                actual_investment += built_asset.purchase_price
+                government.total_public_investment += built_asset.purchase_price
+                government.expenditures["investment"] = government.expenditures.get("investment", 0) + built_asset.purchase_price
+                government.government_asset_ids.append(built_asset.id)
+                self._append_finance_record(
+                    actor_id="government",
+                    actor_name=government.name,
+                    category="government",
+                    action="invest",
+                    summary=f"{government.name} 新建了 {built_asset.name}，用来承接游客、公共服务和本地交易需求。",
+                    amount=built_asset.purchase_price,
+                    asset_name=built_asset.name,
+                    counterparty="公共建设",
+                )
+
+        government.last_distribution_day = self.state.day
+        government.next_distribution_day = self.state.day + government.fiscal_cycle_days
+        government.last_targeted_support = payouts
+        government.last_coupon_pool = issued_coupons
+        government.last_public_service_spend = actual_public_service
+        government.last_investment_spend = actual_investment
+        government.last_reserve_retained = reserve_retained
+        government.last_cycle_tax_revenue = cycle_tax
+        government.last_cycle_nonfine_consumption = sum(
+            abs(int(record.amount or 0))
+            for record in recent_records
+            if record.category == "consume" and record.action in {"buy", "expense"}
+        )
+        government.last_distribution_note = (
+            f"第 {self.state.day} 天完成财政结算：定向补贴 ${payouts}、消费券 ${issued_coupons}、公共服务 ${actual_public_service}、政府投资 ${actual_investment}。"
+        )
+        self.state.events.insert(
+            0,
+            build_internal_event(
+                title=f"财政完成第 {self.state.day} 天结算",
+                summary=government.last_distribution_note,
+                slot=self.state.time_slot,
+                category="general",
+            ),
+        )
+        self.state.events = self.state.events[:8]
+
     def _collect_tax(
         self,
         *,
@@ -3912,6 +5130,10 @@ class GameEngine:
         if payer_type == "player":
             actual = min(tax, self.state.player.cash)
             self.state.player.cash = max(0, self.state.player.cash - actual)
+        elif payer_type == "tourist":
+            tourist = self._find_tourist(payer_id)
+            actual = min(tax, tourist.cash)
+            tourist.cash = max(0, tourist.cash - actual)
         else:
             agent = self._find_agent(payer_id)
             actual = min(tax, agent.cash)
@@ -3963,20 +5185,27 @@ class GameEngine:
             asset.estimated_value = max(floor, min(ceiling, next_value))
 
     def _maybe_trigger_regulatory_audit(self) -> None:
+        government = self.state.government
+        effective_cooldown = max(2, government.audit_cooldown_days + max(0, round((55 - government.enforcement_level) / 12)))
+        if self.state.day - (government.last_audit_day or 0) < effective_cooldown:
+            return
         wealth_targets: list[tuple[float, str, str, str]] = []
-        player_net = self._player_net_worth()
+        player_net = self._player_total_assets()
         wealth_targets.append((player_net, "player", self.state.player.id, self.state.player.name))
         for agent in self.state.agents:
-            wealth_targets.append((self._agent_net_worth(agent), "agent", agent.id, agent.name))
+            wealth_targets.append((self._agent_total_assets(agent), "agent", agent.id, agent.name))
         wealth, target_type, target_id, target_name = max(wealth_targets, key=lambda item: item[0])
         property_count = len(self.state.player.owned_property_ids or []) if target_type == "player" else len(self._find_agent(target_id).owned_property_ids or [])
         gray_risk = sum(1 for case in self.state.gray_cases if case.status == "active" and target_id in case.participants)
-        audit_score = max(0.0, wealth / 1200) + property_count * 0.8 + gray_risk * 1.6 + (self.state.government.enforcement_level / 40)
-        if wealth < 650 and gray_risk == 0:
+        enforcement_factor = max(0.06, government.enforcement_level / 100)
+        audit_score = max(0.0, wealth / 6500) + property_count * 0.24 + gray_risk * 1.4
+        if wealth < 4500 and property_count < 4 and gray_risk == 0:
             return
-        if self.random.random() > min(0.42, 0.04 + audit_score / 28):
+        trigger_probability = min(0.14, (0.003 + audit_score / 28) * enforcement_factor)
+        if self.random.random() > trigger_probability:
             return
-        fine_base = max(8, int(round(wealth * 0.012))) + property_count * 3 + gray_risk * 6
+        fine_rate = 0.0014 + government.enforcement_level / 22000
+        fine_base = max(3, int(round(wealth * fine_rate))) + property_count + gray_risk * 4
         fine = self._collect_tax(
             payer_type=target_type,
             payer_id=target_id,
@@ -3993,6 +5222,7 @@ class GameEngine:
             agent.credit_score = self._bounded(agent.credit_score - 4 - gray_risk * 2)
             agent.state.stress = self._bounded(agent.state.stress + 6 + gray_risk * 2)
         self.state.lab.reputation = self._bounded(self.state.lab.reputation - min(6, 2 + gray_risk))
+        government.last_audit_day = self.state.day
         audit_event = build_internal_event(
             title=f"监管抽查盯上了 {target_name}",
             summary=f"{target_name} 因资产规模、持有地产或灰线风险被抽查，缴出 ${fine}，大家开始重新估算暴露风险。",
@@ -4017,6 +5247,7 @@ class GameEngine:
                 setattr(government, key, max(0.0, min(35.0, float(value))))
         if payload.get("enforcement_level") is not None:
             government.enforcement_level = self._bounded(int(payload["enforcement_level"]))
+            government.audit_cooldown_days = max(2, min(10, 2 + round((100 - government.enforcement_level) / 12)))
         if payload.get("welfare_low_cash_threshold") is not None:
             government.welfare_low_cash_threshold = max(0, min(60, int(payload["welfare_low_cash_threshold"])))
         if payload.get("welfare_base_support") is not None:
@@ -5504,11 +6735,22 @@ class GameEngine:
                 agent.status_summary = self._build_status_summary(agent, agent.relations.get("player", 0), activity, from_player=True)
             if not agent.last_interaction:
                 agent.last_interaction = "这一时段还没有发生新的深聊。"
+        for tourist in self.state.tourists:
+            if self.state.time_slot == "night":
+                tourist.current_activity = f"正在{self.state.tourism.inn_name}歇脚，准备明天继续逛。"
+                tourist.current_bubble = "今晚先住下。"
+            elif tourist.current_location == self.state.tourism.market_location:
+                tourist.current_activity = f"正在{self.state.tourism.market_name}转悠，顺手问价和闲聊。"
+            elif tourist.current_location == self.state.tourism.inn_location:
+                tourist.current_activity = f"正在{self.state.tourism.inn_name}休息，准备下一轮出门。"
+            else:
+                tourist.current_activity = "正在园区里慢慢闲逛，看看哪里值得停下来。"
+            tourist.brief_note = tourist.brief_note or f"{self._tourist_tier_label(tourist.visitor_tier)}，这趟会待到第 {tourist.stay_until_day} 天，最关心“{tourist.favorite_topic or '哪里最值得继续逛'}”。"
         self._record_analysis_point()
 
     def _ensure_agent_runtime_fields(self) -> None:
         previous_version = self.state.version or 0
-        self.state.version = max(self.state.version, 31)
+        self.state.version = max(self.state.version, 36)
         if self.state.loans is None:
             self.state.loans = []
         if self.state.archived_tasks is None:
@@ -5527,6 +6769,29 @@ class GameEngine:
             self.state.properties = build_initial_world().properties
         if self.state.finance_history is None:
             self.state.finance_history = []
+        if self.state.tourists is None:
+            self.state.tourists = []
+        if getattr(self.state, "tourism", None) is None:
+            self.state.tourism = TourismState()
+        self.state.tourism.active_visitor_cap = 5
+        if not self.state.tourism.season_mode:
+            self.state.tourism.season_mode = "normal"
+        if self.state.tourism.daily_arrivals is None:
+            self.state.tourism.daily_arrivals = 0
+        if self.state.tourism.daily_departures is None:
+            self.state.tourism.daily_departures = 0
+        if self.state.tourism.repeat_customers_total is None:
+            self.state.tourism.repeat_customers_total = 0
+        if self.state.tourism.vip_customers_total is None:
+            self.state.tourism.vip_customers_total = 0
+        if self.state.tourism.buyer_leads_total is None:
+            self.state.tourism.buyer_leads_total = 0
+        if self.state.tourism.daily_messages_count is None:
+            self.state.tourism.daily_messages_count = 0
+        if self.state.tourism.latest_signal is None:
+            self.state.tourism.latest_signal = ""
+        if previous_version < 33:
+            self._refresh_tourism_cycle()
         if self.state.section_signatures is None:
             self.state.section_signatures = {}
         player_owned = [asset.id for asset in self.state.properties if asset.owner_type == "player" and asset.owner_id == self.state.player.id and asset.status == "owned"]
@@ -5563,6 +6828,15 @@ class GameEngine:
                 agent.generosity = 50
             if not agent.risk_appetite:
                 agent.risk_appetite = 50
+        for tourist in self.state.tourists:
+            if not tourist.current_location:
+                tourist.current_location = self._room_for(tourist.position.x, tourist.position.y)
+            tourist.visitor_tier = tourist.visitor_tier or "regular"
+            tourist.message_influence = tourist.message_influence or (3 if tourist.visitor_tier == "vip" else 2 if tourist.visitor_tier in {"repeat", "buyer"} else 1)
+            tourist.favorite_topic = tourist.favorite_topic or "这里最值得逛哪里"
+            tourist.current_activity = tourist.current_activity or f"正在{self.state.tourism.market_name}和{self.state.tourism.inn_name}之间慢慢逛。"
+            tourist.current_bubble = tourist.current_bubble or "这里还挺热闹。"
+            tourist.brief_note = tourist.brief_note or f"这趟会待到第 {tourist.stay_until_day} 天。"
             if agent.portfolio is None:
                 agent.portfolio = {}
             if not agent.life_satisfaction:
@@ -5585,6 +6859,10 @@ class GameEngine:
                 agent.daily_cost_baseline = {"engineering": 6, "rational": 7, "creative": 8, "empathetic": 7, "opportunist": 9}.get(agent.persona, 7)
             if not agent.employer_name:
                 agent.employer_name = "青松数据服务"
+            if agent.consumption_coupon_balance is None:
+                agent.consumption_coupon_balance = 0
+            if agent.deposit_balance is None:
+                agent.deposit_balance = 0
             if not agent.owned_property_ids:
                 owned = [asset.id for asset in self.state.properties if asset.owner_type == "agent" and asset.owner_id == agent.id and asset.status == "owned"]
                 if owned:
@@ -5666,6 +6944,10 @@ class GameEngine:
             self.state.player.daily_cost_baseline = 8
         if not self.state.player.employer_name:
             self.state.player.employer_name = "青松数据服务"
+        if self.state.player.consumption_coupon_balance is None:
+            self.state.player.consumption_coupon_balance = 0
+        if self.state.player.deposit_balance is None:
+            self.state.player.deposit_balance = 0
         if self.state.bank is None:
             self.state.bank = build_initial_world().bank
         if self.state.government is None:
@@ -5674,14 +6956,68 @@ class GameEngine:
             self.state.government.reserve_balance = 260
         if self.state.government.total_welfare_paid is None:
             self.state.government.total_welfare_paid = 0
+        if self.state.government.total_coupons_issued is None:
+            self.state.government.total_coupons_issued = 0
+        if self.state.government.total_public_investment is None:
+            self.state.government.total_public_investment = 0
+        if self.state.government.fiscal_cycle_days is None:
+            self.state.government.fiscal_cycle_days = 15
+        if self.state.government.next_distribution_day is None:
+            self.state.government.next_distribution_day = self.state.government.fiscal_cycle_days
+        if previous_version < 34 and self.state.government.last_distribution_day == 0:
+            cycle = max(1, self.state.government.fiscal_cycle_days)
+            self.state.government.next_distribution_day = ((max(1, self.state.day) // cycle) + 1) * cycle
+        if self.state.bank.base_deposit_daily_rate_pct is None:
+            self.state.bank.base_deposit_daily_rate_pct = 0.32
+        if self.state.bank.deposit_daily_rate_pct is None:
+            self.state.bank.deposit_daily_rate_pct = self.state.bank.base_deposit_daily_rate_pct
+        if self.state.bank.total_deposits is None:
+            self.state.bank.total_deposits = self.state.player.deposit_balance + sum(agent.deposit_balance for agent in self.state.agents)
+        if self.state.bank.total_interest_paid is None:
+            self.state.bank.total_interest_paid = 0
+        if self.state.government.public_service_level is None:
+            self.state.government.public_service_level = 36
+        if self.state.government.tourism_support_level is None:
+            self.state.government.tourism_support_level = 30
+        if self.state.government.housing_support_level is None:
+            self.state.government.housing_support_level = 24
+        if self.state.government.government_asset_ids is None:
+            self.state.government.government_asset_ids = []
+        if self.state.government.last_distribution_note is None:
+            self.state.government.last_distribution_note = "财政周期还没有触发。"
+        if self.state.government.last_distribution_day is None:
+            self.state.government.last_distribution_day = 0
+        if self.state.government.last_audit_day is None:
+            self.state.government.last_audit_day = 0
+        self.state.government.audit_cooldown_days = max(2, min(10, 2 + round((100 - self.state.government.enforcement_level) / 12)))
+        if self.state.government.last_targeted_support is None:
+            self.state.government.last_targeted_support = 0
+        if self.state.government.last_coupon_pool is None:
+            self.state.government.last_coupon_pool = 0
+        if self.state.government.last_public_service_spend is None:
+            self.state.government.last_public_service_spend = 0
+        if self.state.government.last_investment_spend is None:
+            self.state.government.last_investment_spend = 0
+        if self.state.government.last_reserve_retained is None:
+            self.state.government.last_reserve_retained = 0
+        if self.state.government.last_cycle_tax_revenue is None:
+            self.state.government.last_cycle_tax_revenue = 0
+        if self.state.government.last_cycle_nonfine_consumption is None:
+            self.state.government.last_cycle_nonfine_consumption = 0
         if self.state.government.expenditures is None:
             self.state.government.expenditures = {"welfare": 0}
+        self.state.government.expenditures.setdefault("coupon", 0)
+        self.state.government.expenditures.setdefault("public_service", 0)
+        self.state.government.expenditures.setdefault("investment", 0)
         if self.state.government.welfare_low_cash_threshold is None:
             self.state.government.welfare_low_cash_threshold = 24
         if self.state.government.welfare_base_support is None:
             self.state.government.welfare_base_support = 10
         if self.state.government.welfare_bankruptcy_support is None:
             self.state.government.welfare_bankruptcy_support = 22
+        if self.state.government.revenues is None:
+            self.state.government.revenues = {"wage": 0, "market": 0, "property": 0, "consumption": 0, "fine": 0, "government_asset": 0}
+        self.state.government.revenues.setdefault("government_asset", 0)
         if self.state.company is None:
             self.state.company = build_initial_world().company
         if self.state.bank_loans is None:
@@ -5761,6 +7097,16 @@ class GameEngine:
                 entry.text = self._localized_text(entry.text)
         for case in self.state.gray_cases or []:
             case.participant_names = [self._localized_text(name) for name in case.participant_names or []]
+        for tourist in self.state.tourists or []:
+            if tourist.target_position is None:
+                tourist.target_position = None
+            if tourist.target_location is None:
+                tourist.target_location = ""
+            if tourist.linger_ticks is None:
+                tourist.linger_ticks = 0
+            if tourist.last_locations is None:
+                tourist.last_locations = []
+        self._rebalance_tourists_if_clustered()
         if previous_version < 28:
             self._normalize_extreme_relations_on_upgrade()
             case.topic = self._localized_text(case.topic)

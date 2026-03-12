@@ -12,10 +12,12 @@
 - 左侧主列展示地图、市场中心、生活与地产、实验室主面板、角色信息；右侧侧栏承载任务、对话、晨报、信号、经济事件流和最近事件
 - 玩家与智能体对话支持 `OpenAI` 或 `Qwen` 兼容接口
 - 智能体有长期记忆、短期记忆、关系、欲望、信用、口碑、体力和小屋作息
+- 当前世界还包含轻量游客、旅馆、集市、政府财政与监管、公司打工、银行存款与公共资产
 - 观察模式下，玩家会自动移动、自动发言、自动交易、自动推进
-- 股市、银行借贷、人际借贷、信用、实验室口碑、灰色交易和地下案件会互相联动
+- 股市、银行借贷、人际借贷、信用、实验室口碑、灰色交易、地下案件、税收、保障和游客消息会互相联动
 - 玩家和智能体的消费、股票、地产、银行借贷、人际借贷都会写入统一的经济事件流
 - 每天早晨自动生成 `Lab Daily` 晨报，并同步进入所有人的记忆
+- 后端支持 section-diff 增量状态同步，降低前端重绘成本
 - SQLite 快照存档 + JSONL 行为日志
 
 ## 配置与部署
@@ -238,11 +240,13 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 
 - 地图主舞台
 - 市场中心
-  - 大盘时K / 日K
+  - 大盘时K / 日K / 月K / 年K
   - 宏观调控台
   - 板块轮动与个股
   - 玩家交易
   - 银行借贷
+  - 游客与消费流
+  - 政府资产与收益
   - 持仓与资金分布
 - 生活与地产
   - 生活满意度与消费意愿
@@ -250,12 +254,14 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
   - 房产买入 / 卖出 / 贷款买入
 - 实验室主面板
   - 实验室指标
+  - 税务与财政
   - 当前角色信息
 
 ### 右侧侧栏
 
-- 任务进展
 - 玩家对话
+- 任务进展
+- 实时分析
 - 实时对话
   - 最近 200 条结构化记录
   - 支持按人物筛选
@@ -306,6 +312,8 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 - 夜晚会回屋休息，熬夜会掉体力
 - 在家完整休息一个阶段会回满体力
 - 每天早晨会刷新心情、压力、专注、好奇心和当日倾向
+- 每天会扣日常生活成本，且会跟随通胀变化
+- 当现金低于阈值时，会明显倾向去 `青松数据服务` 打工
 
 ### 消费与地产
 
@@ -320,6 +328,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
   - 每日租金或经营收入
   - 生活满意度
 - 买房现金不足时，可以直接走银行融资
+- 政府也可以持有公共资产，并通过旅馆、摊位和公共物业形成收益
 
 ### 经济事件流
 
@@ -329,7 +338,9 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
   - 玩家与智能体生活消费
   - 玩家地产买入 / 卖出 / 每日结算
   - 银行借贷与归还
+  - 银行存款 / 取款 / 存款利息
   - 人际借款与归还
+  - 打工收入、税收、保障发放、游客消费、政府投资
 - 右侧独立“经济事件流”面板默认展示最近 20 条，便于观察每个人最近在花钱、借钱还是做交易
 
 ## 对话与社会系统
@@ -364,6 +375,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 - 只有明确说出借钱、给钱、报销、利息和归还意图时，才会真正成交
 - 默认次日归还
 - 逾期会掉信用，也会拖累实验室口碑
+- 低收入补助和破产救助会按总资产判断，不再只看现金
 
 ### 灰色交易与地下案件
 
@@ -405,7 +417,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 市场支持：
 
 - 盘中实时波动
-- `时K / 日K`
+- `时K / 日K / 月K / 年K`
 - 涨跌、回撤、涨停、跌停
 - 每天重新开盘
 
@@ -443,6 +455,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 - 查看可用资金、持仓、现价和当前银行待还
 - 观察模式自动交易
 - 地下案件触发的玩家做空
+- 自动交易会保留现金缓冲和总仓位上限，避免持续无脑追高
 
 ### 银行借贷系统
 
@@ -451,9 +464,11 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 它支持：
 
 - 玩家向银行借款
+- 玩家主动存入和取回银行存款
 - 玩家主动归还贷款
 - 智能体在现金和体力都偏紧时自动向银行周转
 - 智能体在条件允许时自动补还逾期贷款
+- 智能体在现金宽裕时也会自动存款、现金吃紧时自动取回
 
 当前定价会综合考虑：
 
@@ -468,9 +483,11 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 
 - 银行流动性
 - 基准日利率
+- 活期存款日利率
 - 当前风险溢价
 - 玩家授信上限
 - 估算日利率 / 总利率 / 应还金额
+- 玩家存款余额与总资金
 - 玩家未结清银行贷款
 - 智能体未结清银行贷款
 
@@ -478,6 +495,49 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 
 - 逾期会产生罚息，并拉低信用与实验室口碑
 - 提前部分还款会保留为正常 `active` 贷款，不会误判成逾期
+
+### 政府财政、税制与保障
+
+系统内置显式政府对象：`园区财政与监管局`。
+
+当前已经接入：
+
+- 工资税
+- 证券税
+- 地产过户税
+- 地产持有税
+- 消费税
+- 奢侈税
+- 财政储备
+- 低收入补助与破产救助
+- 15 天一次财政分配
+- 公共服务、旅游支持、住房支持
+- 政府资产投资与收益
+
+税务与财政面板目前可直接调整：
+
+- 各税率
+- 监管强度
+- 保障阈值
+- 基础补助
+- 破产救助
+
+规则要点：
+
+- 监管抽查有冷却期，且会随 `监管强度` 动态变化
+- 监管强度越低，抽查越少、冷却越长、罚缴更轻
+- 保障按总资产判断，不会只因手头现金低就误领补助
+- 财政结算会拆到补贴、消费券、公共服务、政府投资和储备
+
+### 游客、旅馆与集市
+
+系统当前支持轻量游客机制：
+
+- 同时在线游客上限为 `5`
+- 游客入住 `湖畔旅馆`，在 `林间集市`、湖边、果园坡地、石径工坊等区域停留
+- 游客会消费、聊天、带来外部消息，并把影响传导到市场和智能体记忆
+- 游客分为普通游客、回头客、高消费客户、潜在购房者
+- 游客流量受淡季 / 平季 / 旺季 / 活动日影响
 
 ### 智能体交易
 
@@ -524,6 +584,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 - 供电或冷藏故障导致维修支出
 - 社交媒体误传拖累口碑
 - 合规抽查带来利好或利空
+- 游客活动日、夜市和展演带来更明显的消费与市场冲击
 
 ## 研究、任务与晨报
 
@@ -545,6 +606,8 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 
 - 重要市场表现
 - 板块主线
+- 财政速递和监管速递
+- 游客与消费消息
 - 借贷和灰色交易
 - 关系风波和八卦
 - 研究里程碑和故事线
@@ -592,6 +655,9 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 - 世界模拟 tick
 - 玩家 / 智能体交易
 - 借贷与还款
+- 存款、取款与结息
+- 游客到访、消费与游客消息
+- 税收、财政保障、公共投资和政府资产收益
 - 地下案件升级与曝光
 - 随机实验室事件
 - 每日刷新和晨报生成
@@ -599,6 +665,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 ## 主要接口
 
 - `GET /api/state`
+- `POST /api/state/diff`
 - `POST /api/move`
 - `POST /api/speak/{agent_id}`
 - `POST /api/auto-speak/{agent_id}`
@@ -609,7 +676,10 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 - `POST /api/player/trade`
 - `POST /api/player/auto-trade`
 - `POST /api/bank/borrow`
+- `POST /api/bank/deposit`
+- `POST /api/bank/withdraw`
 - `POST /api/bank/repay/{loan_id}`
+- `POST /api/government/policy`
 - `POST /api/lifestyle/consume`
 - `POST /api/properties/{property_id}/buy`
 - `POST /api/properties/{property_id}/sell`
@@ -619,6 +689,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 
 - 默认模型是 `gpt-5-mini`
 - 服务默认监听 `127.0.0.1:8765`
-- 当前世界状态版本为 `24`
+- 当前世界状态版本为 `36`
 - 旧存档如果版本落后会被自动丢弃，这是正常行为
 - 当前内部已经拆出 [market_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/market_engine.py)、[social_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/social_engine.py) 和 [lifestyle_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/lifestyle_engine.py)，`GameEngine` 主要负责总编排
+- 当前后端已经支持 section-diff 增量状态同步，前端会优先做模块级增量更新，而不是每轮整页重绘

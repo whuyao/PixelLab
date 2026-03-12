@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GeoAI Pixel Lab Test (UrbanComp Lab)</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260312x" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260312ad" />
   </head>
   <body>
     <div class="project-banner">
@@ -96,8 +96,8 @@
               </section>
               <div class="market-position-block">
                 <div class="panel-head compact-head">
-                  <h3>持仓与资金分布</h3>
-                  <span class="panel-tag">玩家 + 智能体</span>
+                  <h3>市场观察与资金分布</h3>
+                  <span class="panel-tag">游客 / 财政 / 玩家 / 智能体</span>
                 </div>
                 <div id="marketPositions" class="stack"></div>
               </div>
@@ -147,6 +147,11 @@
                     <option value="3">3 天</option>
                   </select>
                   <button id="bankBorrowBtn" type="submit">申请贷款</button>
+                </form>
+                <form id="bankDepositForm" class="signal-form market-form">
+                  <input id="bankDepositAmount" name="amount" type="number" min="1" max="9999" value="30" />
+                  <button id="bankDepositBtn" type="submit">存入银行</button>
+                  <button id="bankWithdrawBtn" type="button">取回存款</button>
                 </form>
                 <p id="bankBorrowHint" class="composer-tip">按当前信用，银行会动态调整利率和额度。</p>
                 <div id="bankLoanList" class="stack"></div>
@@ -398,6 +403,6 @@
       <span>UrbanComp Lab (<a href="https://urbancomp.net" target="_blank" rel="noreferrer">https://urbancomp.net</a>) 开发</span>
       <span>GitHub：<a href="https://github.com/whuyao/PixelLab" target="_blank" rel="noreferrer">https://github.com/whuyao/PixelLab</a></span>
     </footer>
-    <script src="/static/app.js?v=20260312x" type="module"></script>
+    <script src="/static/app.js?v=20260312ad" type="module"></script>
   </body>
 </html>

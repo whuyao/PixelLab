@@ -42,6 +42,8 @@ class Player(BaseModel):
     work_drive: int = 58
     daily_cost_baseline: int = 8
     employer_name: str = "青松数据服务"
+    consumption_coupon_balance: int = 0
+    deposit_balance: int = 0
 
 
 class AgentState(BaseModel):
@@ -115,6 +117,8 @@ class Agent(BaseModel):
     work_drive: int = 52
     daily_cost_baseline: int = 7
     employer_name: str = "青松数据服务"
+    consumption_coupon_balance: int = 0
+    deposit_balance: int = 0
 
 
 class Task(BaseModel):
@@ -239,9 +243,13 @@ class BankState(BaseModel):
     name: str = "青松合作银行"
     liquidity: int = 1800
     base_daily_rate_pct: float = 2.0
+    base_deposit_daily_rate_pct: float = 0.32
+    deposit_daily_rate_pct: float = 0.32
     risk_spread_pct: float = 0.0
     total_issued: int = 0
     total_repaid: int = 0
+    total_deposits: int = 0
+    total_interest_paid: int = 0
     defaults_count: int = 0
 
 
@@ -257,6 +265,55 @@ class CompanyState(BaseModel):
     total_work_sessions: int = 0
 
 
+class TouristAgent(BaseModel):
+    id: str
+    name: str
+    archetype: str
+    visitor_tier: Literal["regular", "repeat", "vip", "buyer"] = "regular"
+    is_returning: bool = False
+    property_interest: bool = False
+    message_influence: int = 1
+    favorite_topic: str = ""
+    position: Point
+    current_location: str
+    cash: int = 40
+    budget: int = 18
+    mood: int = 58
+    spending_desire: int = 56
+    stay_until_day: int = 1
+    current_activity: str = ""
+    current_bubble: str = ""
+    brief_note: str = ""
+    target_position: Point | None = None
+    target_location: str = ""
+    linger_ticks: int = 0
+    last_locations: list[str] = Field(default_factory=list)
+
+
+class TourismState(BaseModel):
+    inn_name: str = "湖畔旅馆"
+    inn_position: Point = Field(default_factory=lambda: Point(x=36, y=22))
+    inn_location: str = "lounge"
+    market_name: str = "林间集市"
+    market_position: Point = Field(default_factory=lambda: Point(x=6, y=14))
+    market_location: str = "foyer"
+    active_visitor_cap: int = 5
+    season_mode: Literal["off", "normal", "peak", "festival"] = "normal"
+    event_day_title: str = ""
+    total_arrivals: int = 0
+    total_departures: int = 0
+    daily_arrivals: int = 0
+    daily_departures: int = 0
+    daily_revenue: int = 0
+    total_revenue: int = 0
+    repeat_customers_total: int = 0
+    vip_customers_total: int = 0
+    buyer_leads_total: int = 0
+    daily_messages_count: int = 0
+    latest_signal: str = ""
+    last_note: str = "暂时还没有游客消息。"
+
+
 class GovernmentState(BaseModel):
     name: str = "园区财政与监管局"
     wage_tax_rate_pct: float = 8.0
@@ -269,9 +326,28 @@ class GovernmentState(BaseModel):
     welfare_low_cash_threshold: int = 24
     welfare_base_support: int = 10
     welfare_bankruptcy_support: int = 22
+    fiscal_cycle_days: int = 15
+    next_distribution_day: int = 15
+    public_service_level: int = 36
+    tourism_support_level: int = 30
+    housing_support_level: int = 24
+    government_asset_ids: list[str] = Field(default_factory=list)
+    last_distribution_day: int = 0
+    last_distribution_note: str = "财政周期还没有触发。"
+    last_targeted_support: int = 0
+    last_coupon_pool: int = 0
+    last_public_service_spend: int = 0
+    last_investment_spend: int = 0
+    last_reserve_retained: int = 0
+    last_cycle_tax_revenue: int = 0
+    last_cycle_nonfine_consumption: int = 0
     total_revenue: int = 0
     reserve_balance: int = 260
     total_welfare_paid: int = 0
+    total_coupons_issued: int = 0
+    total_public_investment: int = 0
+    last_audit_day: int = 0
+    audit_cooldown_days: int = 4
     revenues: dict[str, int] = Field(
         default_factory=lambda: {
             "wage": 0,
@@ -279,11 +355,15 @@ class GovernmentState(BaseModel):
             "property": 0,
             "consumption": 0,
             "fine": 0,
+            "government_asset": 0,
         }
     )
     expenditures: dict[str, int] = Field(
         default_factory=lambda: {
             "welfare": 0,
+            "coupon": 0,
+            "public_service": 0,
+            "investment": 0,
         }
     )
     last_policy_note: str = "维持默认税率。"
@@ -306,7 +386,7 @@ class ConsumableItem(BaseModel):
 
 class PropertyAsset(BaseModel):
     id: str
-    owner_type: Literal["player", "agent", "market"]
+    owner_type: Literal["player", "agent", "market", "government"]
     owner_id: str
     property_type: Literal["home_upgrade", "farm_plot", "rental_house", "shop", "greenhouse"]
     name: str
@@ -333,7 +413,7 @@ class FinanceRecord(BaseModel):
     time_slot: TimeSlot
     actor_id: str
     actor_name: str
-    category: Literal["market", "consume", "property", "bank", "loan", "work", "gray", "tax", "welfare"]
+    category: Literal["market", "consume", "property", "bank", "loan", "work", "gray", "tax", "welfare", "tourism", "government"]
     action: str
     summary: str
     amount: int = 0
@@ -440,7 +520,7 @@ class AnalysisPoint(BaseModel):
 
 
 class WorldState(BaseModel):
-    version: int = 31
+    version: int = 36
     world_width: int = 44
     world_height: int = 26
     day: int
@@ -453,6 +533,8 @@ class WorldState(BaseModel):
     lab: LabMetrics
     market: MarketState
     company: CompanyState = Field(default_factory=CompanyState)
+    tourists: list[TouristAgent] = Field(default_factory=list)
+    tourism: TourismState = Field(default_factory=TourismState)
     government: GovernmentState = Field(default_factory=GovernmentState)
     latest_dialogue: DialogueOutcome | None = None
     archived_tasks: list[Task] = Field(default_factory=list)
@@ -513,6 +595,14 @@ class BankBorrowRequest(BaseModel):
 
 class BankRepayRequest(BaseModel):
     amount: int | None = None
+
+
+class BankDepositRequest(BaseModel):
+    amount: int
+
+
+class BankWithdrawRequest(BaseModel):
+    amount: int
 
 
 class GrayCaseActionRequest(BaseModel):

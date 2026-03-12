@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import Settings, load_settings
 from app.engine.game_engine import GameEngine
-from app.models import AdvanceRequest, BankBorrowRequest, BankRepayRequest, ConsumeRequest, GrayCaseActionRequest, MacroNewsRequest, MoveRequest, NewsRequest, PropertyFinanceRequest, SpeakRequest, StateDiffRequest, StateDiffResponse, TaxPolicyRequest, TradeRequest, WorldState
+from app.models import AdvanceRequest, BankBorrowRequest, BankDepositRequest, BankRepayRequest, BankWithdrawRequest, ConsumeRequest, GrayCaseActionRequest, MacroNewsRequest, MoveRequest, NewsRequest, PropertyFinanceRequest, SpeakRequest, StateDiffRequest, StateDiffResponse, TaxPolicyRequest, TradeRequest, WorldState
 from app.services.activity_logger import ActivityLogger
 from app.services.openai_dialogue_service import OpenAIDialogueError, OpenAIDialogueService
 from app.services.brave_service import BraveSearchError, BraveService
@@ -61,6 +61,9 @@ async def _apply_ai_player_dialogue(agent_id: str, text: str, observer_mode: boo
     cleaned = text.strip()
     if not cleaned:
         raise ValueError("先输入一句你想说的话。")
+    if context.engine.has_tourist(agent_id):
+        context.engine.speak_to_tourist(agent_id, cleaned, observer=observer_mode)
+        return
     dialogue = None
     if context.dialogue.enabled:
         agent = context.engine.get_agent(agent_id)
@@ -252,6 +255,24 @@ async def bank_repay(loan_id: str, payload: BankRepayRequest) -> WorldState:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return _persist_and_return_state()
+
+
+@app.post("/api/bank/deposit", response_model=WorldState)
+async def bank_deposit(payload: BankDepositRequest) -> WorldState:
+    try:
+        state = context.engine.player_bank_deposit(payload.amount)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _persist_and_return_state()
+
+
+@app.post("/api/bank/withdraw", response_model=WorldState)
+async def bank_withdraw(payload: BankWithdrawRequest) -> WorldState:
+    try:
+        state = context.engine.player_bank_withdraw(payload.amount)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _persist_and_return_state()
 
 

@@ -54,6 +54,21 @@ class ActivityLogger:
                 }
                 for agent in state.agents
             ],
+            "tourists": [
+                {
+                    "id": tourist.id,
+                    "name": tourist.name,
+                    "x": tourist.position.x,
+                    "y": tourist.position.y,
+                    "cash": tourist.cash,
+                    "budget": tourist.budget,
+                    "mood": tourist.mood,
+                    "location": tourist.current_location,
+                    "activity": tourist.current_activity,
+                    "bubble": tourist.current_bubble,
+                }
+                for tourist in state.tourists
+            ],
             "market": {
                 "is_open": state.market.is_open,
                 "sentiment": state.market.sentiment,
