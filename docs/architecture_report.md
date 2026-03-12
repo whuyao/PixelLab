@@ -116,7 +116,7 @@ flowchart LR
 - `GovernmentState`
 - `CompanyState`
 
-当前世界状态版本为 `36`。旧快照会在加载时补齐新字段；如果版本过旧，则丢弃并回到新的初始世界。
+当前世界状态版本为 `38`。旧快照会在加载时补齐新字段；如果版本过旧，则丢弃并回到新的初始世界。
 
 ### 3.3 世界引擎
 
@@ -218,6 +218,19 @@ flowchart LR
 - 不适合高并发多人协作
 
 当前阶段，这个权衡仍然合理。
+
+## 4.1 配套分析文档
+
+除了结构设计文档，当前项目还维护了几份基于真实运行日志的分析报告：
+
+- [undergrad_system_explainer.md](/Volumes/Yaoy/project/LocalFarmer/docs/undergrad_system_explainer.md)
+  面向本科生的系统解释，重点讲智能体、GeoAI、经济约束和涌现。
+- [emergent_behavior_casebook.md](/Volumes/Yaoy/project/LocalFarmer/docs/emergent_behavior_casebook.md)
+  从日志里抽出的典型涌现案例。
+- [recent_100day_emergence_report.md](/Volumes/Yaoy/project/LocalFarmer/docs/recent_100day_emergence_report.md)
+  基于最近 100 天模拟时间的系统阶段演化与角色分化分析。
+- [simulation_day312_academic_analysis.md](/Volumes/Yaoy/project/LocalFarmer/docs/simulation_day312_academic_analysis.md)
+  更偏学术分析写法的长期运行报告。
 
 ## 5. 智能体架构
 

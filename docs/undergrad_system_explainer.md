@@ -204,6 +204,11 @@ GeoAI 是 `Geospatial Artificial Intelligence`，中文通常叫：
 
 这套系统可以拆成 10 个主要子系统。
 
+补充阅读：
+
+- [recent_100day_emergence_report.md](/Volumes/Yaoy/project/LocalFarmer/docs/recent_100day_emergence_report.md)
+  如果你更关心“最近 100 天到底长出了什么真实行为”，可以直接看这份阶段分析报告。
+
 ## 6.1 空间与地图系统
 
 负责：

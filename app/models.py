@@ -284,6 +284,7 @@ class TouristAgent(BaseModel):
     current_activity: str = ""
     current_bubble: str = ""
     brief_note: str = ""
+    short_term_memory: list[MemoryEntry] = Field(default_factory=list)
     target_position: Point | None = None
     target_location: str = ""
     linger_ticks: int = 0
@@ -509,18 +510,25 @@ class AnalysisPoint(BaseModel):
     day: int
     time_slot: TimeSlot
     team_cash: int = 0
+    team_assets: int = 0
+    team_deposits: int = 0
     player_cash: int = 0
+    player_assets: int = 0
     reputation: int = 0
     market_index: float = 0.0
     inflation_index: float = 100.0
     avg_stress: float = 0.0
+    avg_satisfaction: float = 0.0
     avg_credit: float = 0.0
     active_events: int = 0
     active_gray_cases: int = 0
+    tourists_active: int = 0
+    tourist_revenue_daily: int = 0
+    government_reserve: int = 0
 
 
 class WorldState(BaseModel):
-    version: int = 36
+    version: int = 38
     world_width: int = 44
     world_height: int = 26
     day: int

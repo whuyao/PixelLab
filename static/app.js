@@ -51,9 +51,15 @@ const marketCtx = marketCanvas.getContext("2d");
 const marketMeta = document.getElementById("marketMeta");
 const marketSummary = document.getElementById("marketSummary");
 const marketPositions = document.getElementById("marketPositions");
-const economyAnalysisCanvas = document.getElementById("economyAnalysisCanvas");
-const economyAnalysisCtx = economyAnalysisCanvas?.getContext("2d");
-const economyAnalysisMeta = document.getElementById("economyAnalysisMeta");
+const marketAnalysisCanvas = document.getElementById("marketAnalysisCanvas");
+const marketAnalysisCtx = marketAnalysisCanvas?.getContext("2d");
+const marketAnalysisMeta = document.getElementById("marketAnalysisMeta");
+const capitalAnalysisCanvas = document.getElementById("capitalAnalysisCanvas");
+const capitalAnalysisCtx = capitalAnalysisCanvas?.getContext("2d");
+const capitalAnalysisMeta = document.getElementById("capitalAnalysisMeta");
+const socialAnalysisCanvas = document.getElementById("socialAnalysisCanvas");
+const socialAnalysisCtx = socialAnalysisCanvas?.getContext("2d");
+const socialAnalysisMeta = document.getElementById("socialAnalysisMeta");
 const eventAnalysisCanvas = document.getElementById("eventAnalysisCanvas");
 const eventAnalysisCtx = eventAnalysisCanvas?.getContext("2d");
 const eventAnalysisMeta = document.getElementById("eventAnalysisMeta");
@@ -89,7 +95,7 @@ const welfareBankruptcyInput = document.getElementById("welfareBankruptcyInput")
 const taxPolicyNoteInput = document.getElementById("taxPolicyNoteInput");
 const taxPolicySubmitBtn = document.getElementById("taxPolicySubmitBtn");
 const taxPolicyStatus = document.getElementById("taxPolicyStatus");
-const ASSET_VERSION = "20260312ad";
+const ASSET_VERSION = "20260312ag";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -1172,7 +1178,9 @@ function drawAnalysisChart(ctx2d, canvasEl, seriesList, meta = {}) {
   const rightMax = rightValues.length ? Math.max(...rightValues) : 100;
   const leftRange = Math.max(1, leftMax - leftMin);
   const rightRange = Math.max(1, rightMax - rightMin);
-  const pad = { left: 44, right: 46, top: 18, bottom: 26 };
+  const legendColumns = Math.min(3, Math.max(1, activeSeries.length));
+  const legendRows = Math.max(1, Math.ceil(activeSeries.length / legendColumns));
+  const pad = { left: 44, right: 46, top: 18 + (legendRows - 1) * 16, bottom: 26 };
   const innerWidth = width - pad.left - pad.right;
   const innerHeight = height - pad.top - pad.bottom;
   ctx2d.strokeStyle = "rgba(74, 62, 47, 0.18)";
@@ -1217,9 +1225,13 @@ function drawAnalysisChart(ctx2d, canvasEl, seriesList, meta = {}) {
   }
   activeSeries.forEach((series, index) => {
     ctx2d.fillStyle = series.color;
-    ctx2d.fillRect(pad.left + index * 108, 4, 12, 4);
+    const col = index % legendColumns;
+    const row = Math.floor(index / legendColumns);
+    const legendX = pad.left + col * 108;
+    const legendY = 4 + row * 14;
+    ctx2d.fillRect(legendX, legendY, 12, 4);
     ctx2d.fillStyle = "#6b604d";
-    ctx2d.fillText(series.label, pad.left + 16 + index * 108, 10);
+    ctx2d.fillText(series.label, legendX + 16, legendY + 6);
   });
   if (meta.leftCaption) ctx2d.fillText(meta.leftCaption, pad.left, height - 10);
   if (meta.rightCaption) {
@@ -1257,25 +1269,58 @@ function renderAnalysisPanel() {
   if (!state) return;
   const history = (state.analysis_history || []).slice(-24);
   if (!history.length) {
-    if (economyAnalysisMeta) economyAnalysisMeta.textContent = "等待分析数据。";
+    if (marketAnalysisMeta) marketAnalysisMeta.textContent = "等待分析数据。";
+    if (capitalAnalysisMeta) capitalAnalysisMeta.textContent = "等待分析数据。";
+    if (socialAnalysisMeta) socialAnalysisMeta.textContent = "等待分析数据。";
     if (eventAnalysisMeta) eventAnalysisMeta.textContent = "等待分析数据。";
     if (peopleAnalysis) peopleAnalysis.innerHTML = '<article class="analysis-person-card"><strong>暂无人物快照</strong><div class="metric-meta">世界再运行一会儿，这里会开始积累实时走势。</div></article>';
     return;
   }
   drawAnalysisChart(
-    economyAnalysisCtx,
-    economyAnalysisCanvas,
+    marketAnalysisCtx,
+    marketAnalysisCanvas,
     [
       { label: "大盘指数", values: history.map((item) => item.market_index), color: "#6f8e4e", axis: "left" },
       { label: "物价指数", values: history.map((item) => item.inflation_index), color: "#5f83b9", axis: "left" },
-      { label: "团队现金", values: history.map((item) => item.team_cash), color: "#c37a4f", axis: "right" },
     ],
     {
       leftTopLabel: "指数高",
       leftBottomLabel: "指数低",
-      rightTopLabel: "现金高",
-      rightBottomLabel: "现金低",
       leftCaption: `T-${history.length}`,
+      rightCaption: `第 ${history[history.length - 1].day} 天`,
+    },
+  );
+  drawAnalysisChart(
+    capitalAnalysisCtx,
+    capitalAnalysisCanvas,
+    [
+      { label: "团队总资产", values: history.map((item) => item.team_assets || item.team_cash), color: "#9b6ad4", axis: "left" },
+      { label: "团队现金", values: history.map((item) => item.team_cash), color: "#c37a4f", axis: "left" },
+      { label: "团队存款", values: history.map((item) => item.team_deposits || 0), color: "#6b8fbc", axis: "left" },
+      { label: "财政储备", values: history.map((item) => item.government_reserve || 0), color: "#6fa06d", axis: "left" },
+      { label: "玩家总资产", values: history.map((item) => item.player_assets || 0), color: "#c48bcb", axis: "right" },
+    ],
+    {
+      leftTopLabel: "团队资产高",
+      leftBottomLabel: "团队资产低",
+      rightTopLabel: "玩家资产高",
+      rightBottomLabel: "玩家资产低",
+      leftCaption: `最近 ${history.length} 段`,
+      rightCaption: `${timeLabels[state.time_slot] || state.time_slot}`,
+    },
+  );
+  drawAnalysisChart(
+    socialAnalysisCtx,
+    socialAnalysisCanvas,
+    [
+      { label: "平均压力", values: history.map((item) => item.avg_stress), color: "#b55e5e", axis: "left" },
+      { label: "平均满意", values: history.map((item) => item.avg_satisfaction || 0), color: "#4f9d92", axis: "left" },
+      { label: "平均信用", values: history.map((item) => item.avg_credit), color: "#7c9b4e", axis: "left" },
+    ],
+    {
+      leftTopLabel: "状态高",
+      leftBottomLabel: "状态低",
+      leftCaption: `最近 ${history.length} 段`,
       rightCaption: `第 ${history[history.length - 1].day} 天`,
     },
   );
@@ -1283,28 +1328,38 @@ function renderAnalysisPanel() {
     eventAnalysisCtx,
     eventAnalysisCanvas,
     [
-      { label: "平均压力", values: history.map((item) => item.avg_stress), color: "#b55e5e", axis: "left" },
-      { label: "活跃事件", values: history.map((item) => item.active_events), color: "#857448", axis: "right" },
-      { label: "灰案数量", values: history.map((item) => item.active_gray_cases), color: "#6d5f77", axis: "right" },
+      { label: "活跃事件", values: history.map((item) => item.active_events), color: "#857448", axis: "left" },
+      { label: "灰案数量", values: history.map((item) => item.active_gray_cases), color: "#6d5f77", axis: "left" },
+      { label: "在场游客", values: history.map((item) => item.tourists_active || 0), color: "#c37a4f", axis: "left" },
+      { label: "游客日收入", values: history.map((item) => item.tourist_revenue_daily || 0), color: "#4d87a8", axis: "right" },
     ],
     {
-      leftTopLabel: "压力高",
-      leftBottomLabel: "压力低",
-      rightTopLabel: "事件多",
-      rightBottomLabel: "事件少",
+      leftTopLabel: "数量多",
+      leftBottomLabel: "数量少",
+      rightTopLabel: "收入高",
+      rightBottomLabel: "收入低",
       leftCaption: `最近 ${history.length} 段`,
       rightCaption: `${timeLabels[state.time_slot] || state.time_slot}`,
     },
   );
   const latest = history[history.length - 1];
   const previous = history[Math.max(0, history.length - 2)] || latest;
-  if (economyAnalysisMeta) {
-    const teamCashDelta = latest.team_cash - previous.team_cash;
+  if (marketAnalysisMeta) {
     const inflationDelta = latest.inflation_index - previous.inflation_index;
-    economyAnalysisMeta.textContent = `左轴看指数和物价，右轴看团队现金。当前团队现金 $${latest.team_cash}（${teamCashDelta >= 0 ? "+" : ""}${teamCashDelta}），指数 ${latest.market_index.toFixed(1)}，物价指数 ${latest.inflation_index.toFixed(1)}（${inflationDelta >= 0 ? "+" : ""}${inflationDelta.toFixed(2)}）。`;
+    const marketDelta = latest.market_index - previous.market_index;
+    marketAnalysisMeta.textContent = `只看市场和物价，不再混资金量。当前指数 ${latest.market_index.toFixed(1)}（${marketDelta >= 0 ? "+" : ""}${marketDelta.toFixed(2)}），物价指数 ${latest.inflation_index.toFixed(1)}（${inflationDelta >= 0 ? "+" : ""}${inflationDelta.toFixed(2)}）。`;
+  }
+  if (capitalAnalysisMeta) {
+    const teamCashDelta = latest.team_cash - previous.team_cash;
+    const teamAssetDelta = (latest.team_assets || 0) - (previous.team_assets || 0);
+    const reserveDelta = (latest.government_reserve || 0) - (previous.government_reserve || 0);
+    capitalAnalysisMeta.textContent = `团队和财政资产单独成图。团队现金 $${latest.team_cash}（${teamCashDelta >= 0 ? "+" : ""}${teamCashDelta}），团队总资产 $${latest.team_assets || 0}（${teamAssetDelta >= 0 ? "+" : ""}${teamAssetDelta}），团队存款 $${latest.team_deposits || 0}，玩家总资产 $${latest.player_assets || 0}，财政储备 $${latest.government_reserve || 0}（${reserveDelta >= 0 ? "+" : ""}${reserveDelta}）。`;
+  }
+  if (socialAnalysisMeta) {
+    socialAnalysisMeta.textContent = `只看人物状态。平均压力 ${latest.avg_stress}，平均满意 ${(latest.avg_satisfaction || 0).toFixed(1)}，平均信用 ${latest.avg_credit}。`;
   }
   if (eventAnalysisMeta) {
-    eventAnalysisMeta.textContent = `左轴看压力，右轴看事件数量。平均压力 ${latest.avg_stress}，活跃事件 ${latest.active_events}，地下案件 ${latest.active_gray_cases}，团队信用均值 ${latest.avg_credit}。`;
+    eventAnalysisMeta.textContent = `左轴只看事件和游客数量，右轴单独看游客收入。活跃事件 ${latest.active_events}，地下案件 ${latest.active_gray_cases}，在场游客 ${latest.tourists_active || 0}，今日游客收入 $${latest.tourist_revenue_daily || 0}。`;
   }
   const actors = [
     {
@@ -2352,6 +2407,9 @@ function renderMemory() {
       .slice(0, 4)
       .map((record) => `<span class="memory-chip">${record.key_point || record.summary}</span>`)
       .join("") || '<span class="memory-meta">这位游客暂时还没留下太多对话痕迹。</span>';
+    const shortTerm = (tourist.short_term_memory || [])
+      .map((memory) => `<span class="memory-chip">${escapeHtml(memory.text)}</span>`)
+      .join("") || '<span class="memory-meta">这位游客暂时还没形成新的短期记忆。</span>';
     memoryBox.innerHTML = `
       <h3>${tourist.name}</h3>
       <div class="memory-meta">游客角色 · ${touristTierLabel(tourist.visitor_tier)} · ${tourist.archetype} · 坐标 (${tourist.position.x}, ${tourist.position.y})</div>
@@ -2380,6 +2438,10 @@ function renderMemory() {
       <div class="memory-section">
         <strong>游客备注</strong>
         <div>${tourist.brief_note || "这是一位更轻量的临时游客，不会像核心智能体那样积累复杂长期关系。"} </div>
+      </div>
+      <div class="memory-section">
+        <strong>短期记忆</strong>
+        <div>${shortTerm}</div>
       </div>
       <div class="memory-section">
         <strong>最近互动</strong>

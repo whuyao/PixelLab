@@ -219,6 +219,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 - [architecture_report.md](/Volumes/Yaoy/project/LocalFarmer/docs/architecture_report.md)：完整技术架构
 - [consumption_real_estate_design.md](/Volumes/Yaoy/project/LocalFarmer/docs/consumption_real_estate_design.md)：消费与地产设计
 - [undergrad_system_explainer.md](/Volumes/Yaoy/project/LocalFarmer/docs/undergrad_system_explainer.md)：面向本科生的系统解释
+- [recent_100day_emergence_report.md](/Volumes/Yaoy/project/LocalFarmer/docs/recent_100day_emergence_report.md)：最近 100 天系统与智能体涌现报告
 - [simulation_day312_review.md](/Volumes/Yaoy/project/LocalFarmer/docs/simulation_day312_review.md)：312 天运行复盘
 - [simulation_day312_academic_analysis.md](/Volumes/Yaoy/project/LocalFarmer/docs/simulation_day312_academic_analysis.md)：学术分析版
 - [emergent_behavior_casebook.md](/Volumes/Yaoy/project/LocalFarmer/docs/emergent_behavior_casebook.md)：10 个涌现行为案例

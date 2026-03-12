@@ -208,7 +208,7 @@ class GameEngine:
         )
 
     def _refresh_state_signatures(self) -> None:
-        self.state.version = max(self.state.version, 36)
+        self.state.version = max(self.state.version, 38)
         self.state.section_signatures = self._sign_sections(self._build_state_sections())
 
     def _sign_sections(self, sections: dict[str, object]) -> dict[str, str]:
@@ -388,6 +388,8 @@ class GameEngine:
         tourist.current_bubble = line
         tourist.current_activity = f"刚和你聊了“{tourist.favorite_topic or '这地方'}”，看起来还想再逛逛。"
         tourist.brief_note = f"对你刚才那句“{cleaned[:14]}”有印象，今天会更愿意在这里花钱和停留。"
+        self._remember_tourist(tourist, f"你刚和玩家聊了“{cleaned[:16]}”，觉得这里还值得继续逛。", 2)
+        self._remember_tourist(tourist, f"你刚回了一句“{line[:20]}”，心情比刚才更松一点。", 1)
         if observer:
             self.state.player.life_satisfaction = self._bounded(self.state.player.life_satisfaction + 1)
         else:
@@ -2826,6 +2828,14 @@ class GameEngine:
             current_activity=f"刚在{tourism.inn_name}放下行李，准备先看看集市和湖边。",
             current_bubble="这地方比想象中舒服。",
             brief_note=self._tourist_brief_note(visitor_tier, str(template["favorite_topic"])),
+            short_term_memory=[
+                MemoryEntry(
+                    text=f"刚住进{tourism.inn_name}，第一反应是这里比想象中更舒服。",
+                    day=self.state.day,
+                    time_slot=self.state.time_slot,
+                    importance=2,
+                )
+            ],
         )
         self.state.tourists.append(tourist)
         tourism.total_arrivals += 1
@@ -3051,6 +3061,7 @@ class GameEngine:
         tourism.daily_revenue += actual_amount
         tourism.total_revenue += actual_amount
         tourism.last_note = f"{tourist.name} 刚在 {facility_name} 花了 ${actual_amount}。"
+        self._remember_tourist(tourist, f"你刚在 {facility_name} 花了 ${actual_amount}，对这里的消费体验多留意了一层。", 1)
         tax = self._collect_tax(
             payer_type="tourist",
             payer_id=tourist.id,
@@ -3101,6 +3112,7 @@ class GameEngine:
         agent.current_bubble = agent_line
         tourist.current_activity = f"刚和 {agent.name} 聊起了“{tourist.favorite_topic or '这里的生活'}”。"
         agent.current_activity = f"刚和游客 {tourist.name} 接了一轮短对话。"
+        self._remember_tourist(tourist, f"你刚和 {agent.name} 聊了“{tourist.favorite_topic or '这里的生活'}”，对园区的印象更具体了。", 2)
         self._remember(agent, f"刚和游客 {tourist.name} 聊了“{tourist.favorite_topic or '这里的生活'}”。", 1)
         agent.state.mood = self._bounded(agent.state.mood + 1)
         self.state.lab.team_atmosphere = self._bounded(self.state.lab.team_atmosphere + 1)
@@ -3168,6 +3180,7 @@ class GameEngine:
             "我在旅馆里听到一个值得提一下的说法。",
         ])
         tourist.brief_note = f"刚把一条外部消息带进园区：{signal['title']}。"
+        self._remember_tourist(tourist, f"你刚把一条外部消息“{signal['title']}”带进园区，觉得自己像个临时情报源。", 2)
         self._ingest_event(event, player_injected=False)
 
     def _tourist_ambient_lines(self, tourist: TouristAgent, agent: Agent) -> tuple[str, str]:
@@ -5271,19 +5284,28 @@ class GameEngine:
 
     def _build_analysis_point(self) -> AnalysisPoint:
         avg_stress = round(sum(agent.state.stress for agent in self.state.agents) / max(1, len(self.state.agents)), 2)
+        avg_satisfaction = round(sum(agent.life_satisfaction for agent in self.state.agents) / max(1, len(self.state.agents)), 2)
         avg_credit = round(sum(agent.credit_score for agent in self.state.agents) / max(1, len(self.state.agents)), 2)
+        team_deposits = sum(agent.deposit_balance for agent in self.state.agents)
         return AnalysisPoint(
             day=self.state.day,
             time_slot=self.state.time_slot,
             team_cash=self._team_cash_total(),
+            team_assets=sum(self._agent_total_assets(agent) for agent in self.state.agents),
+            team_deposits=team_deposits,
             player_cash=self.state.player.cash,
+            player_assets=self._player_total_assets(),
             reputation=self.state.lab.reputation,
             market_index=round(self.state.market.index_value, 2),
             inflation_index=round(self.state.market.inflation_index, 2),
             avg_stress=avg_stress,
+            avg_satisfaction=avg_satisfaction,
             avg_credit=avg_credit,
             active_events=len(self.state.events or []),
             active_gray_cases=sum(1 for case in self.state.gray_cases if case.status == "active"),
+            tourists_active=len(self.state.tourists or []),
+            tourist_revenue_daily=self.state.tourism.daily_revenue if self.state.tourism else 0,
+            government_reserve=self.state.government.reserve_balance if self.state.government else 0,
         )
 
     def _record_analysis_point(self) -> None:
@@ -5296,14 +5318,21 @@ class GameEngine:
                 last.day == point.day
                 and last.time_slot == point.time_slot
                 and last.team_cash == point.team_cash
+                and last.team_assets == point.team_assets
+                and last.team_deposits == point.team_deposits
                 and last.player_cash == point.player_cash
+                and last.player_assets == point.player_assets
                 and last.reputation == point.reputation
                 and round(last.market_index, 2) == round(point.market_index, 2)
                 and round(last.inflation_index, 2) == round(point.inflation_index, 2)
                 and round(last.avg_stress, 2) == round(point.avg_stress, 2)
+                and round(last.avg_satisfaction, 2) == round(point.avg_satisfaction, 2)
                 and round(last.avg_credit, 2) == round(point.avg_credit, 2)
                 and last.active_events == point.active_events
                 and last.active_gray_cases == point.active_gray_cases
+                and last.tourists_active == point.tourists_active
+                and last.tourist_revenue_daily == point.tourist_revenue_daily
+                and last.government_reserve == point.government_reserve
             )
             if same_frame:
                 return
@@ -5471,6 +5500,11 @@ class GameEngine:
         if long_term:
             agent.long_term_memory.insert(0, entry)
             agent.long_term_memory = agent.long_term_memory[:5]
+
+    def _remember_tourist(self, tourist: TouristAgent, text: str, importance: int = 1) -> None:
+        entry = MemoryEntry(text=text, day=self.state.day, time_slot=self.state.time_slot, importance=importance)
+        tourist.short_term_memory.insert(0, entry)
+        tourist.short_term_memory = tourist.short_term_memory[:4]
 
     def _cooldown_for(self, owner: Agent | object, target_id: str) -> int:
         return int(getattr(owner, "relation_cooldowns", {}).get(target_id, 0))
@@ -6750,7 +6784,7 @@ class GameEngine:
 
     def _ensure_agent_runtime_fields(self) -> None:
         previous_version = self.state.version or 0
-        self.state.version = max(self.state.version, 36)
+        self.state.version = max(self.state.version, 38)
         if self.state.loans is None:
             self.state.loans = []
         if self.state.archived_tasks is None:
@@ -6837,6 +6871,19 @@ class GameEngine:
             tourist.current_activity = tourist.current_activity or f"正在{self.state.tourism.market_name}和{self.state.tourism.inn_name}之间慢慢逛。"
             tourist.current_bubble = tourist.current_bubble or "这里还挺热闹。"
             tourist.brief_note = tourist.brief_note or f"这趟会待到第 {tourist.stay_until_day} 天。"
+            if tourist.short_term_memory is None:
+                tourist.short_term_memory = []
+            if not tourist.short_term_memory:
+                tourist.short_term_memory = [
+                    MemoryEntry(
+                        text=f"你刚来到这里，最先留意的是“{tourist.favorite_topic or '哪里最值得继续逛'}”。",
+                        day=self.state.day,
+                        time_slot=self.state.time_slot,
+                        importance=1,
+                    )
+                ]
+            for memory in tourist.short_term_memory or []:
+                memory.text = self._localized_text(memory.text)
             if agent.portfolio is None:
                 agent.portfolio = {}
             if not agent.life_satisfaction:
