@@ -1206,6 +1206,123 @@ canvas {
   font-weight: 700;
 }
 
+.relation-matrix-section {
+  overflow: hidden;
+}
+
+.relation-matrix-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.relation-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  border: 2px solid rgba(58, 50, 43, 0.22);
+  padding: 3px 6px;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.relation-matrix-grid {
+  display: grid;
+  grid-template-columns: 64px repeat(6, minmax(44px, 1fr));
+  gap: 4px;
+  overflow-x: auto;
+}
+
+.relation-matrix-corner,
+.relation-matrix-head,
+.relation-matrix-cell {
+  min-height: 42px;
+  border: 2px solid rgba(58, 50, 43, 0.2);
+}
+
+.relation-matrix-corner,
+.relation-matrix-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(240, 232, 214, 0.95);
+  color: rgba(58, 50, 43, 0.84);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-align: center;
+  padding: 4px;
+}
+
+.relation-matrix-col-head,
+.relation-matrix-row-head {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relation-matrix-row {
+  display: contents;
+}
+
+.relation-matrix-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 4px 2px;
+  text-align: center;
+}
+
+.relation-matrix-tag {
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.relation-matrix-score {
+  font-size: 0.72rem;
+  color: rgba(58, 50, 43, 0.82);
+}
+
+.relation-matrix-diagonal {
+  background: rgba(231, 226, 211, 0.95);
+  color: rgba(58, 50, 43, 0.45);
+  font-weight: 700;
+}
+
+.relation-state-intimate {
+  background: rgba(223, 145, 170, 0.92);
+  color: #43202f;
+}
+
+.relation-state-close {
+  background: rgba(244, 199, 120, 0.92);
+  color: #5c3f12;
+}
+
+.relation-state-warm {
+  background: rgba(194, 214, 141, 0.95);
+  color: #32411a;
+}
+
+.relation-state-soft {
+  background: rgba(180, 213, 199, 0.95);
+  color: #1f4a39;
+}
+
+.relation-state-neutral {
+  background: rgba(223, 219, 204, 0.95);
+  color: #544a3c;
+}
+
+.relation-state-tense {
+  background: rgba(216, 147, 140, 0.95);
+  color: #57211b;
+}
+
 #autoExploreBtn {
   background: linear-gradient(180deg, #89a85f, #6f8e4e);
 }

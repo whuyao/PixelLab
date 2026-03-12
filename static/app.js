@@ -95,7 +95,7 @@ const welfareBankruptcyInput = document.getElementById("welfareBankruptcyInput")
 const taxPolicyNoteInput = document.getElementById("taxPolicyNoteInput");
 const taxPolicySubmitBtn = document.getElementById("taxPolicySubmitBtn");
 const taxPolicyStatus = document.getElementById("taxPolicyStatus");
-const ASSET_VERSION = "20260312aj";
+const ASSET_VERSION = "20260312ak";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -2288,6 +2288,7 @@ function renderMemory() {
     return;
   }
   if (subject.kind === "player") {
+    const relationMatrix = renderRelationMatrix();
     const recentActions = (state.player.daily_actions || []).slice(0, 6).reverse();
     const actionsMarkup =
       recentActions.map((action) => `<span class="memory-chip">${formatPlayerAction(action)}</span>`).join("") ||
@@ -2438,6 +2439,7 @@ function renderMemory() {
         <strong>市场提示</strong>
         <div>股票、交易、持仓、宏观调控和银行借贷都集中在“市场中心”模块查看。</div>
       </div>
+      ${relationMatrix}
     `;
     return;
   }
@@ -2492,6 +2494,7 @@ function renderMemory() {
     return;
   }
   const agent = subject.data;
+  const relationMatrix = renderRelationMatrix();
   const shortTerm = (agent.short_term_memory || [])
     .map((memory) => `<span class="memory-chip">${memory.text}</span>`)
     .join("") || '<span class="memory-meta">暂无短期记忆。</span>';
@@ -2635,6 +2638,80 @@ function renderMemory() {
     <div class="memory-section">
       <strong>长期记忆</strong>
       <div>${longTerm}</div>
+    </div>
+    ${relationMatrix}
+  `;
+}
+
+function relationStateClass(value) {
+  if (value >= 75) return "relation-state-intimate";
+  if (value >= 55) return "relation-state-close";
+  if (value >= 35) return "relation-state-warm";
+  if (value >= 15) return "relation-state-soft";
+  if (value <= -25) return "relation-state-tense";
+  return "relation-state-neutral";
+}
+
+function relationStateShortLabel(value) {
+  if (value >= 75) return "暧昧";
+  if (value >= 55) return "默契";
+  if (value >= 35) return "熟悉";
+  if (value >= 15) return "友好";
+  if (value <= -25) return "紧张";
+  return "普通";
+}
+
+function getRelationValueBetween(sourceId, targetId) {
+  if (!state) return 0;
+  if (sourceId === targetId) return null;
+  if (sourceId === "player") {
+    return state.player?.social_links?.[targetId] ?? 0;
+  }
+  const sourceAgent = state.agents.find((agent) => agent.id === sourceId);
+  if (!sourceAgent) return 0;
+  if (targetId === "player") {
+    return sourceAgent.relations?.player ?? 0;
+  }
+  return sourceAgent.relations?.[targetId] ?? 0;
+}
+
+function renderRelationMatrix() {
+  if (!state?.player || !(state.agents || []).length) return "";
+  const roster = [{ id: "player", name: state.player.name || "你" }, ...state.agents.map((agent) => ({ id: agent.id, name: agent.name }))];
+  const header = roster
+    .map((member) => `<div class="relation-matrix-head relation-matrix-col-head" title="${member.name}">${member.name}</div>`)
+    .join("");
+  const rows = roster
+    .map((rowMember) => {
+      const cells = roster
+        .map((colMember) => {
+          if (rowMember.id === colMember.id) {
+            return '<div class="relation-matrix-cell relation-matrix-diagonal">—</div>';
+          }
+          const value = getRelationValueBetween(rowMember.id, colMember.id);
+          const label = relationStateShortLabel(value);
+          return `<div class="relation-matrix-cell ${relationStateClass(value)}" title="${rowMember.name} -> ${colMember.name} · ${label} (${value})"><span class="relation-matrix-tag">${label}</span><span class="relation-matrix-score">${value}</span></div>`;
+        })
+        .join("");
+      return `<div class="relation-matrix-row"><div class="relation-matrix-head relation-matrix-row-head" title="${rowMember.name}">${rowMember.name}</div>${cells}</div>`;
+    })
+    .join("");
+  return `
+    <div class="memory-section relation-matrix-section">
+      <strong>关系矩阵</strong>
+      <div class="relation-matrix-legend">
+        <span class="relation-legend-chip relation-state-intimate">暧昧</span>
+        <span class="relation-legend-chip relation-state-close">默契</span>
+        <span class="relation-legend-chip relation-state-warm">熟悉</span>
+        <span class="relation-legend-chip relation-state-soft">友好</span>
+        <span class="relation-legend-chip relation-state-neutral">普通</span>
+        <span class="relation-legend-chip relation-state-tense">紧张</span>
+      </div>
+      <div class="relation-matrix-grid">
+        <div class="relation-matrix-corner">人物</div>
+        ${header}
+        ${rows}
+      </div>
     </div>
   `;
 }

@@ -1022,14 +1022,23 @@ tourist\ payment = operating\ income + consumption\ tax
 
 ### 9.1 任务系统
 
-主任务当前已经转成团队总现金增长逻辑，科研只保留为较轻的支线。
+主任务当前已经转成团队总资金增长逻辑，科研只保留为较轻的支线。
 
 任务支持：
 
 - 实时刷新
+- 主线任务固定起点与目标值，不再使用漂移基准
 - 达成即归档
 - 归档历史可显示
 - 奖励正式结算到实验室指标中
+
+当前主线任务模型为：
+
+\[
+progress = \min\left(100,\max\left(0,\frac{funds-start\_value}{goal\_value-start\_value}\times100\right)\right)
+\]
+
+其中 `start_value` 与 `goal_value` 在该轮主任务生成时锁定，后续刷新只更新当前资金 `funds`，不会把“当前值”重新写成任务起点。
 
 ### 9.2 GeoAI 研究
 

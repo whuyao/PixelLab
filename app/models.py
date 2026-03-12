@@ -128,6 +128,9 @@ class Task(BaseModel):
     description: str
     progress: int = 0
     target: int = 100
+    metric_key: str = ""
+    start_value: int = 0
+    goal_value: int = 0
     participants: list[str] = Field(default_factory=list)
     rewards: dict[str, int] = Field(default_factory=dict)
     completed_day: int | None = None

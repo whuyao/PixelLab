@@ -1418,14 +1418,25 @@ class GameEngine:
 
     def _refresh_tasks(self) -> None:
         team_funds = self._team_total_funds()
-        baseline = 500
-        target_total = 650
         for task in self.state.tasks:
             if task.id == "task-geo-baseline":
+                baseline = task.start_value or 500
+                target_total = task.goal_value or 650
                 progress = int(max(0, min(100, ((team_funds - baseline) / max(1, target_total - baseline)) * 100)))
                 task.progress = progress
-                task.description = f"把团队总资金从 $500 慢慢推到 $650。当前团队总资金约 ${team_funds}，重点靠稳健打工、白天兑现收益、银行存款和协作经营。"
+                task.metric_key = task.metric_key or "team_total_funds"
+                task.start_value = baseline
+                task.goal_value = target_total
+                task.description = f"把团队总资金从 ${baseline} 慢慢推到 ${target_total}。当前团队总资金约 ${team_funds}，重点靠稳健打工、白天兑现收益、银行存款和协作经营。"
             elif task.category == "main":
+                start_value = task.start_value
+                goal_value = task.goal_value
+                if goal_value <= start_value:
+                    start_value, goal_value = self._derive_main_task_bounds(task, team_funds)
+                    task.start_value = start_value
+                    task.goal_value = goal_value
+                task.metric_key = task.metric_key or "team_total_funds"
+                task.progress = int(max(0, min(100, ((team_funds - start_value) / max(1, goal_value - start_value)) * 100)))
                 task.description = self._main_task_description(task, team_funds)
             elif task.id == "task-news":
                 task.description = "注入一条真正会影响市场或团队情绪的外部信息，让股价和大家的判断发生波动。"
@@ -1440,8 +1451,33 @@ class GameEngine:
                 (int(match.group(1)) for match in [re.search(r"第\s*(\d+)\s*轮", (task.title if task else "") or "")] if match),
                 1 + sum(1 for archived in self.state.archived_tasks if archived.category == "main"),
             )
-        next_target_funds = max(current_funds + 120, 650 + (max(1, resolved_round) - 1) * 140)
-        return f"把团队总资金从当前约 ${current_funds} 推到 ${next_target_funds}。这轮重点靠地产收益、稳健交易、游客消费、银行存款和额度管理。"
+        start_value, next_target_funds = self._derive_main_task_bounds(task, current_funds, resolved_round)
+        return f"把团队总资金从 ${start_value} 推到 ${next_target_funds}。当前团队总资金约 ${current_funds}。这轮重点靠地产收益、稳健交易、游客消费、银行存款和额度管理。"
+
+    def _derive_main_task_bounds(
+        self,
+        task: Task | None = None,
+        team_funds: int | None = None,
+        main_round: int | None = None,
+    ) -> tuple[int, int]:
+        current_funds = team_funds if team_funds is not None else self._team_total_funds()
+        if task and task.start_value and task.goal_value > task.start_value:
+            return task.start_value, task.goal_value
+        parsed_values = []
+        if task and task.description:
+            parsed_values = [int(value.replace(",", "")) for value in re.findall(r"\$([\d,]+)", task.description)]
+        if len(parsed_values) >= 2:
+            return parsed_values[0], max(parsed_values[1], parsed_values[0] + 1)
+        resolved_round = main_round
+        if resolved_round is None:
+            resolved_round = next(
+                (int(match.group(1)) for match in [re.search(r"第\s*(\d+)\s*轮", (task.title if task else "") or "")] if match),
+                1 + sum(1 for archived in self.state.archived_tasks if archived.category == "main"),
+            )
+        step = 120 + max(0, resolved_round - 1) * 20
+        start_value = current_funds
+        goal_value = max(start_value + step, 650 + (max(1, resolved_round) - 1) * 140)
+        return start_value, goal_value
 
     def _apply_lab_rewards(self, rewards: dict[str, int], reason: str) -> None:
         if not rewards:
@@ -1502,6 +1538,7 @@ class GameEngine:
     def _build_next_main_task(self) -> Task:
         team_funds = self._team_total_funds()
         main_round = 1 + sum(1 for task in self.state.archived_tasks if task.category == "main")
+        start_value, goal_value = self._derive_main_task_bounds(team_funds=team_funds, main_round=main_round)
         task_id = f"task-main-{self.state.day}-{main_round}"
         return Task(
             id=task_id,
@@ -1510,6 +1547,9 @@ class GameEngine:
             description=self._main_task_description(team_funds=team_funds, main_round=main_round),
             progress=0,
             target=100,
+            metric_key="team_total_funds",
+            start_value=start_value,
+            goal_value=goal_value,
             participants=[agent.id for agent in self.state.agents],
             rewards={"reputation": 8 + min(8, main_round), "knowledge_base": 4 + min(6, main_round)},
         )
@@ -6900,7 +6940,7 @@ class GameEngine:
 
     def _ensure_agent_runtime_fields(self) -> None:
         previous_version = self.state.version or 0
-        self.state.version = max(self.state.version, 41)
+        self.state.version = max(self.state.version, 42)
         if self.state.loans is None:
             self.state.loans = []
         if self.state.archived_tasks is None:
@@ -6915,6 +6955,22 @@ class GameEngine:
             self.state.news_timeline = []
         if getattr(self.state, "event_history", None) is None:
             self.state.event_history = []
+        for task in self.state.tasks:
+            if task.category != "main":
+                continue
+            task.metric_key = task.metric_key or "team_total_funds"
+            if task.goal_value <= task.start_value:
+                start_value, goal_value = self._derive_main_task_bounds(task)
+                task.start_value = start_value
+                task.goal_value = goal_value
+        for task in self.state.archived_tasks:
+            if task.category != "main":
+                continue
+            task.metric_key = task.metric_key or "team_total_funds"
+            if task.goal_value <= task.start_value:
+                start_value, goal_value = self._derive_main_task_bounds(task)
+                task.start_value = start_value
+                task.goal_value = goal_value
         if self.state.gray_cases is None:
             self.state.gray_cases = []
         if self.state.lifestyle_catalog is None or not self.state.lifestyle_catalog:
