@@ -70,11 +70,7 @@ source .venv/bin/activate
 cp .env.example /tmp/localfarmer.env
 ```
 
-然后编辑 [/tmp/localfarmer.env](/tmp/localfarmer.env)，至少填写：
-
-```env
-BRAVE_API_KEY=你的_BRAVE_KEY
-```
+然后编辑 [/tmp/localfarmer.env](/tmp/localfarmer.env)。系统至少需要一套 LLM 配置；`BRAVE_API_KEY` 是可选项。
 
 如果你用 OpenAI：
 
@@ -97,6 +93,7 @@ QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 可选参数：
 
 ```env
+BRAVE_API_KEY=你的_BRAVE_KEY
 SAVE_PATH=save/localfarmer.db
 LOG_PATH=logs/activity.jsonl
 LOCALFARMER_ENV_FILE=/tmp/localfarmer.env
