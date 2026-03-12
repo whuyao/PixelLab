@@ -513,6 +513,25 @@ class DailyBriefItem(BaseModel):
     target_filter: str = ""
 
 
+class NewsTimelineItem(BaseModel):
+    id: str
+    title: str
+    summary: str
+    source: str = ""
+    query: str = ""
+    theme: str = ""
+    category: EventCategory = "general"
+    scheduled_day: int
+    scheduled_time_slot: TimeSlot
+    tone_hint: int = 0
+    market_target: str = "broad"
+    market_strength: int = 2
+    impacts: dict[str, int] = Field(default_factory=dict)
+    status: Literal["scheduled", "triggered", "expired"] = "scheduled"
+    triggered_day: int | None = None
+    triggered_time_slot: TimeSlot | None = None
+
+
 class AnalysisPoint(BaseModel):
     day: int
     time_slot: TimeSlot
@@ -535,7 +554,7 @@ class AnalysisPoint(BaseModel):
 
 
 class WorldState(BaseModel):
-    version: int = 39
+    version: int = 41
     world_width: int = 44
     world_height: int = 26
     day: int
@@ -545,6 +564,7 @@ class WorldState(BaseModel):
     agents: list[Agent]
     tasks: list[Task]
     events: list[LabEvent]
+    event_history: list[LabEvent] = Field(default_factory=list)
     lab: LabMetrics
     market: MarketState
     company: CompanyState = Field(default_factory=CompanyState)
@@ -557,6 +577,7 @@ class WorldState(BaseModel):
     dialogue_history: list[DialogueRecord] = Field(default_factory=list)
     geoai_milestones: list[int] = Field(default_factory=list)
     daily_briefings: list[DailyBriefing] = Field(default_factory=list)
+    news_timeline: list[NewsTimelineItem] = Field(default_factory=list)
     social_threads: list[SocialThread] = Field(default_factory=list)
     story_beats: list[StoryBeat] = Field(default_factory=list)
     loans: list[LoanRecord] = Field(default_factory=list)
@@ -578,6 +599,10 @@ class MoveRequest(BaseModel):
 class NewsRequest(BaseModel):
     topic: str
     category: EventCategory = "general"
+
+
+class NewsTimelineRequest(BaseModel):
+    horizon_slots: int = 6
 
 
 class MacroNewsRequest(BaseModel):

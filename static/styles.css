@@ -475,6 +475,12 @@ canvas {
   gap: 10px;
 }
 
+.scroll-panel-list {
+  max-height: 440px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
 .metric-compact-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -752,6 +758,23 @@ canvas {
   margin-bottom: 4px;
 }
 
+.event-market {
+  border-left: 8px solid rgba(206, 132, 74, 0.92);
+}
+
+.event-geoai,
+.event-tech {
+  border-left: 8px solid rgba(103, 140, 195, 0.92);
+}
+
+.event-general {
+  border-left: 8px solid rgba(112, 143, 78, 0.9);
+}
+
+.event-gaming {
+  border-left: 8px solid rgba(152, 118, 175, 0.9);
+}
+
 .metric-meta,
 .task-meta,
 .event-meta,
@@ -803,6 +826,16 @@ canvas {
 .daily-brief-empty {
   display: grid;
   gap: 10px;
+}
+
+.signal-terminal-divider {
+  height: 1px;
+  margin: 12px 0;
+  background: rgba(74, 62, 47, 0.16);
+}
+
+.timeline-toolbar {
+  margin-bottom: 10px;
 }
 
 .daily-brief-head {
@@ -875,6 +908,27 @@ canvas {
   border: 2px solid rgba(58, 50, 43, 0.28);
   background: rgba(250, 245, 230, 0.88);
   padding: 10px;
+}
+
+.timeline-card {
+  display: grid;
+  gap: 6px;
+  border: 2px solid rgba(58, 50, 43, 0.22);
+  background: rgba(250, 245, 230, 0.88);
+  padding: 9px 10px;
+}
+
+.timeline-scheduled {
+  border-left: 6px solid rgba(111, 142, 78, 0.86);
+}
+
+.timeline-triggered {
+  border-left: 6px solid rgba(194, 124, 68, 0.9);
+}
+
+.timeline-expired {
+  border-left: 6px solid rgba(124, 120, 114, 0.86);
+  opacity: 0.84;
 }
 
 .is-highlighted {

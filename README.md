@@ -9,7 +9,7 @@
 
 - 中文前端，地图为主体，支持缩放、拖拽、点选角色
 - 窄屏和手机 Safari 有轻量适配，支持右栏纵向滚动、按钮缩排和地图缩放按钮
-- 左侧主列展示地图、市场中心、生活与地产、实验室主面板、角色信息；右侧侧栏承载任务、对话、晨报、信号、经济事件流和最近事件
+- 左侧主列展示地图、市场中心、生活与地产、实验室主面板、角色信息；右侧侧栏承载玩家对话、任务、分析、晨报、经济事件流、最近事件和主线新闻时间线
 - 玩家与智能体对话支持 `OpenAI` 或 `Qwen` 兼容接口
 - 智能体有长期记忆、短期记忆、关系、欲望、信用、口碑、体力和小屋作息
 - 当前世界还包含轻量游客、旅馆、集市、政府财政与监管、公司打工、银行存款与公共资产
@@ -110,7 +110,7 @@ LOCALFARMER_ENV_FILE=/tmp/localfarmer.env
 - `QWEN_API_KEY`：使用 Qwen 时填写
 - `QWEN_MODEL`：Qwen 默认示例是 `qwen-plus`
 - `QWEN_BASE_URL`：Qwen OpenAI-compatible 接口基地址
-- `BRAVE_API_KEY`：用于从 Brave 注入新闻，不配也能运行
+- `BRAVE_API_KEY`：可选，用于自动抓取主线新闻；不配也能运行，系统会自动编造市场新闻补足时间线
 - `SAVE_PATH`：SQLite 快照存档位置
 - `LOG_PATH`：行为日志位置
 - `LOCALFARMER_ENV_FILE`：如果你不想用 `/tmp/localfarmer.env`，可以改成别的仓库外路径
@@ -244,7 +244,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 - 地图主舞台
 - 市场中心
   - 大盘时K / 日K / 月K / 年K
-  - 宏观调控台
+  - 宏观观察台
   - 板块轮动与个股
   - 玩家交易
   - 银行借贷
@@ -270,10 +270,16 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
   - 支持按人物筛选
   - 支持只看借贷 / 灰色交易 / 欲望冲突
 - `Lab Daily`
-- 信号终端
 - 地下案件处置台
 - 经济事件流
 - 最近事件
+  - 最近 200 条历史事件
+  - 带滚动条
+  - 按事件类型分色
+- 主线新闻时间线
+  - 系统自动拉取或自动编造
+  - 带滚动条
+  - 展示未来几个时段的外部冲击
 
 ## 智能体系统
 
@@ -563,26 +569,31 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 
 白天约 10% 的行为时间会用于交易，其余大部分时间是日常生活和社交。
 
-### 宏观调控台
+### 宏观观察台
 
-你可以手动发布市场消息，显式控制：
+当前前端已经关闭玩家手动发布新闻的入口。
 
-- 标题
-- 摘要
-- 类别
-- 方向：`利好 / 利空 / 震荡`
-- 强度：`1-5`
-- 目标：`全市场 / GEO / AGR / SIG`
+现在的设计是：
 
-当前布局里，宏观调控台已经放到市场中心左侧主列，紧挨 K 线，便于先看盘再出手。
+- 系统自动维护主线新闻时间线
+- 宏观观察台只负责展示外部新闻、游客消息、监管状态和市场阶段如何共同影响盘面
+- 后端仍保留宏观接口，便于开发调试，但默认玩法不再依赖玩家主动发新闻
 
 ### 系统新闻与随机事件
 
-除了玩家手动注入，系统还会自动生成两类外部扰动：
+系统会自动生成两类外部扰动：
 
-1. 系统新闻
-- 来源显示为“系统新闻台”
-- 更偏经济、政策、市场和板块叙事
+1. 主线新闻时间线
+- 优先从 Brave 拉取真实外部新闻
+- 如果未配置 Brave 或抓取失败，会退回“系统新闻台”自动编造新闻
+- 当前固定覆盖：
+  - 宏观消费
+  - 监管与税务
+  - 地产与住房
+  - 游客与文旅
+  - GeoAI 与空间智能
+  - 就业与劳动
+- 新闻不会立刻全量落地，而是排入未来几个时段，形成可观察的新闻时间线
 
 2. 随机实验室事件
 - 来源显示为“系统奇遇”
@@ -683,6 +694,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 - `POST /api/advance`
 - `POST /api/simulate`
 - `POST /api/news`
+- `POST /api/news/timeline`
 - `POST /api/macro-news`
 - `POST /api/player/trade`
 - `POST /api/player/auto-trade`
@@ -700,7 +712,8 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 
 - 默认模型是 `gpt-5-mini`
 - 服务默认监听 `127.0.0.1:8765`
-- 当前世界状态版本为 `39`
+- 当前世界状态版本为 `41`
 - 旧存档如果版本落后会被自动丢弃，这是正常行为
 - 当前内部已经拆出 [market_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/market_engine.py)、[social_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/social_engine.py) 和 [lifestyle_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/lifestyle_engine.py)，`GameEngine` 主要负责总编排
 - 当前后端已经支持 section-diff 增量状态同步，前端会优先做模块级增量更新，而不是每轮整页重绘
+- `event_history` 会保留最近 `200` 条事件，右侧“最近事件”面板展示的是可滚动历史流而不只是瞬时事件卡

@@ -10,7 +10,7 @@
 - 像素地图与空间移动
 - 多智能体日常生活、欲望、关系和记忆
 - 玩家输入对话与观察模式
-- 外部新闻、宏观调控与系统随机事件
+- 外部新闻时间线、系统新闻与随机事件
 - 股票市场、借贷、信用、实验室口碑与地下案件
 - 政府财政、监管、保障、公共服务与政府资产
 - 游客、旅馆、集市与旅游消费
@@ -73,6 +73,7 @@ flowchart LR
 - `POST /api/advance`
 - `POST /api/simulate`
 - `POST /api/news`
+- `POST /api/news/timeline`
 - `POST /api/macro-news`
 - `POST /api/player/trade`
 - `POST /api/player/auto-trade`
@@ -115,8 +116,9 @@ flowchart LR
 - `TourismState`
 - `GovernmentState`
 - `CompanyState`
+- `NewsTimelineItem`
 
-当前世界状态版本为 `39`。旧快照会在加载时补齐新字段；如果版本过旧，则丢弃并回到新的初始世界。
+当前世界状态版本为 `41`。旧快照会在加载时补齐新字段；如果版本过旧，则丢弃并回到新的初始世界。
 
 ### 3.3 世界引擎
 
@@ -175,10 +177,11 @@ flowchart LR
 
 - [app/services/brave_service.py](/Volumes/Yaoy/project/LocalFarmer/app/services/brave_service.py)
   - 搜索外部新闻
+  - 如果未配置 Brave，则由系统新闻 fallback 补足时间线
 
 - [app/services/event_mapper.py](/Volumes/Yaoy/project/LocalFarmer/app/services/event_mapper.py)
   - 把 Brave 结果映射成市场事件
-  - 把玩家宏观调控输入映射成方向、强度、板块明确的事件
+  - 把外部新闻映射成方向、强度、板块明确的事件
 
 ## 4. 单一世界状态设计
 
@@ -197,6 +200,8 @@ flowchart LR
 - 最近对话与 `dialogue_history`
 - `finance_history`
 - `daily_briefings`
+- `news_timeline`
+- `event_history`
 - `gray_cases`
 - `tourists / tourism`
 - `government`
@@ -359,7 +364,7 @@ flowchart LR
 - 自动发言
 - 自动交易
 - 自动推进时段
-- 你主要负责注入外部信息和宏观消息
+- 你主要负责观察系统、和角色对话，并在必要时调整财政或交易行为
 
 ### 6.3 系统运行开关
 
@@ -376,7 +381,6 @@ flowchart LR
 
 - 手动对话
 - 手动交易
-- 宏观调控
 - 看盘与查看历史
 
 ## 7. 前端架构与功能模块
@@ -399,10 +403,10 @@ flowchart LR
   - 实时分析
   - 实时对话
   - Lab Daily
-  - 信号终端
   - 地下案件处置台
   - 经济事件流
   - 最近事件
+  - 主线新闻时间线
 
 这个拆法的目的，是让右侧信息流不再把左侧主舞台挤出大片空白。
 
@@ -413,7 +417,7 @@ flowchart LR
 市场中心当前包含：
 
 - 大盘 `时K / 日K / 月K / 年K`
-- 宏观调控台
+- 宏观观察台
 - 板块轮动说明
 - 个股卡片
 - 玩家交易
@@ -424,7 +428,7 @@ flowchart LR
 
 当前布局已经被重新整理为：
 
-- 左侧主列：K 线、宏观调控台、持仓与资金分布
+- 左侧主列：K 线、宏观观察台、持仓与资金分布
 - 右侧操作列：盘面总览、玩家交易、银行借贷
 
 ### 7.3 生活与地产面板
@@ -599,10 +603,10 @@ flowchart LR
 
 进入市场的事件目前主要来自四条路径：
 
-1. Brave 搜索映射的外部新闻
-2. 玩家手动发布的宏观调控消息
-3. 系统自动生成的市场新闻
-4. 研究里程碑、地下案件曝光、随机实验室事件
+1. Brave 自动抓取的主线新闻时间线
+2. 未配置 Brave 时由“系统新闻台”自动编造的 fallback 新闻
+3. 游客消息、研究里程碑、地下案件曝光
+4. 随机实验室事件与监管事件
 
 每条事件都可以明确携带：
 

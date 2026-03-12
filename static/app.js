@@ -20,9 +20,9 @@ const dialogueFilterDesire = document.getElementById("dialogueFilterDesire");
 const signalStatus = document.getElementById("signalStatus");
 const macroStatus = document.getElementById("macroStatus");
 const dailyBriefBox = document.getElementById("dailyBriefBox");
+const newsTimelineBox = document.getElementById("newsTimelineBox");
 const grayCaseActionBox = document.getElementById("grayCaseActionBox");
 const memoryBox = document.getElementById("memoryBox");
-const newsForm = document.getElementById("newsForm");
 const macroNewsForm = document.getElementById("macroNewsForm");
 const tradeForm = document.getElementById("tradeForm");
 const tradeSymbol = document.getElementById("tradeSymbol");
@@ -95,7 +95,7 @@ const welfareBankruptcyInput = document.getElementById("welfareBankruptcyInput")
 const taxPolicyNoteInput = document.getElementById("taxPolicyNoteInput");
 const taxPolicySubmitBtn = document.getElementById("taxPolicySubmitBtn");
 const taxPolicyStatus = document.getElementById("taxPolicyStatus");
-const ASSET_VERSION = "20260312ah";
+const ASSET_VERSION = "20260312aj";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -824,7 +824,7 @@ function renderPanels() {
   );
   renderIfChanged(
     "analysis",
-    serverSignature("analysis", [state.analysis_history, state.agents, state.player, state.tourists, state.tourism, state.events, state.gray_cases, state.market]),
+    serverSignature("analysis", [state.analysis_history, state.agents, state.player, state.tourists, state.tourism, state.event_history, state.gray_cases, state.market]),
     () => renderAnalysisPanel(),
   );
   renderIfChanged(
@@ -839,7 +839,7 @@ function renderPanels() {
   );
   renderIfChanged(
     "events",
-    serverSignature("events", [state.gray_cases, state.story_beats, state.events], [highlightedEventId, highlightedStoryId, highlightedGrayCaseId]),
+    serverSignature("events", [state.gray_cases, state.story_beats, state.event_history], [highlightedEventId, highlightedStoryId, highlightedGrayCaseId]),
     () => renderEvents(),
   );
   renderIfChanged(
@@ -861,6 +861,11 @@ function renderPanels() {
     "daily",
     serverSignature("daily", [state.daily_briefings?.[0]]),
     () => renderDailyBrief(),
+  );
+  renderIfChanged(
+    "signals",
+    serverSignature("signals", [state.news_timeline?.slice(0, 40), state.event_history?.[0], state.tourism?.latest_signal], [busy]),
+    () => renderNewsTimeline(),
   );
   renderIfChanged(
     "gray-cases",
@@ -951,6 +956,37 @@ function renderDailyBrief() {
       <ol class="daily-brief-list">${entryMarkup}</ol>
     </article>
   `;
+}
+
+function renderNewsTimeline() {
+  if (!newsTimelineBox) return;
+  const items = (state?.news_timeline || []).slice(0, 40);
+  if (!items.length) {
+    newsTimelineBox.innerHTML = `
+      <div class="daily-brief-empty">
+        <strong>时间线还没排好</strong>
+        <p>系统会自动从 Brave 拉宏观、监管、地产、游客、GeoAI 和就业类消息；如果没有 Brave，就会自动编造市场新闻补足时间线。</p>
+      </div>
+    `;
+    return;
+  }
+  newsTimelineBox.innerHTML = items.map((item) => {
+    const statusLabel = item.status === "scheduled" ? "待触发" : item.status === "triggered" ? "已落地" : "已过期";
+    const slotLabel = `${item.scheduled_day} 天 · ${timeLabels[item.scheduled_time_slot] || item.scheduled_time_slot}`;
+    return `
+      <article class="timeline-card timeline-${escapeHtml(item.status || "scheduled")}">
+        <div class="daily-brief-head">
+          <div>
+            <strong>${escapeHtml(item.title || item.theme || "主线新闻")}</strong>
+            <div class="daily-brief-meta">${escapeHtml(item.theme || categoryLabels[item.category] || "综合")} · ${escapeHtml(slotLabel)}</div>
+          </div>
+          <span class="panel-tag">${escapeHtml(statusLabel)}</span>
+        </div>
+        <div class="metric-meta">${escapeHtml(item.source || "系统新闻台")} · ${escapeHtml(categoryLabels[item.category] || item.category || "综合")} · ${escapeHtml(item.market_target || "broad")}</div>
+        <div class="dialogue-summary">${escapeHtml(item.summary || "一条可能影响主线推进的外部新闻。")}</div>
+      </article>
+    `;
+  }).join("");
 }
 
 function renderGrayCaseActions() {
@@ -2124,10 +2160,11 @@ function renderEvents() {
       `,
     )
     .join("");
-  const eventMarkup = state.events
+  const eventMarkup = (state.event_history || state.events || [])
+    .slice(0, 200)
     .map(
       (event) => `
-        <article class="event-card ${highlightedEventId === event.id ? "is-highlighted" : ""}" data-event-id="${escapeHtml(event.id)}">
+        <article class="event-card event-${escapeHtml(event.category || "general")} ${highlightedEventId === event.id ? "is-highlighted" : ""}" data-event-id="${escapeHtml(event.id)}">
           <strong>${event.title}</strong>
           <div>${event.summary}</div>
           <div class="event-meta">${categoryLabels[event.category] || event.category} · ${event.source || "实验室"}</div>
@@ -4747,74 +4784,52 @@ if (propertyList) {
   });
 }
 
-newsForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  if (busy) return;
-  busy = true;
-  signalStatus.textContent = "正在从 Brave 获取外部信息…";
-  const formData = new FormData(newsForm);
-  try {
-    state = await api("/api/news", {
-      method: "POST",
-      body: JSON.stringify({
-        topic: formData.get("topic"),
-        category: formData.get("category"),
-      }),
-    });
-    syncSceneEntities();
-    renderPanels();
-    signalStatus.textContent = "新的外部信号已经注入实验室。";
-  } catch (error) {
-    signalStatus.textContent = error.message;
-  } finally {
-    busy = false;
-  }
-});
-
-macroNewsForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  if (busy) {
-    setMacroStatus("系统正在刷新世界状态，请等一秒再发布。");
-    signalStatus.textContent = "系统正在自动演化，宏观消息稍后再发。";
-    return;
-  }
-  const formData = new FormData(macroNewsForm);
-  const title = String(formData.get("title") || "").trim();
-  if (!title) {
-    setMacroStatus("先写一个宏观消息标题，再发布。");
-    signalStatus.textContent = "宏观消息缺少标题。";
-    document.getElementById("macroTitle")?.focus();
-    return;
-  }
-  busy = true;
-  if (macroSubmitBtn) macroSubmitBtn.disabled = true;
-  setMacroStatus("正在发布宏观消息…");
-  signalStatus.textContent = "正在发布你设定的宏观消息…";
-  try {
-    state = await api("/api/macro-news", {
-      method: "POST",
-      body: JSON.stringify({
-        title,
-        summary: formData.get("summary"),
-        category: formData.get("category"),
-        tone: formData.get("tone"),
-        strength: Number(formData.get("strength") || 3),
-        target: formData.get("target"),
-      }),
-    });
-    syncSceneEntities();
-    renderPanels();
-    setMacroStatus("宏观消息已发布，盘面和情绪正在重估。");
-    signalStatus.textContent = "宏观消息已发布，市场正在根据你的信号重估价格。";
-    macroNewsForm.reset();
-  } catch (error) {
-    setMacroStatus(normalizeError(error.message));
-    signalStatus.textContent = error.message;
-  } finally {
-    if (macroSubmitBtn) macroSubmitBtn.disabled = false;
-    busy = false;
-  }
-});
+if (macroNewsForm) {
+  macroNewsForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (busy) {
+      setMacroStatus("系统正在刷新世界状态，请等一秒再发布。");
+      signalStatus.textContent = "系统正在自动演化，宏观消息稍后再发。";
+      return;
+    }
+    const formData = new FormData(macroNewsForm);
+    const title = String(formData.get("title") || "").trim();
+    if (!title) {
+      setMacroStatus("先写一个宏观消息标题，再发布。");
+      signalStatus.textContent = "宏观消息缺少标题。";
+      document.getElementById("macroTitle")?.focus();
+      return;
+    }
+    busy = true;
+    if (macroSubmitBtn) macroSubmitBtn.disabled = true;
+    setMacroStatus("正在发布宏观消息…");
+    signalStatus.textContent = "正在发布你设定的宏观消息…";
+    try {
+      state = await api("/api/macro-news", {
+        method: "POST",
+        body: JSON.stringify({
+          title,
+          summary: formData.get("summary"),
+          category: formData.get("category"),
+          tone: formData.get("tone"),
+          strength: Number(formData.get("strength") || 3),
+          target: formData.get("target"),
+        }),
+      });
+      syncSceneEntities();
+      renderPanels();
+      setMacroStatus("宏观消息已发布，盘面和情绪正在重估。");
+      signalStatus.textContent = "宏观消息已发布，市场正在根据你的信号重估价格。";
+      macroNewsForm.reset();
+    } catch (error) {
+      setMacroStatus(normalizeError(error.message));
+      signalStatus.textContent = error.message;
+    } finally {
+      if (macroSubmitBtn) macroSubmitBtn.disabled = false;
+      busy = false;
+    }
+  });
+}
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));

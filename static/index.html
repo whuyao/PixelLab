@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GeoAI Pixel Lab Test (UrbanComp Lab)</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260312ah" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260312aj" />
   </head>
   <body>
     <div class="project-banner">
@@ -58,41 +58,11 @@
               </div>
               <section class="market-subpanel market-macro-panel">
                 <div class="panel-head compact-head">
-                  <h3>宏观调控台</h3>
-                  <span class="panel-tag">手动发布</span>
+                  <h3>宏观观察台</h3>
+                  <span class="panel-tag">系统自动</span>
                 </div>
-                <form id="macroNewsForm" class="signal-form macro-form market-form">
-                  <input id="macroTitle" name="title" type="text" placeholder="例如：监管层释放流动性支持信号" required />
-                  <input id="macroSummary" name="summary" type="text" placeholder="例如：市场预期风险偏好回升，科技与 GeoAI 获得资金关注。" />
-                  <select id="macroCategory" name="category">
-                    <option value="market">市场</option>
-                    <option value="tech">科技</option>
-                    <option value="geoai">GeoAI</option>
-                    <option value="general">综合</option>
-                    <option value="gaming">游戏</option>
-                  </select>
-                  <select id="macroTone" name="tone">
-                    <option value="bullish">利好</option>
-                    <option value="bearish">利空</option>
-                    <option value="volatile">震荡</option>
-                  </select>
-                  <select id="macroStrength" name="strength">
-                    <option value="1">弱</option>
-                    <option value="2">中弱</option>
-                    <option value="3" selected>中等</option>
-                    <option value="4">偏强</option>
-                    <option value="5">很强</option>
-                  </select>
-                  <select id="macroTarget" name="target">
-                    <option value="broad">全市场</option>
-                    <option value="GEO">GEO</option>
-                    <option value="AGR">AGR</option>
-                    <option value="SIG">SIG</option>
-                  </select>
-                  <button id="macroSubmitBtn" type="submit">发布宏观消息</button>
-                </form>
-                <p id="macroStatus" class="signal-status"></p>
-                <p class="composer-tip">先看 K 线和主线板块，再在这里发宏观消息会更顺手。</p>
+                <p id="macroStatus" class="signal-status">系统会根据 Brave 主线新闻、游客消息、监管状态和市场阶段自动生成宏观冲击。</p>
+                <p class="composer-tip">这里现在只做观察，不再允许玩家手动发布新闻。宏观信号会自动进入时间线并在对应时段落地。</p>
               </section>
               <div class="market-position-block">
                 <div class="panel-head compact-head">
@@ -361,24 +331,6 @@
           </div>
           <div id="dialogueBox" class="dialogue-box">走近同事后按 E，就会像日常交流一样聊起来。</div>
         </section>
-        <section class="panel signal-panel">
-          <div class="panel-head">
-            <h2>信号终端</h2>
-            <span class="panel-tag">外部输入</span>
-          </div>
-          <form id="newsForm" class="signal-form">
-            <input id="newsTopic" name="topic" type="text" placeholder="例如：GeoAI 推理突破" />
-            <select id="newsCategory" name="category">
-              <option value="geoai">GeoAI</option>
-              <option value="tech">科技</option>
-              <option value="market">市场</option>
-              <option value="gaming">游戏</option>
-              <option value="general" selected>综合</option>
-            </select>
-            <button type="submit">从 Brave 注入</button>
-          </form>
-          <p id="signalStatus" class="signal-status"></p>
-        </section>
         <section class="panel daily-panel">
           <div class="panel-head">
             <h2>Lab Daily</h2>
@@ -403,9 +355,18 @@
         <section class="panel event-panel">
           <div class="panel-head">
             <h2>最近事件</h2>
-            <span class="panel-tag">世界</span>
+            <span class="panel-tag">近 200 条</span>
           </div>
-          <div id="eventList" class="stack"></div>
+          <div id="eventList" class="stack scroll-panel-list"></div>
+        </section>
+        <section class="panel signal-panel">
+          <div class="panel-head">
+            <h2>主线新闻时间线</h2>
+            <span class="panel-tag">系统自动拉取</span>
+          </div>
+          <p class="composer-tip">系统会自动从 Brave 拉取主线新闻；如果未配置 Brave，则会自动编造市场新闻补足时间线。</p>
+          <p id="signalStatus" class="signal-status"></p>
+          <div id="newsTimelineBox" class="daily-brief-box scroll-panel-list">这里会显示未来几个时段排好的主线新闻。</div>
         </section>
       </aside>
     </main>
@@ -413,6 +374,6 @@
       <span>UrbanComp Lab (<a href="https://urbancomp.net" target="_blank" rel="noreferrer">https://urbancomp.net</a>) 开发</span>
       <span>GitHub：<a href="https://github.com/whuyao/PixelLab" target="_blank" rel="noreferrer">https://github.com/whuyao/PixelLab</a></span>
     </footer>
-    <script src="/static/app.js?v=20260312ah" type="module"></script>
+    <script src="/static/app.js?v=20260312aj" type="module"></script>
   </body>
 </html>

@@ -310,7 +310,7 @@ def build_initial_world() -> WorldState:
             id="task-geo-baseline",
             title="团队资金扩张",
             category="main",
-            description="把团队总现金从 $500 推到更高，靠明确借贷、日常协作和白天兑现收益慢慢做大。",
+            description="把团队总资金从 $500 推到更高，靠日常协作、白天兑现收益、银行存款和经营回款慢慢做大。",
             progress=0,
             target=100,
             participants=["lin", "jo", "mika", "rae", "kai"],

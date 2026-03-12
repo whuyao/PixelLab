@@ -22,12 +22,13 @@ from app.engine.social_engine import SocialEngine
 from app.engine.task_system import apply_task_progress
 from app.engine.time_system import advance_time
 from app.engine.world_state import build_initial_world
-from app.models import AnalysisPoint, Agent, BankLoanRecord, ConsumableItem, DailyBriefItem, DailyBriefing, DialogueOutcome, DialogueRecord, FinanceRecord, GrayCase, IndexCandle, LabEvent, LoanRecord, MemoryEntry, Point, PropertyAsset, SocialThread, StateDiffResponse, StoryBeat, Task, TouristAgent, TourismState, WorldState
+from app.models import AnalysisPoint, Agent, BankLoanRecord, ConsumableItem, DailyBriefItem, DailyBriefing, DialogueOutcome, DialogueRecord, FinanceRecord, GrayCase, IndexCandle, LabEvent, LoanRecord, MemoryEntry, NewsTimelineItem, Point, PropertyAsset, SocialThread, StateDiffResponse, StoryBeat, Task, TimeSlot, TouristAgent, TourismState, WorldState
 from app.services.activity_logger import ActivityLogger
 
 
 WORLD_WIDTH = 44
 WORLD_HEIGHT = 26
+SLOT_SEQUENCE: list[TimeSlot] = ["morning", "noon", "afternoon", "evening", "night"]
 
 
 @dataclass(slots=True)
@@ -188,6 +189,7 @@ class GameEngine:
         self._refresh_tasks()
         self.social_engine.prepare_view()
         self.lifestyle_engine.prepare_view()
+        self._sync_event_history()
         self._refresh_state_signatures()
         return self.state
 
@@ -208,7 +210,7 @@ class GameEngine:
         )
 
     def _refresh_state_signatures(self) -> None:
-        self.state.version = max(self.state.version, 39)
+        self.state.version = max(self.state.version, 41)
         self.state.section_signatures = self._sign_sections(self._build_state_sections())
 
     def _sign_sections(self, sections: dict[str, object]) -> dict[str, str]:
@@ -264,6 +266,7 @@ class GameEngine:
                 "gray_cases": dump(state.gray_cases),
                 "story_beats": dump(state.story_beats[:18]),
                 "events": dump(state.events),
+                "event_history": dump(state.event_history[:220]),
             },
             "finance": {
                 "finance_history": dump(state.finance_history[:240]),
@@ -275,6 +278,11 @@ class GameEngine:
             },
             "daily": {
                 "daily_briefings": dump(state.daily_briefings[:3]),
+            },
+            "signals": {
+                "news_timeline": dump(state.news_timeline[:40]),
+                "latest_signal": state.events[0].title if state.events else "",
+                "tourism_latest_signal": state.tourism.latest_signal if state.tourism else "",
             },
             "gray_cases": {
                 "gray_cases": dump(state.gray_cases),
@@ -319,6 +327,17 @@ class GameEngine:
                 "bank": dump(state.bank),
             },
         }
+
+    def _sync_event_history(self) -> None:
+        if getattr(self.state, "event_history", None) is None:
+            self.state.event_history = []
+        known_ids = {event.id for event in self.state.event_history}
+        for event in self.state.events:
+            if event.id in known_ids:
+                continue
+            self.state.event_history.insert(0, event.model_copy(deep=True))
+            known_ids.add(event.id)
+        self.state.event_history = self.state.event_history[:200]
 
     def log_world_snapshot(self, event_type: str, details: dict[str, object] | None = None) -> None:
         self._log(event_type, **(details or {}))
@@ -450,6 +469,54 @@ class GameEngine:
     def inject_event(self, event: LabEvent) -> WorldState:
         return self._ingest_event(event, player_injected=True)
 
+    def schedule_news_timeline_item(self, event: LabEvent, query: str, theme: str, scheduled_day: int, scheduled_time_slot: TimeSlot) -> None:
+        self.state.news_timeline.insert(
+            0,
+            NewsTimelineItem(
+                id=f"timeline-{uuid4().hex[:8]}",
+                title=event.title,
+                summary=event.summary,
+                source=event.source or "Brave Search",
+                query=query,
+                theme=theme,
+                category=event.category,
+                scheduled_day=scheduled_day,
+                scheduled_time_slot=scheduled_time_slot,
+                tone_hint=event.tone_hint,
+                market_target=event.market_target,
+                market_strength=event.market_strength,
+                impacts=dict(event.impacts),
+            ),
+        )
+        self.state.news_timeline = sorted(
+            self.state.news_timeline,
+            key=lambda item: (item.status != "scheduled", item.scheduled_day, SLOT_SEQUENCE.index(item.scheduled_time_slot)),
+        )[:60]
+
+    def build_timeline_event(self, item: NewsTimelineItem) -> LabEvent:
+        return LabEvent(
+            id=f"event-{uuid4().hex[:8]}",
+            category=item.category,
+            title=item.title,
+            summary=item.summary,
+            source=item.source,
+            time_slot=self.state.time_slot,
+            impacts=dict(item.impacts),
+            participants=[],
+            tone_hint=item.tone_hint,
+            market_target=item.market_target,
+            market_strength=item.market_strength,
+        )
+
+    def slot_after(self, offset: int = 1) -> tuple[int, TimeSlot]:
+        base_index = SLOT_SEQUENCE.index(self.state.time_slot)
+        total = base_index + max(1, offset)
+        day_delta, slot_index = divmod(total, len(SLOT_SEQUENCE))
+        return self.state.day + day_delta, SLOT_SEQUENCE[slot_index]
+
+    def _slot_sort_key(self, day: int, slot: TimeSlot) -> tuple[int, int]:
+        return day, SLOT_SEQUENCE.index(slot)
+
     def _ingest_event(self, event: LabEvent, player_injected: bool) -> WorldState:
         self.state.events.insert(0, event)
         self.state.events = self.state.events[:8]
@@ -480,6 +547,21 @@ class GameEngine:
             },
         )
         return self.state
+
+    def trigger_scheduled_news(self) -> None:
+        for item in self.state.news_timeline:
+            if item.status != "scheduled":
+                continue
+            if self._slot_sort_key(item.scheduled_day, item.scheduled_time_slot) < self._slot_sort_key(self.state.day, self.state.time_slot):
+                item.status = "expired"
+                continue
+            if item.scheduled_day != self.state.day or item.scheduled_time_slot != self.state.time_slot:
+                continue
+            event = self.build_timeline_event(item)
+            self._ingest_event(event, player_injected=False)
+            item.status = "triggered"
+            item.triggered_day = self.state.day
+            item.triggered_time_slot = self.state.time_slot
 
     def advance_for_reflection(self, reason: str) -> WorldState:
         self.state.events.insert(
@@ -995,6 +1077,9 @@ class GameEngine:
     def _team_cash_total(self) -> int:
         return sum(agent.cash for agent in self.state.agents)
 
+    def _team_total_funds(self) -> int:
+        return sum(self._agent_total_funds(agent) for agent in self.state.agents)
+
     def _bank_liability_for(self, borrower_type: str, borrower_id: str) -> int:
         return sum(
             loan.amount_due
@@ -1332,18 +1417,31 @@ class GameEngine:
             market.rotation_age = age + 1
 
     def _refresh_tasks(self) -> None:
-        team_cash = self._team_liquid_capital()
+        team_funds = self._team_total_funds()
         baseline = 500
         target_total = 650
         for task in self.state.tasks:
             if task.id == "task-geo-baseline":
-                progress = int(max(0, min(100, ((team_cash - baseline) / max(1, target_total - baseline)) * 100)))
+                progress = int(max(0, min(100, ((team_funds - baseline) / max(1, target_total - baseline)) * 100)))
                 task.progress = progress
-                task.description = f"把团队净流动资金从 $500 慢慢推到 $650。当前净流动资金约 ${team_cash}，重点靠明确借贷回款、白天兑现收益和稳健协作。"
+                task.description = f"把团队总资金从 $500 慢慢推到 $650。当前团队总资金约 ${team_funds}，重点靠稳健打工、白天兑现收益、银行存款和协作经营。"
+            elif task.category == "main":
+                task.description = self._main_task_description(task, team_funds)
             elif task.id == "task-news":
                 task.description = "注入一条真正会影响市场或团队情绪的外部信息，让股价和大家的判断发生波动。"
         self._archive_completed_tasks()
         self._ensure_task_pipeline()
+
+    def _main_task_description(self, task: Task | None = None, team_funds: int | None = None, main_round: int | None = None) -> str:
+        current_funds = team_funds if team_funds is not None else self._team_total_funds()
+        resolved_round = main_round
+        if resolved_round is None:
+            resolved_round = next(
+                (int(match.group(1)) for match in [re.search(r"第\s*(\d+)\s*轮", (task.title if task else "") or "")] if match),
+                1 + sum(1 for archived in self.state.archived_tasks if archived.category == "main"),
+            )
+        next_target_funds = max(current_funds + 120, 650 + (max(1, resolved_round) - 1) * 140)
+        return f"把团队总资金从当前约 ${current_funds} 推到 ${next_target_funds}。这轮重点靠地产收益、稳健交易、游客消费、银行存款和额度管理。"
 
     def _apply_lab_rewards(self, rewards: dict[str, int], reason: str) -> None:
         if not rewards:
@@ -1402,15 +1500,14 @@ class GameEngine:
             self.state.tasks.append(self._build_next_daily_task())
 
     def _build_next_main_task(self) -> Task:
-        team_cash = self._team_liquid_capital()
+        team_funds = self._team_total_funds()
         main_round = 1 + sum(1 for task in self.state.archived_tasks if task.category == "main")
-        next_target_cash = max(team_cash + 120, 650 + (main_round - 1) * 140)
         task_id = f"task-main-{self.state.day}-{main_round}"
         return Task(
             id=task_id,
             title=f"团队资金扩张 · 第 {main_round} 轮",
             category="main",
-            description=f"把团队净流动资金从当前约 ${team_cash} 推到 ${next_target_cash}。这轮重点靠地产收益、稳健交易、及时回款和银行额度管理。",
+            description=self._main_task_description(team_funds=team_funds, main_round=main_round),
             progress=0,
             target=100,
             participants=[agent.id for agent in self.state.agents],
@@ -4521,6 +4618,7 @@ class GameEngine:
         self.state.time_slot = slot
         self.state.weather = self._roll_weather()
         self._sync_market_clock()
+        self.trigger_scheduled_news()
         if slot == "morning":
             self._refresh_tourism_cycle()
             self.state.tourism.daily_revenue = 0
@@ -6802,7 +6900,7 @@ class GameEngine:
 
     def _ensure_agent_runtime_fields(self) -> None:
         previous_version = self.state.version or 0
-        self.state.version = max(self.state.version, 39)
+        self.state.version = max(self.state.version, 41)
         if self.state.loans is None:
             self.state.loans = []
         if self.state.archived_tasks is None:
@@ -6813,6 +6911,10 @@ class GameEngine:
             self.state.geoai_milestones = []
         if self.state.daily_briefings is None:
             self.state.daily_briefings = []
+        if getattr(self.state, "news_timeline", None) is None:
+            self.state.news_timeline = []
+        if getattr(self.state, "event_history", None) is None:
+            self.state.event_history = []
         if self.state.gray_cases is None:
             self.state.gray_cases = []
         if self.state.lifestyle_catalog is None or not self.state.lifestyle_catalog:
@@ -7173,6 +7275,10 @@ class GameEngine:
                 brief.entries = self._build_brief_entries_from_items(brief.items or [])
             for entry in brief.entries:
                 entry.text = self._localized_text(entry.text)
+        for item in self.state.news_timeline or []:
+            item.title = self._localized_text(item.title)
+            item.summary = self._localized_text(item.summary)
+            item.theme = self._localized_text(item.theme)
         for case in self.state.gray_cases or []:
             case.participant_names = [self._localized_text(name) for name in case.participant_names or []]
         for tourist in self.state.tourists or []:

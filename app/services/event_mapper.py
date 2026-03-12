@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 
 from app.models import EventCategory, LabEvent, MacroNewsRequest, TimeSlot
@@ -30,7 +31,7 @@ TARGET_KEYWORDS = {
 def infer_category(topic: str, default: EventCategory) -> EventCategory:
     topic_lower = topic.lower()
     for keyword, category in KEYWORD_CATEGORY_MAP.items():
-        if keyword in topic_lower:
+        if re.search(rf"(?<![a-z]){re.escape(keyword)}(?![a-z])", topic_lower):
             return category
     return default
 
