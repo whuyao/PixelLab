@@ -47,6 +47,13 @@ const marketCtx = marketCanvas.getContext("2d");
 const marketMeta = document.getElementById("marketMeta");
 const marketSummary = document.getElementById("marketSummary");
 const marketPositions = document.getElementById("marketPositions");
+const economyAnalysisCanvas = document.getElementById("economyAnalysisCanvas");
+const economyAnalysisCtx = economyAnalysisCanvas?.getContext("2d");
+const economyAnalysisMeta = document.getElementById("economyAnalysisMeta");
+const eventAnalysisCanvas = document.getElementById("eventAnalysisCanvas");
+const eventAnalysisCtx = eventAnalysisCanvas?.getContext("2d");
+const eventAnalysisMeta = document.getElementById("eventAnalysisMeta");
+const peopleAnalysis = document.getElementById("peopleAnalysis");
 const marketIntradayBtn = document.getElementById("marketIntradayBtn");
 const marketDailyBtn = document.getElementById("marketDailyBtn");
 const advanceBtn = document.getElementById("advanceBtn");
@@ -59,7 +66,7 @@ const talkInput = document.getElementById("talkInput");
 const talkTarget = document.getElementById("talkTarget");
 const talkSendBtn = document.getElementById("talkSendBtn");
 const macroSubmitBtn = document.getElementById("macroSubmitBtn");
-const ASSET_VERSION = "20260312f";
+const ASSET_VERSION = "20260312n";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -129,6 +136,10 @@ const grayTradeTypeLabels = {
   data_theft: "数据窃取",
   blackmail: "封口费",
   fraud: "诈骗",
+  counterfeit_goods: "假货倒卖",
+  rent_rigging: "私下转租",
+  wage_kickback: "工资回扣",
+  pump_dump: "拉高出货",
 };
 
 const resourceLabels = {
@@ -627,8 +638,13 @@ function renderPanels() {
   refreshComposerAvailability();
   renderIfChanged(
     "metrics",
-    [state.day, state.time_slot, state.weather, state.lab, state.geoai_milestones],
+    [state.day, state.time_slot, state.weather, state.lab, state.geoai_milestones, state.market, state.company],
     () => renderMetrics(),
+  );
+  renderIfChanged(
+    "analysis",
+    [state.analysis_history, state.agents, state.player, state.events, state.gray_cases, state.market, selectedActorId],
+    () => renderAnalysisPanel(),
   );
   renderIfChanged(
     "tasks",
@@ -667,7 +683,7 @@ function renderPanels() {
   );
   renderIfChanged(
     "memory",
-    [selectedActorId, state.player, state.agents, state.properties, state.loans, state.bank_loans, state.dialogue_history?.slice(0, 40), state.time_slot, state.day],
+    [selectedActorId, state.player, state.agents, state.properties, state.loans, state.bank_loans, state.dialogue_history?.slice(0, 40), state.company, state.time_slot, state.day],
     () => renderMemory(),
   );
   renderIfChanged(
@@ -687,7 +703,7 @@ function renderPanels() {
   );
   renderIfChanged(
     "lifestyle-panel",
-    [state.player, state.agents, state.properties, state.lifestyle_catalog, selectedActorId, busy],
+    [state.player, state.agents, state.properties, state.lifestyle_catalog, state.company, selectedActorId, busy],
     () => renderLifestylePanel(),
   );
   renderIfChanged(
@@ -789,50 +805,252 @@ function renderGrayCaseActions() {
 
 function renderMetrics() {
   const milestoneCount = (state.geoai_milestones || []).length;
-  const summaryMarkup = `
+  const inflationIndex = Number(state.market?.inflation_index || 100).toFixed(1);
+  const inflationPct = Number(state.market?.daily_inflation_pct || 0).toFixed(2);
+  const teamCash = state.agents.reduce((sum, agent) => sum + (agent.cash || 0), 0);
+  const avgSatisfaction = state.agents.length
+    ? Math.round(state.agents.reduce((sum, agent) => sum + (agent.life_satisfaction || 0), 0) / state.agents.length)
+    : state.player.life_satisfaction || 0;
+  const livingPressure = state.market?.living_cost_pressure || 0;
+  const compactCard = (label, value, meta) => `
+    <article class="metric-item">
+      <strong>${label}</strong>
+      <div class="metric-meta">${meta || ""}</div>
+      <div class="status-pill"><span>${value}</span></div>
+    </article>
+  `;
+  metricsList.innerHTML = `
     <article class="metric-summary-card">
       <strong>当前总览</strong>
-      <div class="metric-meta">第 ${state.day} 天 · ${timeLabels[state.time_slot]} · ${weatherLabels[state.weather] || state.weather}</div>
+      <div class="metric-meta">第 ${state.day} 天 · ${timeLabels[state.time_slot]} · ${weatherLabels[state.weather] || state.weather} · ${marketRegimeLabels[state.market?.regime] || state.market?.regime || "牛市"}</div>
       <div class="metric-summary-grid">
         <div class="status-pill"><strong>实验室口碑</strong><span>${state.lab.reputation}</span></div>
         <div class="status-pill"><strong>团队氛围</strong><span>${state.lab.team_atmosphere}</span></div>
-        <div class="status-pill"><strong>研究推进</strong><span>${state.lab.research_progress}</span></div>
-        <div class="status-pill"><strong>外部敏感度</strong><span>${state.lab.external_sensitivity}</span></div>
+        <div class="status-pill"><strong>团队现金</strong><span>$${teamCash}</span></div>
+        <div class="status-pill"><strong>工作场次</strong><span>${state.company?.total_work_sessions || 0}</span></div>
       </div>
     </article>
-  `;
-  const researchMetrics = [
-    ["GeoAI 进度", state.lab.geoai_progress, `累计 ${state.lab.geoai_progress} 点 · 已触发 ${milestoneCount} 个里程碑`],
-    ["集体推理", state.lab.collective_reasoning],
-    ["知识库", state.lab.knowledge_base],
-  ];
-  const operationsMetrics = [
-    ["研究推进", state.lab.research_progress],
-    ["团队氛围", state.lab.team_atmosphere],
-    ["实验室口碑", state.lab.reputation],
-    ["外部敏感度", state.lab.external_sensitivity],
-  ];
-  const renderMetricGroup = (title, items) => `
     <section class="metric-group">
-      <h3 class="metric-group-title">${title}</h3>
-      ${items
-        .map(
-          ([label, value, customMeta]) => `
-            <article class="metric-item">
-              <strong>${label}</strong>
-              <div class="metric-meta">${customMeta || `${value}/100`}</div>
-              <div class="progress"><span style="width:${Math.max(0, Math.min(100, value))}%"></span></div>
-            </article>
-          `,
-        )
-        .join("")}
+      <h3 class="metric-group-title">研究与运营</h3>
+      <div class="metric-compact-grid">
+        ${compactCard("GeoAI 累计", state.lab.geoai_progress, `已触发 ${milestoneCount} 个里程碑`)}
+        ${compactCard("研究推进", state.lab.research_progress, "主线与协作推进")}
+        ${compactCard("集体推理", state.lab.collective_reasoning, "团队共同判断")}
+        ${compactCard("知识库", state.lab.knowledge_base, "沉淀下来的经验")}
+        ${compactCard("外部敏感度", state.lab.external_sensitivity, "对新闻与风向的反应")}
+        ${compactCard("平均满意度", avgSatisfaction, "生活面带来的稳态")}
+      </div>
+    </section>
+    <section class="metric-group">
+      <h3 class="metric-group-title">通胀与生活压力</h3>
+      <div class="metric-compact-grid">
+        ${compactCard("物价指数", inflationIndex, "100 为初始价格带")}
+        ${compactCard("日通胀", `${inflationPct >= 0 ? "+" : ""}${inflationPct}%`, "由资金面、市场、天气共同推高或缓和")}
+        ${compactCard("生活压力", livingPressure, "越高越容易逼出打工、借贷和灰市行为")}
+        ${compactCard("打工阈值", `$${state.company?.low_cash_threshold || 50}`, "低于此值会明显转向上班")}
+        ${compactCard("玩家日开销", `$${state.player.daily_cost_baseline || 0}`, "你的基础生活消耗")}
+        ${compactCard("玩家满意度", state.player.life_satisfaction, "消费与社交带来的缓冲")}
+      </div>
     </section>
   `;
-  metricsList.innerHTML = `
-    ${summaryMarkup}
-    ${renderMetricGroup("研究核心", researchMetrics)}
-    ${renderMetricGroup("实验室运营", operationsMetrics)}
+}
+
+function drawAnalysisChart(ctx2d, canvasEl, seriesList, meta = {}) {
+  if (!ctx2d || !canvasEl) return;
+  const width = canvasEl.width;
+  const height = canvasEl.height;
+  ctx2d.clearRect(0, 0, width, height);
+  ctx2d.fillStyle = "#f7f2df";
+  ctx2d.fillRect(0, 0, width, height);
+  const activeSeries = seriesList.filter((series) => Array.isArray(series.values) && series.values.length);
+  if (!activeSeries.length) return;
+  const leftSeries = activeSeries.filter((series) => (series.axis || "left") === "left");
+  const rightSeries = activeSeries.filter((series) => series.axis === "right");
+  const leftValues = leftSeries.flatMap((series) => series.values);
+  const rightValues = rightSeries.flatMap((series) => series.values);
+  const leftMin = leftValues.length ? Math.min(...leftValues) : 0;
+  const leftMax = leftValues.length ? Math.max(...leftValues) : 100;
+  const rightMin = rightValues.length ? Math.min(...rightValues) : 0;
+  const rightMax = rightValues.length ? Math.max(...rightValues) : 100;
+  const leftRange = Math.max(1, leftMax - leftMin);
+  const rightRange = Math.max(1, rightMax - rightMin);
+  const pad = { left: 44, right: 46, top: 18, bottom: 26 };
+  const innerWidth = width - pad.left - pad.right;
+  const innerHeight = height - pad.top - pad.bottom;
+  ctx2d.strokeStyle = "rgba(74, 62, 47, 0.18)";
+  for (let step = 0; step < 4; step += 1) {
+    const y = pad.top + (innerHeight / 3) * step;
+    ctx2d.beginPath();
+    ctx2d.moveTo(pad.left, y);
+    ctx2d.lineTo(width - pad.right, y);
+    ctx2d.stroke();
+  }
+  activeSeries.forEach((series) => {
+    ctx2d.strokeStyle = series.color;
+    ctx2d.lineWidth = 2;
+    ctx2d.beginPath();
+    const axis = series.axis || "left";
+    const axisMin = axis === "right" ? rightMin : leftMin;
+    const axisRange = axis === "right" ? rightRange : leftRange;
+    series.values.forEach((value, index) => {
+      const x = pad.left + (innerWidth * index) / Math.max(1, series.values.length - 1);
+      const y = pad.top + ((axisMin + axisRange - value) / axisRange) * innerHeight;
+      if (index === 0) ctx2d.moveTo(x, y);
+      else ctx2d.lineTo(x, y);
+    });
+    ctx2d.stroke();
+    const lastValue = series.values[series.values.length - 1];
+    const lastX = pad.left + innerWidth;
+    const lastY = pad.top + ((axisMin + axisRange - lastValue) / axisRange) * innerHeight;
+    ctx2d.fillStyle = series.color;
+    ctx2d.fillRect(lastX - 2, lastY - 2, 4, 4);
+  });
+  ctx2d.fillStyle = "#6b604d";
+  ctx2d.font = '12px "PingFang SC"';
+  ctx2d.fillText(meta.leftTopLabel || `${leftMax.toFixed(0)}`, 6, pad.top + 6);
+  ctx2d.fillText(meta.leftBottomLabel || `${leftMin.toFixed(0)}`, 6, height - 10);
+  if (rightSeries.length) {
+    const rightTop = meta.rightTopLabel || `${rightMax >= 1000 ? Math.round(rightMax).toLocaleString() : rightMax.toFixed(0)}`;
+    const rightBottom = meta.rightBottomLabel || `${rightMin >= 1000 ? Math.round(rightMin).toLocaleString() : rightMin.toFixed(0)}`;
+    const topWidth = ctx2d.measureText(rightTop).width;
+    const bottomWidth = ctx2d.measureText(rightBottom).width;
+    ctx2d.fillText(rightTop, width - topWidth - 4, pad.top + 6);
+    ctx2d.fillText(rightBottom, width - bottomWidth - 4, height - 10);
+  }
+  activeSeries.forEach((series, index) => {
+    ctx2d.fillStyle = series.color;
+    ctx2d.fillRect(pad.left + index * 108, 4, 12, 4);
+    ctx2d.fillStyle = "#6b604d";
+    ctx2d.fillText(series.label, pad.left + 16 + index * 108, 10);
+  });
+  if (meta.leftCaption) ctx2d.fillText(meta.leftCaption, pad.left, height - 10);
+  if (meta.rightCaption) {
+    const textWidth = ctx2d.measureText(meta.rightCaption).width;
+    ctx2d.fillText(meta.rightCaption, width - pad.right - textWidth, height - 10);
+  }
+}
+
+function classifyHeatLevel(metric, value, maxValue = 100) {
+  const safeMax = Math.max(1, maxValue);
+  const normalized = Math.max(0, Math.min(100, Math.round((value / safeMax) * 100)));
+  if (metric === "stress") {
+    if (normalized >= 80) return "danger";
+    if (normalized >= 60) return "high";
+    if (normalized >= 35) return "medium";
+    return "low";
+  }
+  if (normalized <= 20) return "danger";
+  if (normalized <= 45) return "low";
+  if (normalized <= 75) return "medium";
+  return "high";
+}
+
+function renderHeatStrip(metric, value, maxValue = 100) {
+  const activeLevel = classifyHeatLevel(metric, value, maxValue);
+  const levels = ["low", "medium", "high", "danger"];
+  return `
+    <div class="heat-strip" aria-hidden="true">
+      ${levels.map((level) => `<span class="heat-cell level-${level} ${level === activeLevel ? "is-active" : ""}"></span>`).join("")}
+    </div>
   `;
+}
+
+function renderAnalysisPanel() {
+  if (!state) return;
+  const history = (state.analysis_history || []).slice(-24);
+  if (!history.length) {
+    if (economyAnalysisMeta) economyAnalysisMeta.textContent = "等待分析数据。";
+    if (eventAnalysisMeta) eventAnalysisMeta.textContent = "等待分析数据。";
+    if (peopleAnalysis) peopleAnalysis.innerHTML = '<article class="analysis-person-card"><strong>暂无人物快照</strong><div class="metric-meta">世界再运行一会儿，这里会开始积累实时走势。</div></article>';
+    return;
+  }
+  drawAnalysisChart(
+    economyAnalysisCtx,
+    economyAnalysisCanvas,
+    [
+      { label: "大盘指数", values: history.map((item) => item.market_index), color: "#6f8e4e", axis: "left" },
+      { label: "物价指数", values: history.map((item) => item.inflation_index), color: "#5f83b9", axis: "left" },
+      { label: "团队现金", values: history.map((item) => item.team_cash), color: "#c37a4f", axis: "right" },
+    ],
+    {
+      leftTopLabel: "指数高",
+      leftBottomLabel: "指数低",
+      rightTopLabel: "现金高",
+      rightBottomLabel: "现金低",
+      leftCaption: `T-${history.length}`,
+      rightCaption: `第 ${history[history.length - 1].day} 天`,
+    },
+  );
+  drawAnalysisChart(
+    eventAnalysisCtx,
+    eventAnalysisCanvas,
+    [
+      { label: "平均压力", values: history.map((item) => item.avg_stress), color: "#b55e5e", axis: "left" },
+      { label: "活跃事件", values: history.map((item) => item.active_events), color: "#857448", axis: "right" },
+      { label: "灰案数量", values: history.map((item) => item.active_gray_cases), color: "#6d5f77", axis: "right" },
+    ],
+    {
+      leftTopLabel: "压力高",
+      leftBottomLabel: "压力低",
+      rightTopLabel: "事件多",
+      rightBottomLabel: "事件少",
+      leftCaption: `最近 ${history.length} 段`,
+      rightCaption: `${timeLabels[state.time_slot] || state.time_slot}`,
+    },
+  );
+  const latest = history[history.length - 1];
+  const previous = history[Math.max(0, history.length - 2)] || latest;
+  if (economyAnalysisMeta) {
+    const teamCashDelta = latest.team_cash - previous.team_cash;
+    const inflationDelta = latest.inflation_index - previous.inflation_index;
+    economyAnalysisMeta.textContent = `左轴看指数和物价，右轴看团队现金。当前团队现金 $${latest.team_cash}（${teamCashDelta >= 0 ? "+" : ""}${teamCashDelta}），指数 ${latest.market_index.toFixed(1)}，物价指数 ${latest.inflation_index.toFixed(1)}（${inflationDelta >= 0 ? "+" : ""}${inflationDelta.toFixed(2)}）。`;
+  }
+  if (eventAnalysisMeta) {
+    eventAnalysisMeta.textContent = `左轴看压力，右轴看事件数量。平均压力 ${latest.avg_stress}，活跃事件 ${latest.active_events}，地下案件 ${latest.active_gray_cases}，团队信用均值 ${latest.avg_credit}。`;
+  }
+  const actors = [
+    {
+      id: "player",
+      name: state.player.name,
+      cash: state.player.cash || 0,
+      credit: state.player.credit_score || 0,
+      stress: 100 - Math.min(100, state.player.life_satisfaction || 0),
+      satisfaction: state.player.life_satisfaction || 0,
+      detail: `玩家 · 日开销 $${state.player.daily_cost_baseline || 0}`,
+    },
+    ...state.agents.map((agent) => ({
+      id: agent.id,
+      name: agent.name,
+      cash: agent.cash || 0,
+      credit: agent.credit_score || 0,
+      stress: agent.state?.stress || 0,
+      satisfaction: agent.life_satisfaction || 0,
+      detail: `${agent.current_activity || "外出活动"} · 日开销 $${agent.daily_cost_baseline || 0}`,
+    })),
+  ];
+  const maxCash = Math.max(1, ...actors.map((actor) => actor.cash || 0));
+  if (peopleAnalysis) {
+    peopleAnalysis.innerHTML = actors
+      .map((actor) => {
+        const selectedClass = selectedActorId === actor.id ? " is-highlighted" : "";
+        return `
+          <article class="analysis-person-card${selectedClass}">
+            <div class="analysis-person-head">
+              <strong>${escapeHtml(actor.name)}</strong>
+              <span class="panel-tag">${actor.id === "player" ? "玩家" : "智能体"}</span>
+            </div>
+            <div class="metric-meta">${escapeHtml(actor.detail)}</div>
+            <div class="mini-bar-stack">
+              <div class="mini-bar-row"><span class="mini-bar-label">现金</span>${renderHeatStrip("cash", actor.cash || 0, maxCash)}<span class="mini-bar-value">$${actor.cash}</span></div>
+              <div class="mini-bar-row"><span class="mini-bar-label">信用</span>${renderHeatStrip("credit", actor.credit || 0, 100)}<span class="mini-bar-value">${actor.credit}</span></div>
+              <div class="mini-bar-row"><span class="mini-bar-label">压力</span>${renderHeatStrip("stress", actor.stress || 0, 100)}<span class="mini-bar-value">${actor.stress}</span></div>
+              <div class="mini-bar-row"><span class="mini-bar-label">满意</span>${renderHeatStrip("satisfaction", actor.satisfaction || 0, 100)}<span class="mini-bar-value">${actor.satisfaction}</span></div>
+            </div>
+          </article>
+        `;
+      })
+      .join("");
+  }
 }
 
 function renderMarketModule() {
@@ -1005,6 +1223,8 @@ function financeCategoryLabel(type) {
     property: "地产",
     bank: "银行借贷",
     loan: "人际借贷",
+    work: "公司打工",
+    gray: "灰市交易",
   }[type] || type;
 }
 
@@ -1015,6 +1235,10 @@ function financeActionLabel(type) {
     borrow: "借入",
     repay: "归还",
     settle: "结算",
+    work: "上班",
+    expense: "开销",
+    receive: "收款",
+    pay: "付款",
   }[type] || type;
 }
 
@@ -1086,6 +1310,12 @@ function renderLifestylePanel() {
         <div class="metric-meta">同事平均满意度 ${teamAverageSatisfaction}</div>
         <div class="metric-meta">你当前持有地产 ${playerProperties.length} 处</div>
         <div class="metric-meta">当前选中送礼对象：${recipient ? recipient.name : "未选中同事"}</div>
+      </article>
+      <article class="position-card">
+        <strong>${state.company?.name || "青松数据服务"}</strong>
+        <div class="metric-meta">工作地点：${state.company?.location_label || "石径工坊"}</div>
+        <div class="metric-meta">现金低于 $${state.company?.low_cash_threshold || 50} 时，会明显倾向先去打工。</div>
+        <div class="metric-meta">累计发薪 $${state.company?.total_wages_paid || 0} · 工作场次 ${state.company?.total_work_sessions || 0}</div>
       </article>
     `;
   }
@@ -1178,6 +1408,7 @@ function renderLifestylePanel() {
 
 function renderTasks() {
   const activeMarkup = (state.tasks || [])
+    .slice(0, 5)
     .map((task) => {
       const progress = Math.round((task.progress / task.target) * 100);
       return `
@@ -1191,6 +1422,7 @@ function renderTasks() {
     })
     .join("");
   const archivedMarkup = (state.archived_tasks || [])
+    .slice(0, 3)
     .map(
       (task) => `
         <article class="task-card">
@@ -1202,8 +1434,12 @@ function renderTasks() {
     )
     .join("");
   taskList.innerHTML = `
+    <article class="task-card">
+      <strong>最近任务</strong>
+      <div class="task-meta">这里只显示最近 5 个进行中任务。</div>
+    </article>
     ${activeMarkup || '<article class="task-card"><strong>当前没有活动任务</strong><div>这一轮没有新的进行中任务。</div></article>'}
-    ${archivedMarkup ? `<article class="task-card"><strong>已归档任务</strong><div class="task-meta">以下任务已经完成。</div></article>${archivedMarkup}` : ""}
+    ${archivedMarkup ? `<article class="task-card"><strong>已归档任务</strong><div class="task-meta">这里只保留最近 3 个已完成任务。</div></article>${archivedMarkup}` : ""}
   `;
 }
 
@@ -1556,6 +1792,8 @@ function renderMemory() {
         <div class="status-pill"><strong>生活满意度</strong><span>${state.player.life_satisfaction}</span></div>
         <div class="status-pill"><strong>消费意愿</strong><span>${state.player.consumption_desire}</span></div>
         <div class="status-pill"><strong>住房品质</strong><span>${state.player.housing_quality}</span></div>
+        <div class="status-pill"><strong>工作倾向</strong><span>${state.player.work_drive || 0}</span></div>
+        <div class="status-pill"><strong>日开销基线</strong><span>$${state.player.daily_cost_baseline || 0}</span></div>
         <div class="status-pill"><strong>风险偏好</strong><span>${state.player.risk_appetite}</span></div>
         <div class="status-pill"><strong>持仓</strong><span>${formatPortfolio(state.player.portfolio)}</span></div>
         <div class="status-pill"><strong>空仓</strong><span>${formatShortPortfolio(state.player.short_positions)}</span></div>
@@ -1564,6 +1802,10 @@ function renderMemory() {
       <div class="memory-section">
         <strong>当前计划</strong>
         <div>${observerMode ? "保持观察模式，让系统自动行动，你负责挑关键时点介入。" : "在地图里主动走动、交谈、注入消息并管理市场仓位。"}</div>
+      </div>
+      <div class="memory-section">
+        <strong>工作体系</strong>
+        <div>${state.player.employer_name || "青松数据服务"} · 现金低于 $${state.company?.low_cash_threshold || 50} 时会明显倾向先去打工，靠投入更多精力换更高工资。</div>
       </div>
       <div class="memory-section">
         <strong>即时意图</strong>
@@ -1683,6 +1925,8 @@ function renderMemory() {
       <div class="status-pill"><strong>金钱欲望</strong><span>${agent.money_desire} · ${moneyDesireLabel(agent.money_desire)}</span></div>
       <div class="status-pill"><strong>金钱压力</strong><span>${agent.money_urgency || agent.money_desire} · ${moneyUrgencyLabel(agent.money_urgency || agent.money_desire)}</span></div>
       <div class="status-pill"><strong>信用值</strong><span>${agent.credit_score} · ${creditLabel(agent.credit_score)}</span></div>
+      <div class="status-pill"><strong>工作倾向</strong><span>${agent.work_drive || 0}</span></div>
+      <div class="status-pill"><strong>日开销基线</strong><span>$${agent.daily_cost_baseline || 0}</span></div>
       <div class="status-pill"><strong>风险偏好</strong><span>${agent.risk_appetite}</span></div>
       <div class="status-pill"><strong>心情</strong><span>${agent.state.mood}</span></div>
       <div class="status-pill"><strong>压力</strong><span>${agent.state.stress}</span></div>
@@ -1696,6 +1940,10 @@ function renderMemory() {
     <div class="memory-section">
       <strong>当前计划</strong>
       <div>${agent.current_plan || "这会儿还没有明确行动计划。"}</div>
+    </div>
+    <div class="memory-section">
+      <strong>工作体系</strong>
+      <div>${agent.employer_name || "青松数据服务"} · 现金低于 $${state.company?.low_cash_threshold || 50} 时会优先考虑去公司打一轮工。</div>
     </div>
     <div class="memory-section">
       <strong>即时意图</strong>
@@ -1786,6 +2034,7 @@ function drawWorld(now) {
   drawBackground(now);
   drawRooms(now);
   drawDecorations(now);
+  drawCompanyHub(now);
   drawCottages(now);
   drawPropertyAssets(now);
   drawCharacters(now);
@@ -1980,7 +2229,7 @@ function drawCottages(now) {
   state.agents.forEach((agent) => {
     if (!agent.home_position) return;
     const point = gridToPixels(agent.home_position);
-    const offset = cottageOffsets[agent.id] || { dx: -10, dy: -34 };
+    const offset = cottageOffsets[agent.id] || { dx: -7, dy: -28 };
     drawCottage(point.x + offset.dx, point.y + offset.dy, agent, now);
   });
 }
@@ -1989,38 +2238,80 @@ function drawCottage(x, y, agent, now) {
   const visual = agentVisuals[agent.id] || agentVisuals.player;
   const glow = agent.is_resting ? 0.1 + (Math.sin(now / 420) + 1) * 0.06 : 0;
   ctx.fillStyle = `rgba(255, 235, 180, ${glow})`;
-  ctx.fillRect(x - 6, y - 4, 60, 54);
+  ctx.fillRect(x - 4, y - 3, 44, 40);
   ctx.fillStyle = "#8f6545";
-  ctx.fillRect(x, y + 16, 48, 30);
+  ctx.fillRect(x, y + 12, 34, 20);
   ctx.fillStyle = "#c79b73";
-  ctx.fillRect(x + 3, y + 18, 42, 26);
+  ctx.fillRect(x + 2, y + 14, 30, 17);
   ctx.fillStyle = "rgba(255,255,255,0.16)";
-  ctx.fillRect(x + 6, y + 19, 34, 4);
+  ctx.fillRect(x + 4, y + 15, 24, 3);
   ctx.fillStyle = "#6f4f35";
   ctx.beginPath();
-  ctx.moveTo(x - 2, y + 18);
-  ctx.lineTo(x + 24, y - 1);
-  ctx.lineTo(x + 50, y + 18);
+  ctx.moveTo(x - 2, y + 13);
+  ctx.lineTo(x + 17, y - 1);
+  ctx.lineTo(x + 36, y + 13);
   ctx.closePath();
   ctx.fill();
   ctx.fillStyle = "#8d5b3f";
-  ctx.fillRect(x + 4, y + 14, 40, 4);
+  ctx.fillRect(x + 3, y + 10, 28, 3);
   ctx.fillStyle = "#f7ead2";
-  ctx.fillRect(x + 8, y + 24, 8, 8);
-  ctx.fillRect(x + 32, y + 24, 8, 8);
+  ctx.fillRect(x + 6, y + 18, 6, 6);
+  ctx.fillRect(x + 22, y + 18, 6, 6);
   ctx.fillStyle = shadeColor(visual.coat, -14);
-  ctx.fillRect(x + 18, y + 26, 12, 18);
-  ctx.fillRect(x + 20, y + 8, 8, 7);
+  ctx.fillRect(x + 13, y + 20, 8, 11);
+  ctx.fillRect(x + 15, y + 7, 5, 5);
   ctx.fillStyle = "#5d8745";
-  ctx.fillRect(x + 5, y + 42, 38, 3);
-  ctx.fillRect(x + 6, y + 39, 5, 3);
-  ctx.fillRect(x + 19, y + 40, 6, 3);
-  ctx.fillRect(x + 34, y + 39, 5, 3);
+  ctx.fillRect(x + 4, y + 31, 27, 2);
+  ctx.fillRect(x + 5, y + 29, 4, 2);
+  ctx.fillRect(x + 14, y + 30, 5, 2);
+  ctx.fillRect(x + 24, y + 29, 4, 2);
   if (agent.is_resting) {
     ctx.fillStyle = "rgba(247, 230, 164, 0.9)";
-    ctx.fillRect(x + 10, y + 26, 4, 4);
-    ctx.fillRect(x + 34, y + 26, 4, 4);
+    ctx.fillRect(x + 8, y + 19, 3, 3);
+    ctx.fillRect(x + 24, y + 19, 3, 3);
   }
+}
+
+function drawCompanyHub(now) {
+  if (!state?.company?.position) return;
+  const point = gridToPixels(state.company.position);
+  const sway = Math.sin(now / 480) * 1.2;
+  const x = point.x - 24;
+  const y = point.y - 30;
+  ctx.fillStyle = "rgba(255, 227, 168, 0.18)";
+  ctx.beginPath();
+  ctx.ellipse(point.x, point.y + 14, 34, 14, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#74665a";
+  ctx.fillRect(x + 2, y + 14, 44, 24);
+  ctx.fillStyle = "#918173";
+  ctx.fillRect(x + 4, y + 16, 40, 20);
+  ctx.fillStyle = "#56483b";
+  ctx.beginPath();
+  ctx.moveTo(x - 2, y + 16);
+  ctx.lineTo(x + 24, y + 1 + sway);
+  ctx.lineTo(x + 50, y + 16);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#eadfca";
+  ctx.fillRect(x + 10, y + 21, 7, 7);
+  ctx.fillRect(x + 31, y + 21, 7, 7);
+  ctx.fillStyle = "#3f342c";
+  ctx.fillRect(x + 22, y + 23, 6, 13);
+  ctx.fillStyle = "#d8b96f";
+  roundRect(x + 6, y - 12, 54, 14, 5, true);
+  ctx.fillStyle = "#4f3d2a";
+  ctx.font = '10px "PingFang SC", sans-serif';
+  ctx.fillText("青松数据服务", x + 10, y - 2);
+  ctx.fillStyle = "#e0c26a";
+  ctx.fillRect(point.x + 20, y + 8, 4, 18);
+  ctx.fillStyle = "#f7efcf";
+  ctx.beginPath();
+  ctx.moveTo(point.x + 24, y + 8);
+  ctx.lineTo(point.x + 38, y + 13);
+  ctx.lineTo(point.x + 24, y + 18);
+  ctx.closePath();
+  ctx.fill();
 }
 
 function propertyOwnerColor(asset) {
@@ -2037,57 +2328,67 @@ function drawPropertyAssets(now) {
     const height = asset.height * tile;
     const ownerColor = propertyOwnerColor(asset);
     if (asset.property_type === "farm_plot") {
+      const margin = 8;
       ctx.fillStyle = "#9c8240";
-      ctx.fillRect(px, py, width, height);
-      for (let x = 6; x < width - 4; x += 14) {
+      ctx.fillRect(px + margin, py + margin, width - margin * 2, height - margin * 2);
+      for (let x = margin + 4; x < width - margin - 2; x += 14) {
         ctx.fillStyle = "rgba(236, 216, 124, 0.34)";
-        ctx.fillRect(px + x + Math.sin(now / 400 + x) * 1.5, py + 8, 3, height - 16);
+        ctx.fillRect(px + x + Math.sin(now / 400 + x) * 1.5, py + margin + 4, 3, height - margin * 2 - 8);
       }
     } else if (asset.property_type === "greenhouse") {
+      const margin = 8;
       ctx.fillStyle = asset.built ? "#7ab08a" : "#b9ad8f";
-      roundRect(px + 2, py + 4, width - 4, height - 8, 10, true);
+      roundRect(px + margin, py + margin, width - margin * 2, height - margin * 2, 10, true);
       ctx.fillStyle = "rgba(239, 251, 240, 0.42)";
-      ctx.fillRect(px + 10, py + 10, width - 20, height - 20);
+      ctx.fillRect(px + margin + 6, py + margin + 5, width - (margin + 6) * 2, height - (margin + 5) * 2);
       if (!asset.built) {
         ctx.strokeStyle = "#7c6a57";
         ctx.setLineDash([6, 4]);
-        ctx.strokeRect(px + 2, py + 4, width - 4, height - 8);
+        ctx.strokeRect(px + margin, py + margin, width - margin * 2, height - margin * 2);
         ctx.setLineDash([]);
       }
     } else {
+      const bodyWidth = Math.max(28, Math.round(width * 0.62));
+      const bodyHeight = Math.max(22, Math.round(height * 0.48));
+      const bodyX = Math.round(px + (width - bodyWidth) / 2);
+      const bodyY = Math.round(py + height - bodyHeight - 12);
+      const roofY = bodyY - 14;
       ctx.fillStyle = shadeColor(ownerColor, -18);
-      ctx.fillRect(px + 4, py + 18, width - 8, height - 20);
+      ctx.fillRect(bodyX, bodyY, bodyWidth, bodyHeight);
       ctx.fillStyle = ownerColor;
-      ctx.fillRect(px + 6, py + 20, width - 12, height - 24);
+      ctx.fillRect(bodyX + 2, bodyY + 2, bodyWidth - 4, bodyHeight - 4);
       ctx.fillStyle = "#74533a";
       ctx.beginPath();
-      ctx.moveTo(px + 2, py + 20);
-      ctx.lineTo(px + width / 2, py + 2);
-      ctx.lineTo(px + width - 2, py + 20);
+      ctx.moveTo(bodyX - 3, bodyY + 2);
+      ctx.lineTo(bodyX + bodyWidth / 2, roofY);
+      ctx.lineTo(bodyX + bodyWidth + 3, bodyY + 2);
       ctx.closePath();
       ctx.fill();
       ctx.fillStyle = "#f6ebd6";
-      ctx.fillRect(px + 12, py + 28, 8, 10);
-      ctx.fillRect(px + width - 20, py + 28, 8, 10);
+      ctx.fillRect(bodyX + 6, bodyY + 8, 6, 8);
+      ctx.fillRect(bodyX + bodyWidth - 12, bodyY + 8, 6, 8);
       if (asset.property_type === "shop") {
         ctx.fillStyle = "#f4d48a";
-        ctx.fillRect(px + 10, py + 12, width - 20, 5);
+        ctx.fillRect(bodyX + 4, bodyY - 4, bodyWidth - 8, 4);
       }
       if (asset.property_type === "rental_house") {
         ctx.fillStyle = "#d5c6a6";
-        ctx.fillRect(px + width / 2 - 5, py + 32, 10, 12);
+        ctx.fillRect(bodyX + bodyWidth / 2 - 4, bodyY + 10, 8, 12);
+      } else {
+        ctx.fillStyle = "#d5c6a6";
+        ctx.fillRect(bodyX + bodyWidth / 2 - 3, bodyY + 10, 6, 10);
       }
     }
     ctx.fillStyle = "rgba(48, 40, 31, 0.64)";
-    roundRect(px + 4, py - 16, Math.min(width - 8, 96), 14, 6, true);
+    roundRect(px + 8, py - 14, Math.min(width - 16, 82), 12, 6, true);
     ctx.fillStyle = "#fff8e8";
-    ctx.font = '11px "PingFang SC", sans-serif';
-    ctx.fillText(asset.name.slice(0, 8), px + 8, py - 6);
+    ctx.font = '10px "PingFang SC", sans-serif';
+    ctx.fillText(asset.name.slice(0, 7), px + 12, py - 5);
     if (asset.listed) {
       ctx.fillStyle = "#f7e8bf";
-      ctx.fillRect(px + width - 18, py + 6, 12, 12);
+      ctx.fillRect(px + width - 16, py + 8, 10, 10);
       ctx.fillStyle = "#74583b";
-      ctx.fillText("售", px + width - 16, py + 16);
+      ctx.fillText("售", px + width - 14, py + 16);
     }
   });
 }

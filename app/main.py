@@ -21,11 +21,10 @@ class AppContext:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.activity_logger = ActivityLogger(settings.log_path)
-        self.engine = GameEngine(activity_logger=self.activity_logger)
         self.repository = SnapshotRepository(settings.save_path)
         saved_state = self.repository.load()
+        self.engine = GameEngine(state=saved_state, activity_logger=self.activity_logger)
         if saved_state:
-            self.engine.state = saved_state
             self.engine.log_world_snapshot("snapshot_loaded", details={"source": str(settings.save_path)})
         self.brave = BraveService(settings.brave_api_key)
         self.dialogue = OpenAIDialogueService(settings.openai_api_key, settings.openai_model)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.models import Agent, AgentState, BankState, ConsumableItem, IndexCandle, LabEvent, LabMetrics, MarketState, MemoryEntry, Player, Point, PropertyAsset, StockQuote, Task, WorldState
+from app.models import AnalysisPoint, Agent, AgentState, BankState, ConsumableItem, IndexCandle, LabEvent, LabMetrics, MarketState, MemoryEntry, Player, Point, PropertyAsset, StockQuote, Task, WorldState
 
 
 def _memory(text: str, day: int, slot: str, importance: int = 1) -> MemoryEntry:
@@ -19,6 +19,9 @@ def build_initial_world() -> WorldState:
         housing_quality=50,
         materialism=48,
         comfort_preference=62,
+        work_drive=61,
+        daily_cost_baseline=9,
+        employer_name="青松数据服务",
         portfolio={},
         last_trade_summary="",
         social_links={},
@@ -364,6 +367,9 @@ def build_initial_world() -> WorldState:
         rotation_leader="GEO",
         rotation_age=1,
         index_value=100.0,
+        inflation_index=100.0,
+        daily_inflation_pct=0.0,
+        living_cost_pressure=8,
         stocks=[
             StockQuote(symbol="GEO", name="GeoGrid", sector="geoai", price=24.0, open_price=24.0, last_reason="开盘平稳"),
             StockQuote(symbol="AGR", name="AgriLoop", sector="daily", price=18.0, open_price=18.0, last_reason="天气稳定"),
@@ -557,7 +563,7 @@ def build_initial_world() -> WorldState:
         ),
     ]
     return WorldState(
-        version=24,
+        version=27,
         world_width=44,
         world_height=26,
         day=1,
@@ -583,4 +589,19 @@ def build_initial_world() -> WorldState:
         lifestyle_catalog=lifestyle_catalog,
         properties=properties,
         finance_history=[],
+        analysis_history=[
+            AnalysisPoint(
+                day=1,
+                time_slot="morning",
+                team_cash=sum(agent.cash for agent in agents),
+                player_cash=player.cash,
+                reputation=lab.reputation,
+                market_index=market.index_value,
+                inflation_index=market.inflation_index,
+                avg_stress=round(sum(agent.state.stress for agent in agents) / len(agents), 2),
+                avg_credit=round(sum(agent.credit_score for agent in agents) / len(agents), 2),
+                active_events=len(events),
+                active_gray_cases=0,
+            )
+        ],
     )

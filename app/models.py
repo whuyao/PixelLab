@@ -37,6 +37,9 @@ class Player(BaseModel):
     comfort_preference: int = 58
     monthly_burden: int = 0
     owned_property_ids: list[str] = Field(default_factory=list)
+    work_drive: int = 58
+    daily_cost_baseline: int = 8
+    employer_name: str = "青松数据服务"
 
 
 class AgentState(BaseModel):
@@ -106,6 +109,9 @@ class Agent(BaseModel):
     comfort_preference: int = 50
     monthly_burden: int = 0
     owned_property_ids: list[str] = Field(default_factory=list)
+    work_drive: int = 52
+    daily_cost_baseline: int = 7
+    employer_name: str = "青松数据服务"
 
 
 class Task(BaseModel):
@@ -236,6 +242,18 @@ class BankState(BaseModel):
     defaults_count: int = 0
 
 
+class CompanyState(BaseModel):
+    name: str = "青松数据服务"
+    location_label: str = "石径工坊"
+    position: Point = Field(default_factory=lambda: Point(x=22, y=6))
+    low_cash_threshold: int = 50
+    base_pay_per_shift: int = 10
+    pay_per_energy: int = 3
+    pay_skill_multiplier: float = 0.08
+    total_wages_paid: int = 0
+    total_work_sessions: int = 0
+
+
 class ConsumableItem(BaseModel):
     id: str
     name: str
@@ -280,7 +298,7 @@ class FinanceRecord(BaseModel):
     time_slot: TimeSlot
     actor_id: str
     actor_name: str
-    category: Literal["market", "consume", "property", "bank", "loan"]
+    category: Literal["market", "consume", "property", "bank", "loan", "work", "gray"]
     action: str
     summary: str
     amount: int = 0
@@ -335,6 +353,9 @@ class MarketState(BaseModel):
     rotation_leader: str = "GEO"
     rotation_age: int = 1
     index_value: float = 100.0
+    inflation_index: float = 100.0
+    daily_inflation_pct: float = 0.0
+    living_cost_pressure: int = 0
     stocks: list[StockQuote] = Field(default_factory=list)
     index_history: list[IndexCandle] = Field(default_factory=list)
     daily_index_history: list[IndexCandle] = Field(default_factory=list)
@@ -357,8 +378,22 @@ class DailyBriefItem(BaseModel):
     target_filter: str = ""
 
 
+class AnalysisPoint(BaseModel):
+    day: int
+    time_slot: TimeSlot
+    team_cash: int = 0
+    player_cash: int = 0
+    reputation: int = 0
+    market_index: float = 0.0
+    inflation_index: float = 100.0
+    avg_stress: float = 0.0
+    avg_credit: float = 0.0
+    active_events: int = 0
+    active_gray_cases: int = 0
+
+
 class WorldState(BaseModel):
-    version: int = 24
+    version: int = 27
     world_width: int = 44
     world_height: int = 26
     day: int
@@ -370,6 +405,7 @@ class WorldState(BaseModel):
     events: list[LabEvent]
     lab: LabMetrics
     market: MarketState
+    company: CompanyState = Field(default_factory=CompanyState)
     latest_dialogue: DialogueOutcome | None = None
     archived_tasks: list[Task] = Field(default_factory=list)
     ambient_dialogues: list[DialogueOutcome] = Field(default_factory=list)
@@ -385,6 +421,7 @@ class WorldState(BaseModel):
     lifestyle_catalog: list[ConsumableItem] = Field(default_factory=list)
     properties: list[PropertyAsset] = Field(default_factory=list)
     finance_history: list[FinanceRecord] = Field(default_factory=list)
+    analysis_history: list[AnalysisPoint] = Field(default_factory=list)
 
 
 class MoveRequest(BaseModel):

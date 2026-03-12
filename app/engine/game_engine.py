@@ -20,7 +20,7 @@ from app.engine.social_engine import SocialEngine
 from app.engine.task_system import apply_task_progress
 from app.engine.time_system import advance_time
 from app.engine.world_state import build_initial_world
-from app.models import Agent, BankLoanRecord, ConsumableItem, DailyBriefItem, DailyBriefing, DialogueOutcome, DialogueRecord, FinanceRecord, GrayCase, IndexCandle, LabEvent, LoanRecord, MemoryEntry, Point, PropertyAsset, SocialThread, StoryBeat, WorldState
+from app.models import AnalysisPoint, Agent, BankLoanRecord, ConsumableItem, DailyBriefItem, DailyBriefing, DialogueOutcome, DialogueRecord, FinanceRecord, GrayCase, IndexCandle, LabEvent, LoanRecord, MemoryEntry, Point, PropertyAsset, SocialThread, StoryBeat, Task, WorldState
 from app.services.activity_logger import ActivityLogger
 
 
@@ -149,6 +149,8 @@ class GameEngine:
                 x, y = HUBS[agent.id][self.state.time_slot]
                 agent.position = Point(x=x, y=y)
                 agent.current_location = self._room_for(x, y)
+        self._ensure_agent_runtime_fields()
+        self._update_inflation_state()
         self._refresh_presence()
 
     def get_state(self) -> WorldState:
@@ -266,7 +268,9 @@ class GameEngine:
         self._maybe_generate_system_news()
         self._maybe_trigger_random_lab_event()
         self._move_agents_autonomously()
+        self._trigger_work_activity()
         self._trigger_bank_activity()
+        self._trigger_gray_market_activity()
         self.lifestyle_engine.run_tick()
         self.social_engine.run_tick()
         self._advance_gray_cases(daily_roll=False)
@@ -709,6 +713,8 @@ class GameEngine:
 
     def _money_pressure(self, agent: Agent) -> int:
         pressure = agent.money_desire
+        if agent.cash < self.state.company.low_cash_threshold:
+            pressure = max(pressure, 88)
         if agent.cash < 10:
             pressure = max(pressure, 96)
         elif agent.cash < 25:
@@ -946,6 +952,7 @@ class GameEngine:
             elif task.id == "task-news":
                 task.description = "注入一条真正会影响市场或团队情绪的外部信息，让股价和大家的判断发生波动。"
         self._archive_completed_tasks()
+        self._ensure_task_pipeline()
 
     def _apply_lab_rewards(self, rewards: dict[str, int], reason: str) -> None:
         if not rewards:
@@ -988,6 +995,77 @@ class GameEngine:
                 self.state.archived_tasks.insert(0, task.model_copy(deep=True))
         self.state.archived_tasks = self.state.archived_tasks[:12]
         self.state.tasks = active
+
+    def _ensure_task_pipeline(self) -> None:
+        categories = {task.category for task in self.state.tasks}
+        if "main" not in categories:
+            self.state.tasks.insert(0, self._build_next_main_task())
+        categories = {task.category for task in self.state.tasks}
+        if "social" not in categories:
+            self.state.tasks.append(self._build_next_social_task())
+        categories = {task.category for task in self.state.tasks}
+        if "external" not in categories:
+            self.state.tasks.append(self._build_next_external_task())
+        categories = {task.category for task in self.state.tasks}
+        if "daily" not in categories:
+            self.state.tasks.append(self._build_next_daily_task())
+
+    def _build_next_main_task(self) -> Task:
+        team_cash = self._team_liquid_capital()
+        main_round = 1 + sum(1 for task in self.state.archived_tasks if task.category == "main")
+        next_target_cash = max(team_cash + 120, 650 + (main_round - 1) * 140)
+        task_id = f"task-main-{self.state.day}-{main_round}"
+        return Task(
+            id=task_id,
+            title=f"团队资金扩张 · 第 {main_round} 轮",
+            category="main",
+            description=f"把团队净流动资金从当前约 ${team_cash} 推到 ${next_target_cash}。这轮重点靠地产收益、稳健交易、及时回款和银行额度管理。",
+            progress=0,
+            target=100,
+            participants=[agent.id for agent in self.state.agents],
+            rewards={"reputation": 8 + min(8, main_round), "knowledge_base": 4 + min(6, main_round)},
+        )
+
+    def _build_next_social_task(self) -> Task:
+        social_round = 1 + sum(1 for task in self.state.archived_tasks if task.category == "social")
+        target_agent = min(self.state.agents, key=lambda agent: agent.life_satisfaction + agent.relations.get("player", 0) // 2)
+        return Task(
+            id=f"task-social-{self.state.day}-{social_round}",
+            title=f"关系修复窗口 · 第 {social_round} 轮",
+            category="social",
+            description=f"优先和 {target_agent.name} 以及另一名同事形成两轮有效互动，缓和压力、稳定关系和实验室氛围。",
+            progress=0,
+            target=100,
+            participants=[target_agent.id],
+            rewards={"team_atmosphere": 10, "reputation": 3},
+        )
+
+    def _build_next_external_task(self) -> Task:
+        external_round = 1 + sum(1 for task in self.state.archived_tasks if task.category == "external")
+        target_sector = self.state.market.rotation_leader or "GEO"
+        return Task(
+            id=f"task-external-{self.state.day}-{external_round}",
+            title=f"外部风向扫描 · 第 {external_round} 轮",
+            category="external",
+            description=f"捕捉一条会影响 {self._rotation_label(target_sector)} 或团队判断的外部信号，让市场和实验室预期发生真实波动。",
+            progress=0,
+            target=100,
+            participants=["kai"],
+            rewards={"external_sensitivity": 12, "research_progress": 6},
+        )
+
+    def _build_next_daily_task(self) -> Task:
+        daily_round = 1 + sum(1 for task in self.state.archived_tasks if task.category == "daily")
+        return Task(
+            id=f"task-daily-{self.state.day}-{daily_round}",
+            title=f"生活面维稳 · 第 {daily_round} 轮",
+            category="daily",
+            description="让至少两个人顺利休息、结清一笔生活或银行压力，并把团队平均生活满意度再往上托一点。",
+            progress=0,
+            target=100,
+            participants=["player", "rae"],
+            rewards={"team_atmosphere": 6, "reputation": 2},
+        )
 
     def _refresh_agents_for_new_day(self) -> None:
         weather_bonus = {"sunny": 3, "breezy": 2, "cloudy": 0, "drizzle": -1}[self.state.weather]
@@ -1282,7 +1360,8 @@ class GameEngine:
         if not self.state.market.is_open:
             return
         for agent in self.state.agents:
-            if agent.is_resting or self.random.random() >= 0.10:
+            trade_bias = 0.09 + agent.risk_appetite / 240 + agent.money_urgency / 420
+            if agent.is_resting or self.random.random() >= min(0.28, trade_bias):
                 continue
             trade = self._decide_market_trade(agent)
             if trade is None:
@@ -1306,11 +1385,11 @@ class GameEngine:
         signal = quote.change_pct + (self.state.market.sentiment / 28) + ((agent.risk_appetite - 50) / 40)
         if held > 0 and (quote.change_pct <= -1.6 or (pressure >= 80 and agent.cash < 25) or quote.day_change_pct >= 3.8):
             return (quote.symbol, "sell", min(held, max(1, 1 + held // 2)), "走势不稳，或者得先把现金留出来。")
-        if signal <= 0.35 or agent.cash < quote.price:
+        if signal <= 0.05 or agent.cash < quote.price:
             return None
-        budget = max(quote.price, min(agent.cash, 12 + agent.risk_appetite // 4 + pressure // 6))
+        budget = max(quote.price, min(agent.cash, 18 + agent.risk_appetite // 3 + pressure // 5))
         shares = int(budget // quote.price)
-        shares = max(1, min(3, shares))
+        shares = max(1, min(4, shares))
         return (quote.symbol, "buy", shares, "白天盘面和外部消息都还算顺，先小仓位试一下。")
 
     def _execute_trade_for_agent(self, agent: Agent, symbol: str, side: str, shares: int, reason: str) -> bool:
@@ -1381,8 +1460,8 @@ class GameEngine:
         if held > 0 and (preferred.day_change_pct >= 4.8 or preferred.change_pct <= -2.0):
             return (preferred.symbol, "sell", min(held, 2), "观察模式下先做一次止盈或止损。")
         if self.state.player.cash >= preferred.price:
-            budget = min(self.state.player.cash, 18 + self.state.player.risk_appetite // 3)
-            shares = max(1, min(3, int(budget // preferred.price)))
+            budget = min(self.state.player.cash, 24 + self.state.player.risk_appetite // 2 + max(0, 60 - self.state.player.cash) // 3)
+            shares = max(1, min(4, int(budget // preferred.price)))
             return (preferred.symbol, "buy", shares, "观察模式下，玩家判断这条线值得先小仓位试试。")
         for symbol, shares in self.state.player.portfolio.items():
             if shares > 0:
@@ -1952,16 +2031,309 @@ class GameEngine:
                 continue
             if active_loans:
                 continue
-            if agent.cash > 34 and agent.money_urgency < 84:
+            if agent.cash > 55 and agent.money_urgency < 72:
                 continue
-            if self.random.random() > 0.16:
+            if self.random.random() > 0.28:
                 continue
-            amount = min(self._bank_credit_line(agent.credit_score), max(8, min(42, 10 + agent.money_urgency // 3)))
+            amount = min(self._bank_credit_line(agent.credit_score), max(10, min(54, 12 + agent.money_urgency // 3)))
             term_days = 1 if agent.credit_score >= 70 else 2 if agent.credit_score >= 50 else 3
             try:
                 self._bank_borrow("agent", agent.id, amount, term_days, "现金和体力都偏紧，先从银行周转。")
             except ValueError:
                 continue
+
+    def _trigger_work_activity(self) -> None:
+        if not self.state.market.is_open:
+            return
+        if self._player_should_work():
+            self._run_player_work_shift(forced=self.state.player.cash < self.state.company.low_cash_threshold)
+        for agent in self.state.agents:
+            if agent.is_resting:
+                continue
+            if self._agent_should_work(agent):
+                self._run_agent_work_shift(agent, forced=agent.cash < self.state.company.low_cash_threshold)
+
+    def _trigger_gray_market_activity(self) -> None:
+        active_cases = sum(1 for case in self.state.gray_cases if case.status == "active")
+        pressure = 0.08 + max(0, 2 - active_cases) * 0.04
+        if self.state.market.regime == "risk":
+            pressure += 0.08
+        elif self.state.market.regime == "sideways":
+            pressure += 0.03
+        if self.state.lab.reputation <= 24:
+            pressure += 0.05
+        if self.random.random() > min(0.32, pressure):
+            return
+        candidates = [
+            agent
+            for agent in self.state.agents
+            if not agent.is_resting and (agent.cash <= 120 or agent.money_urgency >= 50 or agent.materialism >= 56 or agent.credit_score <= 60)
+        ]
+        if len(candidates) < 2:
+            return
+        requester = max(
+            candidates,
+            key=lambda agent: agent.money_urgency + max(0, 60 - agent.cash) + agent.materialism + max(0, 68 - agent.credit_score),
+        )
+        donors = [
+            agent
+            for agent in candidates
+            if agent.id != requester.id and agent.cash >= 10 and requester.current_location == agent.current_location
+        ]
+        if not donors:
+            donors = [agent for agent in candidates if agent.id != requester.id and agent.cash >= 10]
+        if not donors:
+            return
+        donor = max(donors, key=lambda agent: agent.cash + agent.generosity + max(0, agent.relations.get(requester.id, 0)))
+        topic = self.random.choice(["灰市盘子", "账外回扣", "不想摆到台面的钱", "临时过手的私货", "灰色套利机会"])
+        first_desire, _ = dominant_desire_for_agent(self.state, requester)
+        second_desire, _ = dominant_desire_for_agent(self.state, donor)
+        mood = self._thread_mood(
+            requester,
+            donor,
+            topic,
+            existing=self._social_thread_for(requester.id, donor.id),
+            first_desire=first_desire,
+            second_desire=second_desire,
+        )
+        gray_options = self._gray_trade_catalog(requester, donor, topic, mood, first_desire, second_desire)
+        if not gray_options:
+            return
+        plan = self.random.choice(gray_options)
+        result = self._execute_gray_trade_plan(requester, donor, topic, mood, plan)
+        if result is None:
+            return
+        line_a = str(plan.get("line_a") or f"这笔别摆到台面上，{donor.name}，钱先过来。")
+        line_b = str(plan.get("line_b") or "行，这笔就按灰市的规矩走。")
+        requester.current_bubble = line_a
+        donor.current_bubble = line_b
+        requester.current_activity = f"刚和 {donor.name} 过完一笔{self._gray_case_label(str(plan.get('type') or 'under_table_exchange'))}。"
+        donor.current_activity = f"刚和 {requester.name} 走完一笔不想公开的钱。"
+        left_desire_label = DESIRE_LABELS.get(first_desire, first_desire)
+        right_desire_label = DESIRE_LABELS.get(second_desire, second_desire)
+        self._append_dialogue_record(
+            DialogueRecord(
+                id=f"dialogue-{uuid4().hex[:8]}",
+                kind="gray_trade",
+                day=self.state.day,
+                time_slot=self.state.time_slot,
+                participants=[requester.id, donor.id],
+                participant_names=[requester.name, donor.name],
+                topic=topic,
+                summary=f"{requester.name} 和 {donor.name} 围绕“{topic}”私下做成了一笔灰市交易。",
+                key_point=self._ambient_dialogue_key_point(
+                    requester.name,
+                    donor.name,
+                    topic,
+                    mood,
+                    left_desire_label,
+                    right_desire_label,
+                    str(result.get("note") or ""),
+                ),
+                transcript=[f"{requester.name}：{line_a}", f"{donor.name}：{line_b}"],
+                desire_labels={requester.name: left_desire_label, donor.name: right_desire_label},
+                mood=str(plan.get("mood_override") or mood),
+                financial_note=str(result.get("note") or ""),
+                gray_trade=True,
+                gray_trade_type=str(result.get("gray_trade_type") or plan.get("type") or "under_table_exchange"),
+                gray_trade_severity=int(result.get("gray_trade_severity") or plan.get("severity") or 2),
+            )
+        )
+        self.state.events.insert(
+            0,
+            build_internal_event(
+                title=f"灰市里又起了一笔{self._gray_case_label(str(plan.get('type') or 'under_table_exchange'))}",
+                summary=f"{requester.name} 和 {donor.name} 在{ROOM_LABELS.get(requester.current_location, requester.current_location)}悄悄做了一笔不想公开的买卖。",
+                slot=self.state.time_slot,
+                category="general",
+            ),
+        )
+        self.state.events = self.state.events[:8]
+        self._log(
+            "gray_market_activity",
+            requester={"id": requester.id, "name": requester.name},
+            donor={"id": donor.id, "name": donor.name},
+            gray_type=str(plan.get("type") or "under_table_exchange"),
+            amount=int(plan.get("amount", 0) or 0),
+            topic=topic,
+        )
+
+    def _player_should_work(self) -> bool:
+        threshold = self.state.company.low_cash_threshold
+        if self.state.player.cash < threshold:
+            return True
+        urge = max(0, threshold + 18 - self.state.player.cash)
+        work_score = self.state.player.work_drive + urge + self.state.player.monthly_burden // 2
+        return self.random.random() < min(0.32, 0.05 + work_score / 320)
+
+    def _agent_should_work(self, agent: Agent) -> bool:
+        threshold = self.state.company.low_cash_threshold
+        if agent.cash < threshold:
+            return True
+        if agent.state.energy <= 18:
+            return False
+        work_score = agent.work_drive + max(0, threshold + 18 - agent.cash) + agent.money_urgency // 2 + agent.monthly_burden // 3
+        return self.random.random() < min(0.36, 0.04 + work_score / 300)
+
+    def _work_effort_from_drive(self, work_drive: int, cash: int, threshold: int) -> int:
+        pressure = max(0, threshold + 24 - cash)
+        return max(4, min(12, 4 + work_drive // 18 + pressure // 12))
+
+    def _run_player_work_shift(self, forced: bool = False) -> None:
+        threshold = self.state.company.low_cash_threshold
+        effort = self._work_effort_from_drive(self.state.player.work_drive, self.state.player.cash, threshold)
+        pay = self.state.company.base_pay_per_shift + effort * self.state.company.pay_per_energy + int(round(effort * self.state.company.pay_skill_multiplier * (1 + self.state.player.risk_appetite / 20)))
+        self.state.player.cash += pay
+        self.state.player.life_satisfaction = self._bounded(self.state.player.life_satisfaction + (1 if forced else 0) - max(1, effort // 5))
+        self.state.player.consumption_desire = self._bounded(self.state.player.consumption_desire + 4)
+        self.state.player.daily_actions.append(f"work:{self.state.company.name}:${pay}")
+        self.state.player.last_trade_summary = f"刚去{self.state.company.name}干了一轮，赚了 ${pay}。"
+        self.state.company.total_wages_paid += pay
+        self.state.company.total_work_sessions += 1
+        self.state.events.insert(
+            0,
+            build_internal_event(
+                title=f"你去 {self.state.company.name} 上了一轮班",
+                summary=f"你投入了约 {effort} 点精力，在 {self.state.company.location_label} 那边干完一轮活，赚到 ${pay}。",
+                slot=self.state.time_slot,
+                category="general",
+            ),
+        )
+        self.state.events = self.state.events[:8]
+        self._append_finance_record(
+            actor_id=self.state.player.id,
+            actor_name=self.state.player.name,
+            category="work",
+            action="work",
+            summary=f"你在 {self.state.company.name} 工作一轮，赚到 ${pay}。",
+            amount=pay,
+            asset_name=self.state.company.name,
+            counterparty="工资结算",
+        )
+
+    def _run_agent_work_shift(self, agent: Agent, forced: bool = False) -> None:
+        threshold = self.state.company.low_cash_threshold
+        effort = min(max(4, agent.state.energy // 6), self._work_effort_from_drive(agent.work_drive, agent.cash, threshold))
+        if effort <= 0:
+            return
+        skill_mix = (agent.state.research_skill + agent.state.geo_reasoning_skill) / 20
+        pay = self.state.company.base_pay_per_shift + effort * self.state.company.pay_per_energy + int(round(effort * self.state.company.pay_skill_multiplier * skill_mix * 10))
+        agent.cash += pay
+        agent.state.energy = max(0, agent.state.energy - effort * 2)
+        agent.state.stress = self._bounded(agent.state.stress + (3 if forced else 1))
+        agent.state.mood = self._bounded(agent.state.mood - (1 if forced else 0))
+        self._adjust_agent_satisfaction(agent, -max(1, effort // 5) + (1 if forced else 0))
+        agent.consumption_desire = self._bounded(agent.consumption_desire + 5)
+        agent.current_location = "compute"
+        agent.position = Point(x=self.state.company.position.x, y=self.state.company.position.y)
+        agent.current_activity = f"正在 {self.state.company.name} 打工换现金。"
+        agent.current_bubble = "我先去公司把现金补一补。"
+        agent.last_trade_summary = f"刚在{self.state.company.name}干了一轮，赚了 ${pay}。"
+        agent.last_interaction = f"刚去 {self.state.company.name} 打工一轮，优先把现金补上。"
+        self.state.company.total_wages_paid += pay
+        self.state.company.total_work_sessions += 1
+        self._remember(agent, f"你刚在 {self.state.company.name} 工作一轮，赚到 ${pay}。", 2)
+        self.state.events.insert(
+            0,
+            build_internal_event(
+                title=f"{agent.name} 去 {self.state.company.name} 打工",
+                summary=f"{agent.name} 投入了约 {effort} 点精力，换回 ${pay} 的现金，准备继续应付接下来的消费、借贷或交易。",
+                slot=self.state.time_slot,
+                category="general",
+            ),
+        )
+        self.state.events = self.state.events[:8]
+        self._append_finance_record(
+            actor_id=agent.id,
+            actor_name=agent.name,
+            category="work",
+            action="work",
+            summary=f"{agent.name} 在 {self.state.company.name} 工作一轮，赚到 ${pay}。",
+            amount=pay,
+            asset_name=self.state.company.name,
+            counterparty="工资结算",
+        )
+
+    def _settle_daily_living_costs(self) -> None:
+        player_activity_load = min(5, len(self.state.player.daily_actions) // 4)
+        self._apply_daily_living_cost(
+            actor_type="player",
+            actor_id=self.state.player.id,
+            actor_name=self.state.player.name,
+            base_cost=self.state.player.daily_cost_baseline + player_activity_load + max(0, self.state.player.monthly_burden // 10),
+            current_cash=self.state.player.cash,
+        )
+        for agent in self.state.agents:
+            behavior_cost = max(0, agent.monthly_burden // 10) + (2 if agent.current_activity and ("买" in agent.current_activity or "卖" in agent.current_activity or "打工" in agent.current_activity) else 0)
+            self._apply_daily_living_cost(
+                actor_type="agent",
+                actor_id=agent.id,
+                actor_name=agent.name,
+                base_cost=agent.daily_cost_baseline + behavior_cost,
+                current_cash=agent.cash,
+                agent=agent,
+            )
+
+    def _update_inflation_state(self) -> None:
+        property_count = sum(1 for asset in self.state.properties if asset.owner_type != "market" and asset.status == "owned")
+        total_cash = self._team_cash_total() + self.state.player.cash
+        total_daily_burden = self.state.player.daily_cost_baseline + sum(agent.daily_cost_baseline for agent in self.state.agents)
+        regime_bias = {"bull": 2.8, "sideways": 1.2, "risk": -1.4}.get(self.state.market.regime or "bull", 1.0)
+        sentiment_bias = (self.state.market.sentiment or 0) / 18
+        wealth_bias = min(14.0, total_cash / 5200)
+        property_bias = property_count * 0.8
+        wage_bias = min(4.5, self.state.company.total_work_sessions / 60)
+        day_bias = min(7.0, max(0.0, (self.state.day - 1) * 0.22))
+        burden_bias = min(6.0, total_daily_burden / 110)
+        reputation_bias = max(0.0, (self.state.lab.reputation - 45) / 18)
+        weather_bias = {"sunny": 0.3, "breezy": 0.6, "cloudy": 0.8, "drizzle": 1.2}.get(self.state.weather, 0.4)
+        target = max(99.0, min(172.0, 100.0 + regime_bias + sentiment_bias + wealth_bias + property_bias + wage_bias + day_bias + burden_bias + reputation_bias + weather_bias))
+        previous = self.state.market.inflation_index or 100.0
+        next_value = max(96.0, min(170.0, previous + ((target - previous) * 0.32)))
+        next_value = round(next_value, 2)
+        if previous <= 0:
+            daily_pct = 0.0
+        else:
+            daily_pct = round(((next_value - previous) / previous) * 100, 2)
+        self.state.market.inflation_index = next_value
+        self.state.market.daily_inflation_pct = daily_pct
+        pressure = ((next_value - 100.0) * 1.35) + property_count + (total_daily_burden / 36) + max(0, total_cash - 6000) / 3000
+        if self.state.market.regime == "risk":
+            pressure += 3
+        self.state.market.living_cost_pressure = self._bounded(round(pressure))
+
+    def _apply_daily_living_cost(
+        self,
+        *,
+        actor_type: str,
+        actor_id: str,
+        actor_name: str,
+        base_cost: int,
+        current_cash: int,
+        agent: Agent | None = None,
+    ) -> None:
+        inflation_multiplier = max(1.0, (self.state.market.inflation_index or 100.0) / 100)
+        pressure_surcharge = max(0, round((self.state.market.living_cost_pressure or 0) / 18))
+        cost = max(4, min(48, round(base_cost * inflation_multiplier) + pressure_surcharge))
+        payment = min(current_cash, cost)
+        if actor_type == "player":
+            self.state.player.cash = max(0, self.state.player.cash - payment)
+            self.state.player.life_satisfaction = self._bounded(self.state.player.life_satisfaction - (2 if payment < cost else 1))
+            self.state.player.last_trade_summary = f"昨天的日常开销结算了 ${payment}，当前物价指数 {self.state.market.inflation_index:.1f}。"
+        elif agent is not None:
+            agent.cash = max(0, agent.cash - payment)
+            self._adjust_agent_satisfaction(agent, -2 if payment < cost else -1)
+            agent.last_trade_summary = f"昨天的日常开销结算了 ${payment}，物价有点在往上走。"
+        self._append_finance_record(
+            actor_id=actor_id,
+            actor_name=actor_name,
+            category="consume",
+            action="expense",
+            summary=f"{actor_name} 完成了一次日常开销结算，支出 ${payment}。当前物价指数 {self.state.market.inflation_index:.1f}{'，但手头已经有点吃紧。' if payment < cost else '。'}",
+            amount=-payment,
+            asset_name="日常开销",
+            counterparty="生活结算",
+        )
 
     def _item_by_id(self, item_id: str) -> ConsumableItem:
         for item in self.state.lifestyle_catalog:
@@ -2167,11 +2539,12 @@ class GameEngine:
         self.state.player.monthly_burden = self._player_lifestyle_burden()
         player_relation_avg = int(sum(self.state.player.social_links.values()) / max(1, len(self.state.player.social_links))) if self.state.player.social_links else 0
         self.state.player.consumption_desire = self._bounded(
-            22
+            28
             + self.state.player.materialism // 2
             + max(0, 55 - self.state.player.life_satisfaction) // 2
-            + max(0, 48 - self.state.player.cash) // 4
+            + max(0, self.state.company.low_cash_threshold + 8 - self.state.player.cash) // 3
             + max(0, 55 - self.state.player.housing_quality) // 3
+            + (self.state.market.living_cost_pressure // 9)
             + (4 if self.state.weather in {"drizzle", "breezy"} else 0)
             + max(0, player_relation_avg // 10)
             - self.state.player.monthly_burden // 4
@@ -2180,12 +2553,13 @@ class GameEngine:
             agent.monthly_burden = self._agent_lifestyle_burden(agent)
             relation_avg = int(sum(agent.relations.values()) / max(1, len(agent.relations))) if agent.relations else 0
             agent.consumption_desire = self._bounded(
-                20
+                25
                 + agent.materialism // 2
                 + max(0, 55 - agent.life_satisfaction) // 2
-                + max(0, 52 - agent.cash) // 4
+                + max(0, self.state.company.low_cash_threshold + 6 - agent.cash) // 3
                 + max(0, 50 - agent.housing_quality) // 3
                 + max(0, agent.state.stress - 55) // 5
+                + (self.state.market.living_cost_pressure // 10)
                 + max(0, relation_avg // 12)
                 - agent.monthly_burden // 4
             )
@@ -2236,7 +2610,8 @@ class GameEngine:
         if not self.state.market.is_open:
             return
         for agent in self.state.agents:
-            if agent.is_resting or self.random.random() > 0.13:
+            desire_bias = 0.12 + agent.consumption_desire / 320 + agent.materialism / 500
+            if agent.is_resting or self.random.random() > min(0.34, desire_bias):
                 continue
             candidate_items = []
             for item in self.state.lifestyle_catalog:
@@ -2246,12 +2621,12 @@ class GameEngine:
                     candidate_items.append(item)
             if not candidate_items:
                 continue
-            if agent.consumption_desire < 48 and agent.life_satisfaction > 55:
+            if agent.consumption_desire < 40 and agent.life_satisfaction > 62:
                 continue
-            if agent.cash < 10 and agent.credit_score < 50:
+            if agent.cash < 8 and agent.credit_score < 45:
                 continue
             item = self.random.choice(candidate_items)
-            gifted = item.giftable and self.random.random() < 0.28
+            gifted = item.giftable and self.random.random() < 0.36
             target = None
             if gifted:
                 nearby = [other for other in self.state.agents if other.id != agent.id and abs(other.position.x - agent.position.x) + abs(other.position.y - agent.position.y) <= 6]
@@ -2307,6 +2682,11 @@ class GameEngine:
             partner_name = self._agent_name(agent.allies[0]) if agent.allies else "别人"
             rival_name = self._agent_name(agent.rivals[0]) if agent.rivals else "阻力"
             resource_name = RESOURCE_LABELS.get(agent.desired_resource, agent.desired_resource)
+            if agent.cash < self.state.company.low_cash_threshold:
+                agent.social_stance = "compete"
+                agent.current_plan = f"现金只剩 ${agent.cash}，得先去{self.state.company.name}打一轮工，再谈股票、借贷或消费。"
+                agent.immediate_intent = f"想先在{self.state.company.location_label}干一轮活，把现金补到安全线以上。"
+                continue
             if money_pressure >= 92:
                 agent.social_stance = "compete"
                 agent.current_plan = f"手头只剩 ${agent.cash}，得明确借钱、接活或先卖点持仓。"
@@ -2896,6 +3276,47 @@ class GameEngine:
         )
         self.state.finance_history = self.state.finance_history[:200]
 
+    def _build_analysis_point(self) -> AnalysisPoint:
+        avg_stress = round(sum(agent.state.stress for agent in self.state.agents) / max(1, len(self.state.agents)), 2)
+        avg_credit = round(sum(agent.credit_score for agent in self.state.agents) / max(1, len(self.state.agents)), 2)
+        return AnalysisPoint(
+            day=self.state.day,
+            time_slot=self.state.time_slot,
+            team_cash=self._team_cash_total(),
+            player_cash=self.state.player.cash,
+            reputation=self.state.lab.reputation,
+            market_index=round(self.state.market.index_value, 2),
+            inflation_index=round(self.state.market.inflation_index, 2),
+            avg_stress=avg_stress,
+            avg_credit=avg_credit,
+            active_events=len(self.state.events or []),
+            active_gray_cases=sum(1 for case in self.state.gray_cases if case.status == "active"),
+        )
+
+    def _record_analysis_point(self) -> None:
+        if self.state.analysis_history is None:
+            self.state.analysis_history = []
+        point = self._build_analysis_point()
+        if self.state.analysis_history:
+            last = self.state.analysis_history[-1]
+            same_frame = (
+                last.day == point.day
+                and last.time_slot == point.time_slot
+                and last.team_cash == point.team_cash
+                and last.player_cash == point.player_cash
+                and last.reputation == point.reputation
+                and round(last.market_index, 2) == round(point.market_index, 2)
+                and round(last.inflation_index, 2) == round(point.inflation_index, 2)
+                and round(last.avg_stress, 2) == round(point.avg_stress, 2)
+                and round(last.avg_credit, 2) == round(point.avg_credit, 2)
+                and last.active_events == point.active_events
+                and last.active_gray_cases == point.active_gray_cases
+            )
+            if same_frame:
+                return
+        self.state.analysis_history.append(point)
+        self.state.analysis_history = self.state.analysis_history[-72:]
+
     def _player_desire_label(self, text: str) -> str:
         normalized = text.strip()
         if not normalized:
@@ -3368,6 +3789,99 @@ class GameEngine:
                     "event_summary": f"{requester.name} 用一套很虚的承诺从 {donor.name} 那里拿走了钱。",
                 }
             )
+        if requester.materialism >= 58 or donor.materialism >= 58:
+            options.append(
+                {
+                    "type": "counterfeit_goods",
+                    "severity": 2,
+                    "requester_id": requester.id,
+                    "donor_id": donor.id,
+                    "amount": amount + 1,
+                    "judgement_floor": 20,
+                    "line_a": f"这批货看起来跟真的差不多，你私下给我 {amount + 1} 美元，我今晚就把箱子塞到你屋后。",
+                    "line_b": f"行，${amount + 1} 我出，但别让我明天一开箱就翻车。",
+                    "note": f"{requester.name} 私下向 {donor.name} 倒了一批来路不明的货，拿走了 ${amount + 1}。",
+                    "memory_requester": f"你刚把一批来路不明的货私下倒给了 {donor.name}，拿到 ${amount + 1}。",
+                    "memory_donor": f"你刚花 ${amount + 1} 从 {requester.name} 手里接了一批不太干净的货。",
+                    "relation_delta": -1,
+                    "cash_delta": amount + 1,
+                    "requester_credit": 5,
+                    "donor_credit": 3,
+                    "lab_reputation": -2,
+                    "event_title": "实验室里开始有人倒卖假货",
+                    "event_summary": f"{requester.name} 把一批来路不明的货私下塞给了 {donor.name}。",
+                }
+            )
+        if requester.owned_property_ids and donor.cash >= amount + 4:
+            options.append(
+                {
+                    "type": "rent_rigging",
+                    "severity": 3,
+                    "requester_id": requester.id,
+                    "donor_id": donor.id,
+                    "amount": amount + 4,
+                    "judgement_floor": 18,
+                    "line_a": f"我手里那间空屋可以不走正式挂牌，{amount + 4} 美元你先给我，我把钥匙和租约都按灰市规矩塞给你。",
+                    "line_b": f"行，${amount + 4} 我给，但你别明天又说这屋子还有别人盯着。",
+                    "note": f"{requester.name} 把一间没走正式流程的屋子私下转给了 {donor.name}，拿走 ${amount + 4}。",
+                    "memory_requester": f"你刚把一间没走正式流程的屋子私下转给了 {donor.name}。",
+                    "memory_donor": f"你刚花 ${amount + 4} 从 {requester.name} 手里接了一间不太干净的屋子。",
+                    "relation_delta": -2,
+                    "cash_delta": amount + 4,
+                    "requester_credit": 6,
+                    "donor_credit": 4,
+                    "lab_reputation": -2,
+                    "event_title": "有人私下转租了一处房产",
+                    "event_summary": f"{requester.name} 没走正式挂牌，就把一处屋子私下递给了 {donor.name}。",
+                }
+            )
+        if requester.current_location == "compute" or donor.current_location == "compute":
+            options.append(
+                {
+                    "type": "wage_kickback",
+                    "severity": 2,
+                    "requester_id": requester.id,
+                    "donor_id": donor.id,
+                    "amount": amount,
+                    "judgement_floor": 16,
+                    "line_a": f"这轮公司那边的活我能给你多塞一点，你私下回我 {amount} 美元回扣，这事谁也别提。",
+                    "line_b": f"行，这 ${amount} 我回给你，你把那轮轻松又赚钱的活先留给我。",
+                    "note": f"{requester.name} 以“工作回扣”为名从 {donor.name} 手里拿了 ${amount}。",
+                    "memory_requester": f"你刚借着公司活口从 {donor.name} 手里拿了一笔回扣。",
+                    "memory_donor": f"你刚私下回给 {requester.name} ${amount}，想换一轮更顺的公司活。",
+                    "relation_delta": -1,
+                    "cash_delta": amount,
+                    "requester_credit": 4,
+                    "donor_credit": 2,
+                    "lab_reputation": -1,
+                    "event_title": "公司活里开始冒出回扣",
+                    "event_summary": f"{requester.name} 和 {donor.name} 为了公司那边的活口私下递了一笔回扣。",
+                }
+            )
+        if requester.money_urgency >= 72 and donor.cash >= amount + 2:
+            options.append(
+                {
+                    "type": "pump_dump",
+                    "severity": 3,
+                    "requester_id": requester.id,
+                    "donor_id": donor.id,
+                    "amount": amount + 2,
+                    "judgement_floor": 22,
+                    "line_a": f"明天开盘你就跟着我把那只票往上顶，先给我 {amount + 2} 美元，我带你一起拉高出货。",
+                    "line_b": f"行，${amount + 2} 我先给，你别让我最后接在高位。",
+                    "note": f"{requester.name} 拉着 {donor.name} 做了一笔拉高出货的灰盘，先拿走 ${amount + 2}。",
+                    "memory_requester": f"你刚说动 {donor.name} 陪你做一笔拉高出货，先拿到 ${amount + 2}。",
+                    "memory_donor": f"你刚给了 {requester.name} ${amount + 2}，准备一起去拉一只票的灰盘。",
+                    "relation_delta": -2,
+                    "cash_delta": amount + 2,
+                    "requester_credit": 7,
+                    "donor_credit": 3,
+                    "lab_reputation": -3,
+                    "market_sentiment": -2,
+                    "event_title": "有人想在盘前做拉高出货",
+                    "event_summary": f"{requester.name} 拉着 {donor.name} 想做一笔先拉后砸的盘前灰盘。",
+                }
+            )
         return options
 
     def _execute_gray_trade_plan(
@@ -3405,6 +3919,27 @@ class GameEngine:
         self._remember(donor, str(plan.get("memory_donor") or f"你刚在一笔灰色交易里付出 ${amount}。"), 3, long_term=True)
         requester.last_interaction = f"刚和 {donor.name} 完成了一笔地下交易。"
         donor.last_interaction = f"刚被卷进和 {requester.name} 的地下交易。"
+        asset_name = self._gray_case_label(str(plan.get("type") or "under_table_exchange"))
+        self._append_finance_record(
+            actor_id=requester.id,
+            actor_name=requester.name,
+            category="gray",
+            action="receive",
+            summary=f"{requester.name} 通过“{asset_name}”从 {donor.name} 手里拿到 ${amount}。",
+            amount=amount,
+            asset_name=asset_name,
+            counterparty=donor.name,
+        )
+        self._append_finance_record(
+            actor_id=donor.id,
+            actor_name=donor.name,
+            category="gray",
+            action="pay",
+            summary=f"{donor.name} 在“{asset_name}”里把 ${amount} 递给了 {requester.name}。",
+            amount=-amount,
+            asset_name=asset_name,
+            counterparty=requester.name,
+        )
         event_title = str(plan.get("event_title") or "实验室里冒出一笔地下交易")
         event_summary = str(plan.get("event_summary") or f"{requester.name} 和 {donor.name} 围绕“{topic}”搞了一笔见不得光的交换。")
         self.state.events.insert(
@@ -3720,6 +4255,10 @@ class GameEngine:
             "data_theft": "数据窃取",
             "blackmail": "封口费",
             "fraud": "诈骗",
+            "counterfeit_goods": "假货倒卖",
+            "rent_rigging": "私下转租",
+            "wage_kickback": "工资回扣",
+            "pump_dump": "拉高出货",
         }.get(case_type, case_type)
 
     def _gray_case_market_target(self, case_type: str) -> str:
@@ -3730,6 +4269,10 @@ class GameEngine:
             "blackmail": "broad",
             "fraud": "broad",
             "under_table_exchange": "AGR",
+            "counterfeit_goods": "AGR",
+            "rent_rigging": "AGR",
+            "wage_kickback": "broad",
+            "pump_dump": "SIG",
         }.get(case_type, "broad")
 
     def _resolve_player_money_exchange(self, agent: Agent, dialogue: DialogueOutcome, relation_delta: int) -> list[str]:
@@ -3939,7 +4482,7 @@ class GameEngine:
             if agent.is_resting:
                 self._keep_agent_resting(agent)
                 continue
-            if "小屋" in agent.current_activity:
+            if "小屋" in agent.current_activity or self.state.company.name in agent.current_activity:
                 if not agent.status_summary:
                     topic = agent.current_activity or "当前状态"
                     agent.status_summary = self._build_status_summary(agent, agent.relations.get("player", 0), topic, from_player=True)
@@ -3954,9 +4497,10 @@ class GameEngine:
                 agent.status_summary = self._build_status_summary(agent, agent.relations.get("player", 0), activity, from_player=True)
             if not agent.last_interaction:
                 agent.last_interaction = "这一时段还没有发生新的深聊。"
+        self._record_analysis_point()
 
     def _ensure_agent_runtime_fields(self) -> None:
-        self.state.version = max(self.state.version, 24)
+        self.state.version = max(self.state.version, 27)
         if self.state.loans is None:
             self.state.loans = []
         if self.state.archived_tasks is None:
@@ -4023,6 +4567,12 @@ class GameEngine:
                 agent.monthly_burden = 0
             if agent.owned_property_ids is None:
                 agent.owned_property_ids = []
+            if not agent.work_drive:
+                agent.work_drive = {"engineering": 72, "rational": 62, "creative": 44, "empathetic": 56, "opportunist": 60}.get(agent.persona, 54)
+            if not agent.daily_cost_baseline:
+                agent.daily_cost_baseline = {"engineering": 6, "rational": 7, "creative": 8, "empathetic": 7, "opportunist": 9}.get(agent.persona, 7)
+            if not agent.employer_name:
+                agent.employer_name = "青松数据服务"
             if not agent.owned_property_ids:
                 owned = [asset.id for asset in self.state.properties if asset.owner_type == "agent" and asset.owner_id == agent.id and asset.status == "owned"]
                 if owned:
@@ -4094,14 +4644,28 @@ class GameEngine:
             self.state.player.monthly_burden = 0
         if self.state.player.owned_property_ids is None:
             self.state.player.owned_property_ids = []
+        if not self.state.player.work_drive:
+            self.state.player.work_drive = 58
+        if not self.state.player.daily_cost_baseline:
+            self.state.player.daily_cost_baseline = 8
+        if not self.state.player.employer_name:
+            self.state.player.employer_name = "青松数据服务"
         if self.state.bank is None:
             self.state.bank = build_initial_world().bank
+        if self.state.company is None:
+            self.state.company = build_initial_world().company
         if self.state.bank_loans is None:
             self.state.bank_loans = []
         if self.state.market.index_history is None:
             self.state.market.index_history = []
         if self.state.market.daily_index_history is None:
             self.state.market.daily_index_history = []
+        if not self.state.market.inflation_index:
+            self.state.market.inflation_index = 100.0
+        if self.state.market.daily_inflation_pct is None:
+            self.state.market.daily_inflation_pct = 0.0
+        if self.state.market.living_cost_pressure is None:
+            self.state.market.living_cost_pressure = 8
         if not self.state.market.regime:
             self.state.market.regime = "bull"
         if not self.state.market.regime_age:
@@ -4121,6 +4685,10 @@ class GameEngine:
             record.topic = self._localized_text(record.topic)
             record.summary = self._localized_text(record.summary)
             record.key_point = self._localized_text(record.key_point)
+        if self.state.analysis_history is None:
+            self.state.analysis_history = []
+        if not self.state.analysis_history:
+            self._record_analysis_point()
             record.transcript = [self._localized_text(line) for line in record.transcript or []]
             record.financial_note = self._localized_text(record.financial_note)
             if record.desire_labels:
