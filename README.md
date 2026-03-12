@@ -13,6 +13,7 @@
 - 玩家与智能体对话支持 `OpenAI` 或 `Qwen` 兼容接口
 - 智能体有长期记忆、短期记忆、关系、欲望、信用、口碑、体力和小屋作息
 - 当前世界还包含轻量游客、旅馆、集市、政府财政与监管、公司打工、银行存款与公共资产
+- 游客也有轻量短期记忆，能把刚发生的聊天、消费和外部消息留在当前行程里
 - 观察模式下，玩家会自动移动、自动发言、自动交易、自动推进
 - 股市、银行借贷、人际借贷、信用、实验室口碑、灰色交易、地下案件、税收、保障和游客消息会互相联动
 - 玩家和智能体的消费、股票、地产、银行借贷、人际借贷都会写入统一的经济事件流
@@ -219,6 +220,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 - [architecture_report.md](/Volumes/Yaoy/project/LocalFarmer/docs/architecture_report.md)：完整技术架构
 - [consumption_real_estate_design.md](/Volumes/Yaoy/project/LocalFarmer/docs/consumption_real_estate_design.md)：消费与地产设计
 - [undergrad_system_explainer.md](/Volumes/Yaoy/project/LocalFarmer/docs/undergrad_system_explainer.md)：面向本科生的系统解释
+- [system_development_retrospective.md](/Volumes/Yaoy/project/LocalFarmer/docs/system_development_retrospective.md)：系统发展过程复盘
 - [recent_100day_emergence_report.md](/Volumes/Yaoy/project/LocalFarmer/docs/recent_100day_emergence_report.md)：最近 100 天系统与智能体涌现报告
 - [simulation_day312_review.md](/Volumes/Yaoy/project/LocalFarmer/docs/simulation_day312_review.md)：312 天运行复盘
 - [simulation_day312_academic_analysis.md](/Volumes/Yaoy/project/LocalFarmer/docs/simulation_day312_academic_analysis.md)：学术分析版
@@ -537,8 +539,16 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 - 同时在线游客上限为 `5`
 - 游客入住 `湖畔旅馆`，在 `林间集市`、湖边、果园坡地、石径工坊等区域停留
 - 游客会消费、聊天、带来外部消息，并把影响传导到市场和智能体记忆
+- 游客有轻量短期记忆，会记住最近的入住、对话、消费和消息注入
 - 游客分为普通游客、回头客、高消费客户、潜在购房者
 - 游客流量受淡季 / 平季 / 旺季 / 活动日影响
+
+游客收入归属现在是显式分账的：
+
+- 进 `玩家 / 智能体` 持有资产的消费，记为私人收入
+- 进 `政府持有资产` 的消费，记为财政资产收入
+- 没有落到私人或政府资产上的旅馆 / 集市消费，记为公共运营收入
+- 消费税另外单独进入财政储备，不和经营收入混在一起
 
 ### 智能体交易
 
@@ -690,7 +700,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 
 - 默认模型是 `gpt-5-mini`
 - 服务默认监听 `127.0.0.1:8765`
-- 当前世界状态版本为 `36`
+- 当前世界状态版本为 `39`
 - 旧存档如果版本落后会被自动丢弃，这是正常行为
 - 当前内部已经拆出 [market_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/market_engine.py)、[social_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/social_engine.py) 和 [lifestyle_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/lifestyle_engine.py)，`GameEngine` 主要负责总编排
 - 当前后端已经支持 section-diff 增量状态同步，前端会优先做模块级增量更新，而不是每轮整页重绘

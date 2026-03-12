@@ -116,7 +116,7 @@ flowchart LR
 - `GovernmentState`
 - `CompanyState`
 
-当前世界状态版本为 `38`。旧快照会在加载时补齐新字段；如果版本过旧，则丢弃并回到新的初始世界。
+当前世界状态版本为 `39`。旧快照会在加载时补齐新字段；如果版本过旧，则丢弃并回到新的初始世界。
 
 ### 3.3 世界引擎
 
@@ -229,6 +229,8 @@ flowchart LR
   从日志里抽出的典型涌现案例。
 - [recent_100day_emergence_report.md](/Volumes/Yaoy/project/LocalFarmer/docs/recent_100day_emergence_report.md)
   基于最近 100 天模拟时间的系统阶段演化与角色分化分析。
+- [system_development_retrospective.md](/Volumes/Yaoy/project/LocalFarmer/docs/system_development_retrospective.md)
+  从原型到当前复合系统的整体发展复盘。
 - [simulation_day312_academic_analysis.md](/Volumes/Yaoy/project/LocalFarmer/docs/simulation_day312_academic_analysis.md)
   更偏学术分析写法的长期运行报告。
 
@@ -874,6 +876,7 @@ asset_i = cash_i + deposit_i + stockValue_i + propertyValue_i - liability_i
 - 游客分为 `regular / repeat / vip / buyer`
 - 游客会入住 `湖畔旅馆`，并在 `林间集市`、湖边、果园坡地、石径工坊等区域停留
 - 游客会消费、聊天、带来外部消息，甚至转化成潜在购房者
+- 游客具备轻量短期记忆，会记住最近的入住、对话、消费和消息输入
 
 #### 游客调度
 
@@ -893,6 +896,27 @@ asset_i = cash_i + deposit_i + stockValue_i + propertyValue_i - liability_i
 1. 直接消费，形成旅游收入和税收  
 2. 带来外部消息，作用于市场和智能体记忆  
 3. 提高本地地产与公共服务的经济价值
+
+#### 游客收入归属
+
+游客消费现在不是一个模糊总数，而是显式拆成三类：
+
+1. `私人收入`
+- 当游客消费落到玩家或智能体持有的旅馆、店铺、农田、温室等资产上时，经营收入直接进入该私人主体。
+
+2. `财政资产收入`
+- 当消费落到政府持有资产上时，收入直接进入 `government.reserve_balance`，并单独计入 `government.revenues["government_asset"]`。
+
+3. `公共运营收入`
+- 当消费没有落到私人或政府资产，而是由默认园区文旅运营承接时，收入进入财政储备，但单独记为 `government.revenues["tourism_public"]`，与政府资产经营收入分开。
+
+此外，消费税会独立从游客侧额外征收并进入财政储备，因此：
+
+\[
+tourist\ payment = operating\ income + consumption\ tax
+\]
+
+其中 `operating income` 和 `tax` 在账上是分开的，不会混成一笔。
 
 ### 8.14 系统新闻与随机实验室事件
 

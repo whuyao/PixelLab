@@ -208,7 +208,7 @@ class GameEngine:
         )
 
     def _refresh_state_signatures(self) -> None:
-        self.state.version = max(self.state.version, 38)
+        self.state.version = max(self.state.version, 39)
         self.state.section_signatures = self._sign_sections(self._build_state_sections())
 
     def _sign_sections(self, sections: dict[str, object]) -> dict[str, str]:
@@ -3058,8 +3058,23 @@ class GameEngine:
                 self.state.government.reserve_balance += actual_amount
                 self.state.government.revenues["government_asset"] = self.state.government.revenues.get("government_asset", 0) + actual_amount
                 self.state.government.last_distribution_note = f"政府持有资产 {asset.name} 刚收到游客收入 ${actual_amount}。"
+        else:
+            owner_type = "public_tourism"
+            owner_id = "tourism_public"
+            owner_name = "园区文旅运营"
+            self.state.government.reserve_balance += actual_amount
+            self.state.government.revenues["tourism_public"] = self.state.government.revenues.get("tourism_public", 0) + actual_amount
         tourism.daily_revenue += actual_amount
         tourism.total_revenue += actual_amount
+        if owner_type in {"player", "agent"}:
+            tourism.daily_private_income += actual_amount
+            tourism.total_private_income += actual_amount
+        elif owner_type == "government":
+            tourism.daily_government_income += actual_amount
+            tourism.total_government_income += actual_amount
+        elif owner_type == "public_tourism":
+            tourism.daily_public_operator_income += actual_amount
+            tourism.total_public_operator_income += actual_amount
         tourism.last_note = f"{tourist.name} 刚在 {facility_name} 花了 ${actual_amount}。"
         self._remember_tourist(tourist, f"你刚在 {facility_name} 花了 ${actual_amount}，对这里的消费体验多留意了一层。", 1)
         tax = self._collect_tax(
@@ -3081,11 +3096,11 @@ class GameEngine:
             asset_name=facility_name,
             counterparty=owner_name,
         )
-        if owner_type in {"player", "agent", "government"}:
+        if owner_type in {"player", "agent", "government", "public_tourism"}:
             self._append_finance_record(
                 actor_id=owner_id,
                 actor_name=owner_name,
-                category="government" if owner_type == "government" else "tourism",
+                category="government" if owner_type in {"government", "public_tourism"} else "tourism",
                 action="receive",
                 summary=f"{owner_name} 因游客消费从 {facility_name} 收到 ${actual_amount} 的收入。",
                 amount=actual_amount,
@@ -4509,6 +4524,9 @@ class GameEngine:
         if slot == "morning":
             self._refresh_tourism_cycle()
             self.state.tourism.daily_revenue = 0
+            self.state.tourism.daily_private_income = 0
+            self.state.tourism.daily_government_income = 0
+            self.state.tourism.daily_public_operator_income = 0
             self.state.tourism.daily_arrivals = 0
             self.state.tourism.daily_departures = 0
             self.state.tourism.daily_messages_count = 0
@@ -6784,7 +6802,7 @@ class GameEngine:
 
     def _ensure_agent_runtime_fields(self) -> None:
         previous_version = self.state.version or 0
-        self.state.version = max(self.state.version, 38)
+        self.state.version = max(self.state.version, 39)
         if self.state.loans is None:
             self.state.loans = []
         if self.state.archived_tasks is None:
@@ -6814,6 +6832,18 @@ class GameEngine:
             self.state.tourism.daily_arrivals = 0
         if self.state.tourism.daily_departures is None:
             self.state.tourism.daily_departures = 0
+        if self.state.tourism.daily_private_income is None:
+            self.state.tourism.daily_private_income = 0
+        if self.state.tourism.total_private_income is None:
+            self.state.tourism.total_private_income = 0
+        if self.state.tourism.daily_government_income is None:
+            self.state.tourism.daily_government_income = 0
+        if self.state.tourism.total_government_income is None:
+            self.state.tourism.total_government_income = 0
+        if self.state.tourism.daily_public_operator_income is None:
+            self.state.tourism.daily_public_operator_income = 0
+        if self.state.tourism.total_public_operator_income is None:
+            self.state.tourism.total_public_operator_income = 0
         if self.state.tourism.repeat_customers_total is None:
             self.state.tourism.repeat_customers_total = 0
         if self.state.tourism.vip_customers_total is None:
@@ -7063,8 +7093,9 @@ class GameEngine:
         if self.state.government.welfare_bankruptcy_support is None:
             self.state.government.welfare_bankruptcy_support = 22
         if self.state.government.revenues is None:
-            self.state.government.revenues = {"wage": 0, "market": 0, "property": 0, "consumption": 0, "fine": 0, "government_asset": 0}
+            self.state.government.revenues = {"wage": 0, "market": 0, "property": 0, "consumption": 0, "fine": 0, "government_asset": 0, "tourism_public": 0}
         self.state.government.revenues.setdefault("government_asset", 0)
+        self.state.government.revenues.setdefault("tourism_public", 0)
         if self.state.company is None:
             self.state.company = build_initial_world().company
         if self.state.bank_loans is None:

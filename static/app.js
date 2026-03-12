@@ -95,7 +95,7 @@ const welfareBankruptcyInput = document.getElementById("welfareBankruptcyInput")
 const taxPolicyNoteInput = document.getElementById("taxPolicyNoteInput");
 const taxPolicySubmitBtn = document.getElementById("taxPolicySubmitBtn");
 const taxPolicyStatus = document.getElementById("taxPolicyStatus");
-const ASSET_VERSION = "20260312ag";
+const ASSET_VERSION = "20260312ah";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -1108,6 +1108,7 @@ function renderFiscalPanel() {
         <article class="tax-rate-item"><strong>消费税</strong><span>$${revenues.consumption || 0}</span></article>
         <article class="tax-rate-item"><strong>罚缴</strong><span>$${revenues.fine || 0}</span></article>
         <article class="tax-rate-item"><strong>政府资产</strong><span>$${revenues.government_asset || 0}</span></article>
+        <article class="tax-rate-item"><strong>公共运营</strong><span>$${revenues.tourism_public || 0}</span></article>
         <article class="tax-rate-item"><strong>政府机构</strong><span>${escapeHtml(government.name || "园区财政与监管局")}</span></article>
       </div>
     </section>
@@ -1437,6 +1438,7 @@ function renderMarketModule() {
         <strong>游客经济</strong>
         <div class="metric-meta">${tourismSeasonLabel(state.tourism?.season_mode)} · 在场游客 ${state.tourists?.length || 0}/${state.tourism?.active_visitor_cap || 5}</div>
         <div class="metric-meta">今到访 ${state.tourism?.daily_arrivals || 0} · 今离开 ${state.tourism?.daily_departures || 0} · 今日收入 $${state.tourism?.daily_revenue || 0}</div>
+        <div class="metric-meta">私人 ${formatCompactCurrency(state.tourism?.daily_private_income || 0)} · 财政资产 ${formatCompactCurrency(state.tourism?.daily_government_income || 0)} · 公共运营 ${formatCompactCurrency(state.tourism?.daily_public_operator_income || 0)}</div>
         <div class="metric-meta">回头客 ${state.tourism?.repeat_customers_total || 0} · 高消费 ${state.tourism?.vip_customers_total || 0} · 看房线索 ${state.tourism?.buyer_leads_total || 0}</div>
       </article>
       <article class="market-state-card">
@@ -1485,6 +1487,8 @@ function renderMarketModule() {
         <strong>游客与消费流</strong>
         <div class="metric-meta">${tourismSeasonLabel(state.tourism?.season_mode)} · 当前 ${state.tourists?.length || 0}/${state.tourism?.active_visitor_cap || 5} 位游客</div>
         <div class="metric-meta">居民消费 ${formatCompactCurrency(todayResidentConsumption)} · 游客消费 ${formatCompactCurrency(todayTouristConsumption)}</div>
+        <div class="metric-meta">私人收入 ${formatCompactCurrency(state.tourism?.daily_private_income || 0)} · 财政资产 ${formatCompactCurrency(state.tourism?.daily_government_income || 0)} · 公共运营 ${formatCompactCurrency(state.tourism?.daily_public_operator_income || 0)}</div>
+        <div class="metric-meta">累计私人 ${formatCompactCurrency(state.tourism?.total_private_income || 0)} · 累计财政资产 ${formatCompactCurrency(state.tourism?.total_government_income || 0)} · 累计公共运营 ${formatCompactCurrency(state.tourism?.total_public_operator_income || 0)}</div>
         <div class="metric-meta">热销方向 ${escapeHtml(popularItems.join(" · ") || "手冲咖啡 · 夜市小吃 · 集市小店")}</div>
         <div class="mini-trend-block">
           <div class="mini-trend-head"><span>近 10 天消费流</span><strong>${formatCompactCurrency(trailingConsumption.reduce((sum, value) => sum + value, 0))}</strong></div>

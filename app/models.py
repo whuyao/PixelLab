@@ -307,6 +307,12 @@ class TourismState(BaseModel):
     daily_departures: int = 0
     daily_revenue: int = 0
     total_revenue: int = 0
+    daily_private_income: int = 0
+    total_private_income: int = 0
+    daily_government_income: int = 0
+    total_government_income: int = 0
+    daily_public_operator_income: int = 0
+    total_public_operator_income: int = 0
     repeat_customers_total: int = 0
     vip_customers_total: int = 0
     buyer_leads_total: int = 0
@@ -357,6 +363,7 @@ class GovernmentState(BaseModel):
             "consumption": 0,
             "fine": 0,
             "government_asset": 0,
+            "tourism_public": 0,
         }
     )
     expenditures: dict[str, int] = Field(
@@ -528,7 +535,7 @@ class AnalysisPoint(BaseModel):
 
 
 class WorldState(BaseModel):
-    version: int = 38
+    version: int = 39
     world_width: int = 44
     world_height: int = 26
     day: int
