@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GeoAI Pixel Lab Test (UrbanComp Lab)</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260312n" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260312v" />
   </head>
   <body>
     <main class="layout">
@@ -26,6 +26,8 @@
             <span>移动：WASD / 方向键</span>
             <span>按 `E`：和身边的人说话</span>
             <span>滚轮缩放 / 拖拽平移</span>
+            <button id="zoomInBtn" type="button">放大地图</button>
+            <button id="zoomOutBtn" type="button">缩小地图</button>
             <button id="systemRunBtn" type="button">系统运行：开</button>
             <button id="observerModeBtn" type="button">观察模式：开</button>
             <button id="autoExploreBtn" type="button">自动漫游：开</button>
@@ -40,6 +42,8 @@
             <div class="market-switch">
               <button id="marketIntradayBtn" type="button">时K</button>
               <button id="marketDailyBtn" type="button">日K</button>
+              <button id="marketMonthlyBtn" type="button">月K</button>
+              <button id="marketYearlyBtn" type="button">年K</button>
             </div>
           </div>
           <div class="market-layout">
@@ -191,27 +195,82 @@
               </div>
               <div id="metricsList" class="metric-list"></div>
             </section>
-            <section class="panel analysis-panel">
+            <section class="panel fiscal-panel">
               <div class="panel-head">
-                <h2>实时分析</h2>
-                <span class="panel-tag">人物 / 事件 / 经济</span>
+                <h2>税务与财政</h2>
+                <span class="panel-tag">政府 / 调税</span>
               </div>
-              <div class="analysis-layout">
-                <section class="analysis-block">
-                  <h3>经济与通胀</h3>
-                  <canvas id="economyAnalysisCanvas" width="640" height="220"></canvas>
-                  <p id="economyAnalysisMeta" class="market-meta">等待分析数据。</p>
-                </section>
-                <section class="analysis-block">
-                  <h3>事件与压力</h3>
-                  <canvas id="eventAnalysisCanvas" width="640" height="220"></canvas>
-                  <p id="eventAnalysisMeta" class="market-meta">等待分析数据。</p>
-                </section>
-                <section class="analysis-block analysis-people-block">
-                  <h3>人物剖面</h3>
-                  <div id="peopleAnalysis" class="analysis-people-grid"></div>
-                </section>
-              </div>
+              <div id="fiscalSummary" class="metric-list"></div>
+              <form id="taxPolicyForm" class="signal-form tax-form">
+                <div class="policy-group">
+                  <p class="policy-group-title">税率设置</p>
+                  <div class="policy-grid">
+                    <label class="policy-field">
+                      <span class="policy-label">工资税率</span>
+                      <span class="policy-hint">公司打工和工资结算时征收。</span>
+                      <input id="wageTaxInput" type="number" min="0" max="35" step="0.1" />
+                    </label>
+                    <label class="policy-field">
+                      <span class="policy-label">证券税率</span>
+                      <span class="policy-hint">股票买卖时按成交额征收。</span>
+                      <input id="securitiesTaxInput" type="number" min="0" max="35" step="0.1" />
+                    </label>
+                    <label class="policy-field">
+                      <span class="policy-label">地产过户税</span>
+                      <span class="policy-hint">买卖房产过户时收一次。</span>
+                      <input id="propertyTransferTaxInput" type="number" min="0" max="35" step="0.1" />
+                    </label>
+                    <label class="policy-field">
+                      <span class="policy-label">地产持有税</span>
+                      <span class="policy-hint">持有房产时按天形成压力。</span>
+                      <input id="propertyHoldingTaxInput" type="number" min="0" max="35" step="0.1" />
+                    </label>
+                    <label class="policy-field">
+                      <span class="policy-label">消费税率</span>
+                      <span class="policy-hint">日常消费和生活开销都会带税。</span>
+                      <input id="consumptionTaxInput" type="number" min="0" max="35" step="0.1" />
+                    </label>
+                    <label class="policy-field">
+                      <span class="policy-label">奢侈税率</span>
+                      <span class="policy-hint">高单价消费和重资产交易的附加税。</span>
+                      <input id="luxuryTaxInput" type="number" min="0" max="35" step="0.1" />
+                    </label>
+                  </div>
+                </div>
+                <div class="policy-group">
+                  <p class="policy-group-title">监管与保障</p>
+                  <div class="policy-grid">
+                    <label class="policy-field">
+                      <span class="policy-label">监管强度</span>
+                      <span class="policy-hint">越高越容易触发抽查、罚缴和曝光。</span>
+                      <input id="enforcementLevelInput" type="number" min="0" max="100" step="1" />
+                    </label>
+                    <label class="policy-field">
+                      <span class="policy-label">保障触发线</span>
+                      <span class="policy-hint">现金低于这个数，会优先考虑财政兜底。</span>
+                      <input id="welfareThresholdInput" type="number" min="0" max="60" step="1" />
+                    </label>
+                    <label class="policy-field">
+                      <span class="policy-label">低收入补助</span>
+                      <span class="policy-hint">一般困难时发放的基础保障金额。</span>
+                      <input id="welfareBaseInput" type="number" min="0" max="80" step="1" />
+                    </label>
+                    <label class="policy-field">
+                      <span class="policy-label">破产救助</span>
+                      <span class="policy-hint">现金见底时使用的更高额度兜底。</span>
+                      <input id="welfareBankruptcyInput" type="number" min="0" max="120" step="1" />
+                    </label>
+                  </div>
+                </div>
+                <label class="policy-field policy-field-wide">
+                  <span class="policy-label">政策备注</span>
+                  <span class="policy-hint">写给晨报和后续事件的说明，例如“加税做一次压力测试”。</span>
+                  <input id="taxPolicyNoteInput" type="text" placeholder="例如：提高证券税和监管强度，测试风险市压力" />
+                </label>
+                <p class="policy-note">百分比字段会直接进入工资、股票、地产和消费结算；保障金额从财政储备里发放，不是凭空发钱。</p>
+                <button id="taxPolicySubmitBtn" type="submit">更新税制</button>
+              </form>
+              <p id="taxPolicyStatus" class="signal-status"></p>
             </section>
           </div>
           <section class="panel memory-panel">
@@ -225,13 +284,6 @@
       </section>
 
       <aside class="action-rail">
-        <section class="panel mission-panel">
-          <div class="panel-head">
-            <h2>任务进展</h2>
-            <span class="panel-tag">主线区</span>
-          </div>
-          <div id="taskList" class="stack"></div>
-        </section>
         <section class="composer-panel">
           <div class="composer-head">
             <h2>玩家对话</h2>
@@ -242,6 +294,35 @@
             <button id="talkSendBtn" type="submit">发送</button>
           </form>
           <p class="composer-tip">靠近同事后按 `E` 会自动聚焦到输入框，回车即可发送。</p>
+        </section>
+        <section class="panel mission-panel">
+          <div class="panel-head">
+            <h2>任务进展</h2>
+            <span class="panel-tag">主线区</span>
+          </div>
+          <div id="taskList" class="stack"></div>
+        </section>
+        <section class="panel analysis-panel rail-analysis-panel">
+          <div class="panel-head">
+            <h2>实时分析</h2>
+            <span class="panel-tag">人物 / 事件 / 经济</span>
+          </div>
+          <div class="analysis-layout">
+            <section class="analysis-block">
+              <h3>经济与通胀</h3>
+              <canvas id="economyAnalysisCanvas" width="640" height="220"></canvas>
+              <p id="economyAnalysisMeta" class="market-meta">等待分析数据。</p>
+            </section>
+            <section class="analysis-block">
+              <h3>事件与压力</h3>
+              <canvas id="eventAnalysisCanvas" width="640" height="220"></canvas>
+              <p id="eventAnalysisMeta" class="market-meta">等待分析数据。</p>
+            </section>
+            <section class="analysis-block analysis-people-block">
+              <h3>人物剖面</h3>
+              <div id="peopleAnalysis" class="analysis-people-grid"></div>
+            </section>
+          </div>
         </section>
         <section class="panel dialogue-panel rail-dialogue-panel">
           <div class="panel-head">
@@ -309,6 +390,6 @@
         </section>
       </aside>
     </main>
-    <script src="/static/app.js?v=20260312n" type="module"></script>
+    <script src="/static/app.js?v=20260312v" type="module"></script>
   </body>
 </html>

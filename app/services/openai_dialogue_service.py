@@ -13,9 +13,11 @@ class OpenAIDialogueError(RuntimeError):
 
 
 class OpenAIDialogueService:
-    def __init__(self, api_key: str | None, model: str) -> None:
+    def __init__(self, api_key: str | None, model: str, base_url: str, provider: str = "openai") -> None:
         self.api_key = api_key
         self.model = model
+        self.base_url = base_url.rstrip("/")
+        self.provider = provider
 
     @property
     def enabled(self) -> bool:
@@ -23,6 +25,8 @@ class OpenAIDialogueService:
 
     async def build_player_dialogue(self, world: WorldState, agent: Agent, player_text: str) -> DialogueOutcome:
         if not self.api_key:
+            if self.provider == "qwen":
+                raise OpenAIDialogueError("尚未配置 QWEN_API_KEY。")
             raise OpenAIDialogueError("尚未配置 OPENAI_API_KEY。")
 
         developer_prompt = self._build_developer_prompt(world, agent)
@@ -54,38 +58,45 @@ class OpenAIDialogueService:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
+        endpoint = f"{self.base_url}/chat/completions"
 
         response = None
         last_error: Exception | None = None
         for _ in range(2):
             try:
                 async with httpx.AsyncClient(timeout=25.0) as client:
-                    response = await client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
+                    response = await client.post(endpoint, headers=headers, json=payload)
                     response.raise_for_status()
                 last_error = None
                 break
             except httpx.HTTPStatusError as exc:
                 detail = exc.response.text[:400]
-                raise OpenAIDialogueError(f"OpenAI 对话请求失败：{detail}") from exc
+                raise OpenAIDialogueError(f"{self.provider_label} 对话请求失败：{detail}") from exc
             except httpx.HTTPError as exc:
                 last_error = exc
 
         if response is None:
             detail = repr(last_error) if last_error else "未知网络错误"
-            raise OpenAIDialogueError(f"OpenAI 网络请求失败：{detail}")
+            raise OpenAIDialogueError(f"{self.provider_label} 网络请求失败：{detail}")
 
         data = response.json()
         try:
             content = data["choices"][0]["message"]["content"]
+            if isinstance(content, list):
+                content = "".join(
+                    str(part.get("text", ""))
+                    for part in content
+                    if isinstance(part, dict)
+                )
             parsed = json.loads(content)
         except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
-            raise OpenAIDialogueError("OpenAI 返回内容无法解析。") from exc
+            raise OpenAIDialogueError(f"{self.provider_label} 返回内容无法解析。") from exc
 
         reply = str(parsed.get("reply", "")).strip()
         topic = str(parsed.get("topic", "")).strip() or player_text[:36]
         bubble = str(parsed.get("bubble", "")).strip() or reply[:18]
         if not reply:
-            raise OpenAIDialogueError("OpenAI 没有返回有效回复。")
+            raise OpenAIDialogueError(f"{self.provider_label} 没有返回有效回复。")
 
         if len(bubble) > 18:
             bubble = f"{bubble[:18]}…"
@@ -99,6 +110,10 @@ class OpenAIDialogueService:
             bubble_text=bubble,
             effects=[],
         )
+
+    @property
+    def provider_label(self) -> str:
+        return "Qwen" if self.provider == "qwen" else "OpenAI"
 
     def _build_developer_prompt(self, world: WorldState, agent: Agent) -> str:
         latest_event = world.events[0].title if world.events else "暂无显著事件"

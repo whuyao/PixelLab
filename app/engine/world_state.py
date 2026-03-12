@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.models import AnalysisPoint, Agent, AgentState, BankState, ConsumableItem, IndexCandle, LabEvent, LabMetrics, MarketState, MemoryEntry, Player, Point, PropertyAsset, StockQuote, Task, WorldState
+from app.models import AnalysisPoint, Agent, AgentState, BankState, ConsumableItem, GovernmentState, IndexCandle, LabEvent, LabMetrics, MarketState, MemoryEntry, Player, Point, PropertyAsset, StockQuote, Task, WorldState
 
 
 def _memory(text: str, day: int, slot: str, importance: int = 1) -> MemoryEntry:
@@ -13,6 +13,7 @@ def build_initial_world() -> WorldState:
         name="你",
         position=Point(x=5, y=8),
         cash=100,
+        reputation_score=61,
         risk_appetite=52,
         life_satisfaction=58,
         consumption_desire=52,
@@ -371,9 +372,51 @@ def build_initial_world() -> WorldState:
         daily_inflation_pct=0.0,
         living_cost_pressure=8,
         stocks=[
-            StockQuote(symbol="GEO", name="GeoGrid", sector="geoai", price=24.0, open_price=24.0, last_reason="开盘平稳"),
-            StockQuote(symbol="AGR", name="AgriLoop", sector="daily", price=18.0, open_price=18.0, last_reason="天气稳定"),
-            StockQuote(symbol="SIG", name="SignalWorks", sector="signal", price=31.0, open_price=31.0, last_reason="外部消息面偏热"),
+            StockQuote(
+                symbol="GEO",
+                name="GeoGrid",
+                sector="geoai",
+                price=24.0,
+                open_price=24.0,
+                base_price=24.0,
+                fair_value=24.8,
+                shares_outstanding=180000,
+                avg_volume=5600,
+                volume=0,
+                turnover_pct=0.0,
+                volatility_score=0.92,
+                last_reason="开盘平稳",
+            ),
+            StockQuote(
+                symbol="AGR",
+                name="AgriLoop",
+                sector="daily",
+                price=18.0,
+                open_price=18.0,
+                base_price=18.0,
+                fair_value=18.4,
+                shares_outstanding=240000,
+                avg_volume=4800,
+                volume=0,
+                turnover_pct=0.0,
+                volatility_score=0.74,
+                last_reason="天气稳定",
+            ),
+            StockQuote(
+                symbol="SIG",
+                name="SignalWorks",
+                sector="signal",
+                price=31.0,
+                open_price=31.0,
+                base_price=31.0,
+                fair_value=31.9,
+                shares_outstanding=150000,
+                avg_volume=5200,
+                volume=0,
+                turnover_pct=0.0,
+                volatility_score=1.08,
+                last_reason="外部消息面偏热",
+            ),
         ],
         index_history=[IndexCandle(day=1, open=100.0, high=100.0, low=100.0, close=100.0, limit_state="normal")],
         daily_index_history=[IndexCandle(day=1, open=100.0, high=100.0, low=100.0, close=100.0, limit_state="normal")],
@@ -563,7 +606,7 @@ def build_initial_world() -> WorldState:
         ),
     ]
     return WorldState(
-        version=27,
+        version=30,
         world_width=44,
         world_height=26,
         day=1,
@@ -576,6 +619,7 @@ def build_initial_world() -> WorldState:
         lab=lab,
         market=market,
         bank=bank,
+        government=GovernmentState(),
         archived_tasks=[],
         ambient_dialogues=[],
         dialogue_history=[],

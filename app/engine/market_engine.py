@@ -14,6 +14,7 @@ class MarketEngine:
 
     def prepare_view(self) -> WorldState:
         self.host._sync_market_clock()
+        self.host._refresh_market_microstructure()
         self.host._refresh_market_regime(force_roll=False)
         self.host._refresh_sector_rotation(force_roll=False)
         self.host._update_index_history(append=False)

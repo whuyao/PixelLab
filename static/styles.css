@@ -18,12 +18,16 @@
 body {
   margin: 0;
   min-height: 100vh;
+  min-height: 100dvh;
   font-family: "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
   background:
     radial-gradient(circle at 18% 8%, rgba(255, 227, 155, 0.48), transparent 24%),
     radial-gradient(circle at 84% 18%, rgba(151, 193, 126, 0.36), transparent 28%),
     linear-gradient(180deg, #eef5df 0%, var(--bg) 30%, var(--bg-deep) 100%);
   color: #f8f4e8;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .layout {
@@ -150,6 +154,7 @@ canvas {
 
 .main-stage canvas {
   min-height: 640px;
+  touch-action: none;
 }
 
 .action-rail {
@@ -162,6 +167,7 @@ canvas {
 .market-panel,
 .mission-panel,
 .metrics-panel,
+.fiscal-panel,
 .analysis-panel,
 .rail-dialogue-panel {
   min-height: 100%;
@@ -503,6 +509,114 @@ canvas {
   min-height: 220px;
   background: linear-gradient(180deg, rgba(248, 251, 255, 0.95), rgba(233, 240, 226, 0.92));
   image-rendering: auto;
+}
+
+.rail-analysis-panel .analysis-layout {
+  grid-template-columns: 1fr;
+}
+
+.rail-analysis-panel .analysis-block {
+  padding: 9px;
+}
+
+.rail-analysis-panel canvas {
+  height: 180px;
+  min-height: 180px;
+}
+
+.rail-analysis-panel .analysis-people-grid {
+  grid-template-columns: 1fr;
+}
+
+.tax-form {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  align-items: stretch;
+  margin-top: 10px;
+}
+
+.tax-form input,
+.tax-form button {
+  width: 100%;
+}
+
+.policy-group {
+  display: grid;
+  gap: 8px;
+}
+
+.policy-group-title {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--accent-deep);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.policy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.policy-field {
+  border: 2px solid rgba(58, 50, 43, 0.18);
+  background: rgba(252, 247, 232, 0.9);
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.policy-field-wide {
+  grid-column: 1 / -1;
+}
+
+.policy-label {
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.policy-hint,
+.policy-note {
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: rgba(46, 39, 31, 0.72);
+}
+
+.policy-note {
+  margin: 0;
+  padding: 4px 0 0;
+}
+
+.fiscal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tax-rate-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.tax-rate-item {
+  border: 2px solid rgba(58, 50, 43, 0.22);
+  background: rgba(252, 247, 232, 0.92);
+  padding: 8px 9px;
+  display: grid;
+  gap: 4px;
+}
+
+.tax-rate-item strong {
+  font-size: 0.84rem;
+}
+
+.fiscal-list {
+  display: grid;
+  gap: 8px;
 }
 
 .analysis-people-block {
@@ -1009,6 +1123,11 @@ canvas {
   background: linear-gradient(180deg, #89a85f, #6f8e4e);
 }
 
+#zoomInBtn,
+#zoomOutBtn {
+  background: linear-gradient(180deg, #89a85f, #6f8e4e);
+}
+
 .signal-form {
   flex-wrap: wrap;
 }
@@ -1083,8 +1202,112 @@ canvas {
     grid-template-columns: 1fr;
   }
 
+  .rail-analysis-panel .analysis-people-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+
   .market-summary-grid,
   .metric-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .policy-grid,
+  .tax-rate-grid,
+  .fiscal-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  body {
+    font-size: 15px;
+  }
+
+  .layout {
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .stage-panel,
+  .panel,
+  .composer-panel,
+  .signal-panel,
+  .mission-panel {
+    box-shadow: 0 10px 18px rgba(46, 57, 36, 0.18), 4px 4px 0 rgba(20, 17, 13, 0.18);
+  }
+
+  .stage-panel {
+    padding: 12px;
+  }
+
+  .stage-header,
+  .panel-head,
+  .composer-head,
+  .talk-form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .status-strip,
+  .controls,
+  .market-switch {
+    justify-content: flex-start;
+  }
+
+  .controls span,
+  .controls button,
+  .signal-form button,
+  .talk-form button {
+    width: 100%;
+  }
+
+  .controls span {
+    text-align: center;
+  }
+
+  .main-stage canvas {
+    min-height: 380px;
+  }
+
+  #marketCanvas,
+  .analysis-panel canvas {
+    height: 220px;
+    min-height: 220px;
+  }
+
+  .action-rail {
+    position: static;
+    gap: 10px;
+  }
+
+  .dialogue-box,
+  .memory-box,
+  .daily-brief-box {
+    min-height: 0;
+  }
+
+  .dialogue-timeline,
+  .finance-history-list {
+    max-height: 280px;
+  }
+
+  #tradeForm,
+  #bankBorrowForm {
+    grid-template-columns: 1fr;
+  }
+
+  #tradeShares,
+  #bankBorrowAmount,
+  .dialogue-filter-bar select {
+    max-width: none;
+  }
+
+  .metric-compact-grid,
+  .status-grid,
+  .market-summary-grid,
+  .analysis-layout,
+  .analysis-people-grid,
+  .position-grid {
     grid-template-columns: 1fr;
   }
 }

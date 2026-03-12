@@ -22,6 +22,7 @@ class Player(BaseModel):
     position: Point
     cash: int = 100
     credit_score: int = 72
+    reputation_score: int = 58
     risk_appetite: int = 52
     portfolio: dict[str, int] = Field(default_factory=dict)
     short_positions: dict[str, int] = Field(default_factory=dict)
@@ -29,6 +30,7 @@ class Player(BaseModel):
     last_trade_summary: str = ""
     injected_topics: list[str] = Field(default_factory=list)
     social_links: dict[str, int] = Field(default_factory=dict)
+    relation_cooldowns: dict[str, int] = Field(default_factory=dict)
     daily_actions: list[str] = Field(default_factory=list)
     life_satisfaction: int = 56
     consumption_desire: int = 44
@@ -70,6 +72,7 @@ class Agent(BaseModel):
     position: Point
     state: AgentState
     relations: dict[str, int] = Field(default_factory=dict)
+    relation_cooldowns: dict[str, int] = Field(default_factory=dict)
     short_term_memory: list[MemoryEntry] = Field(default_factory=list)
     long_term_memory: list[MemoryEntry] = Field(default_factory=list)
     current_activity: str = ""
@@ -254,6 +257,38 @@ class CompanyState(BaseModel):
     total_work_sessions: int = 0
 
 
+class GovernmentState(BaseModel):
+    name: str = "园区财政与监管局"
+    wage_tax_rate_pct: float = 8.0
+    securities_tax_rate_pct: float = 1.2
+    property_transfer_tax_rate_pct: float = 4.0
+    property_holding_tax_rate_pct: float = 6.0
+    consumption_tax_rate_pct: float = 5.0
+    luxury_tax_rate_pct: float = 8.0
+    enforcement_level: int = 54
+    welfare_low_cash_threshold: int = 24
+    welfare_base_support: int = 10
+    welfare_bankruptcy_support: int = 22
+    total_revenue: int = 0
+    reserve_balance: int = 260
+    total_welfare_paid: int = 0
+    revenues: dict[str, int] = Field(
+        default_factory=lambda: {
+            "wage": 0,
+            "market": 0,
+            "property": 0,
+            "consumption": 0,
+            "fine": 0,
+        }
+    )
+    expenditures: dict[str, int] = Field(
+        default_factory=lambda: {
+            "welfare": 0,
+        }
+    )
+    last_policy_note: str = "维持默认税率。"
+
+
 class ConsumableItem(BaseModel):
     id: str
     name: str
@@ -298,7 +333,7 @@ class FinanceRecord(BaseModel):
     time_slot: TimeSlot
     actor_id: str
     actor_name: str
-    category: Literal["market", "consume", "property", "bank", "loan", "work", "gray"]
+    category: Literal["market", "consume", "property", "bank", "loan", "work", "gray", "tax", "welfare"]
     action: str
     summary: str
     amount: int = 0
@@ -338,6 +373,13 @@ class StockQuote(BaseModel):
     sector: str
     price: float
     open_price: float
+    base_price: float = 0.0
+    fair_value: float = 0.0
+    shares_outstanding: int = 0
+    avg_volume: int = 0
+    volume: int = 0
+    turnover_pct: float = 0.0
+    volatility_score: float = 0.9
     change_pct: float = 0.0
     day_change_pct: float = 0.0
     last_reason: str = ""
@@ -356,6 +398,11 @@ class MarketState(BaseModel):
     inflation_index: float = 100.0
     daily_inflation_pct: float = 0.0
     living_cost_pressure: int = 0
+    turnover_total: float = 0.0
+    turnover_ratio_pct: float = 0.0
+    realized_volatility_pct: float = 0.8
+    advancers: int = 0
+    decliners: int = 0
     stocks: list[StockQuote] = Field(default_factory=list)
     index_history: list[IndexCandle] = Field(default_factory=list)
     daily_index_history: list[IndexCandle] = Field(default_factory=list)
@@ -393,7 +440,7 @@ class AnalysisPoint(BaseModel):
 
 
 class WorldState(BaseModel):
-    version: int = 27
+    version: int = 28
     world_width: int = 44
     world_height: int = 26
     day: int
@@ -406,6 +453,7 @@ class WorldState(BaseModel):
     lab: LabMetrics
     market: MarketState
     company: CompanyState = Field(default_factory=CompanyState)
+    government: GovernmentState = Field(default_factory=GovernmentState)
     latest_dialogue: DialogueOutcome | None = None
     archived_tasks: list[Task] = Field(default_factory=list)
     ambient_dialogues: list[DialogueOutcome] = Field(default_factory=list)
@@ -468,6 +516,20 @@ class BankRepayRequest(BaseModel):
 
 class GrayCaseActionRequest(BaseModel):
     action: Literal["suppress", "report", "mediate", "short"]
+
+
+class TaxPolicyRequest(BaseModel):
+    wage_tax_rate_pct: float | None = None
+    securities_tax_rate_pct: float | None = None
+    property_transfer_tax_rate_pct: float | None = None
+    property_holding_tax_rate_pct: float | None = None
+    consumption_tax_rate_pct: float | None = None
+    luxury_tax_rate_pct: float | None = None
+    enforcement_level: int | None = None
+    welfare_low_cash_threshold: int | None = None
+    welfare_base_support: int | None = None
+    welfare_bankruptcy_support: int | None = None
+    note: str = ""
 
 
 class ConsumeRequest(BaseModel):

@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import Settings, load_settings
 from app.engine.game_engine import GameEngine
-from app.models import AdvanceRequest, BankBorrowRequest, BankRepayRequest, ConsumeRequest, GrayCaseActionRequest, MacroNewsRequest, MoveRequest, NewsRequest, PropertyFinanceRequest, SpeakRequest, TradeRequest, WorldState
+from app.models import AdvanceRequest, BankBorrowRequest, BankRepayRequest, ConsumeRequest, GrayCaseActionRequest, MacroNewsRequest, MoveRequest, NewsRequest, PropertyFinanceRequest, SpeakRequest, TaxPolicyRequest, TradeRequest, WorldState
 from app.services.activity_logger import ActivityLogger
 from app.services.openai_dialogue_service import OpenAIDialogueError, OpenAIDialogueService
 from app.services.brave_service import BraveSearchError, BraveService
@@ -27,7 +27,12 @@ class AppContext:
         if saved_state:
             self.engine.log_world_snapshot("snapshot_loaded", details={"source": str(settings.save_path)})
         self.brave = BraveService(settings.brave_api_key)
-        self.dialogue = OpenAIDialogueService(settings.openai_api_key, settings.openai_model)
+        self.dialogue = OpenAIDialogueService(
+            settings.llm_api_key,
+            settings.llm_model,
+            settings.llm_base_url,
+            provider=settings.llm_provider,
+        )
         self.engine.log_world_snapshot("app_boot", details={"log_path": str(settings.log_path)})
 
 
@@ -172,6 +177,13 @@ async def inject_macro_news(payload: MacroNewsRequest) -> WorldState:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     state = context.engine.inject_event(event)
+    context.repository.save(state)
+    return state
+
+
+@app.post("/api/government/policy", response_model=WorldState)
+async def update_tax_policy(payload: TaxPolicyRequest) -> WorldState:
+    state = context.engine.update_tax_policy(payload.model_dump())
     context.repository.save(state)
     return state
 

@@ -5,8 +5,9 @@
 它不是单纯的聊天演示，而是一个持续运行的田园实验室世界：
 
 - 中文前端，地图为主体，支持缩放、拖拽、点选角色
+- 窄屏和手机 Safari 有轻量适配，支持右栏纵向滚动、按钮缩排和地图缩放按钮
 - 左侧主列展示地图、市场中心、生活与地产、实验室主面板、角色信息；右侧侧栏承载任务、对话、晨报、信号、经济事件流和最近事件
-- 玩家与智能体对话优先走 `gpt-5-mini`
+- 玩家与智能体对话支持 `OpenAI` 或 `Qwen` 兼容接口
 - 智能体有长期记忆、短期记忆、关系、欲望、信用、口碑、体力和小屋作息
 - 观察模式下，玩家会自动移动、自动发言、自动交易、自动推进
 - 股市、银行借贷、人际借贷、信用、实验室口碑、灰色交易和地下案件会互相联动
@@ -20,7 +21,7 @@
 
 - Python `3.11+` 推荐
 - macOS / Linux
-- 一个可用的 OpenAI API key
+- 一个可用的 OpenAI 或 Qwen API key
 - 可选：Brave Search API key
 
 ### 1. 获取代码
@@ -65,9 +66,25 @@ cp .env.example /tmp/localfarmer.env
 然后编辑 [/tmp/localfarmer.env](/tmp/localfarmer.env)，至少填写：
 
 ```env
+BRAVE_API_KEY=你的_BRAVE_KEY
+```
+
+如果你用 OpenAI：
+
+```env
+LLM_PROVIDER=openai
 OPENAI_API_KEY=你的_OPENAI_KEY
 OPENAI_MODEL=gpt-5-mini
-BRAVE_API_KEY=你的_BRAVE_KEY
+OPENAI_BASE_URL=https://api.openai.com/v1
+```
+
+如果你用 Qwen 兼容接口：
+
+```env
+LLM_PROVIDER=qwen
+QWEN_API_KEY=你的_QWEN_KEY
+QWEN_MODEL=qwen-plus
+QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 ```
 
 可选参数：
@@ -80,14 +97,25 @@ LOCALFARMER_ENV_FILE=/tmp/localfarmer.env
 
 说明：
 
-- `OPENAI_API_KEY`：玩家和智能体对话优先走这个
-- `OPENAI_MODEL`：默认就是 `gpt-5-mini`
+- `LLM_PROVIDER`：可选 `openai` 或 `qwen`
+- `OPENAI_API_KEY`：使用 OpenAI 时填写
+- `OPENAI_MODEL`：OpenAI 默认就是 `gpt-5-mini`
+- `OPENAI_BASE_URL`：OpenAI 兼容接口基地址
+- `QWEN_API_KEY`：使用 Qwen 时填写
+- `QWEN_MODEL`：Qwen 默认示例是 `qwen-plus`
+- `QWEN_BASE_URL`：Qwen OpenAI-compatible 接口基地址
 - `BRAVE_API_KEY`：用于从 Brave 注入新闻，不配也能运行
 - `SAVE_PATH`：SQLite 快照存档位置
 - `LOG_PATH`：行为日志位置
 - `LOCALFARMER_ENV_FILE`：如果你不想用 `/tmp/localfarmer.env`，可以改成别的仓库外路径
 
 真实 key 不应写进代码文件、README、`.env.example` 或 GitHub。
+
+推荐做法：
+
+- 本地开发时始终使用仓库外的 `/tmp/localfarmer.env`
+- 如果是服务器部署，把 `LOCALFARMER_ENV_FILE` 指向私有目录，例如 `/srv/pixellab/localfarmer.env`
+- 不要把任何真实 key 写进 `systemd` unit、Nginx 配置、README 截图或前端代码
 
 ### 4. 启动项目
 
@@ -106,6 +134,12 @@ http://127.0.0.1:8765
 
 - Host: `127.0.0.1`
 - Port: `8765`
+
+如果你需要从别的设备访问，推荐做法是：
+
+- 服务仍然只监听本机 `127.0.0.1:8765`
+- 用你自己的反向代理把它转发成外部地址
+- 外层代理负责 HTTPS、域名和访问控制
 
 ### 5. 停止项目
 
@@ -151,24 +185,49 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 
 - 把 `/tmp/localfarmer.env` 改成服务器上的私有路径
 - 用反向代理把 `127.0.0.1:8765` 暴露出去
+- 把外部 HTTPS、证书续期、访问控制都放在代理层
 - 定时备份 `save/localfarmer.db`
 - 保留 `logs/activity.jsonl` 以便排查行为问题
 
 当前项目没有额外依赖 Redis、消息队列或外部数据库，最小可运行依赖只有：
 
 - Python 环境
-- OpenAI key
+- OpenAI 或 Qwen key
 - 可选 Brave key
+
+### 8. 手机与 Safari 访问说明
+
+当前前端做的是“轻量移动适配”，适合观察、对话、看盘和调参，不是完整手机原生体验。
+
+手机 Safari 上建议这样使用：
+
+- 以竖屏浏览右侧信息流，以横屏看地图会更舒服
+- 地图缩放优先使用 `放大地图 / 缩小地图` 按钮，不要依赖滚轮
+- 在地图区域内拖动可平移；在右侧和下方面板内拖动会滚动页面
+- 右侧面板在窄屏下会自然改成纵向流，不再强制粘性定位
+- 如果页面样式不对，先做一次强制刷新
+
+### 9. 文档索引
+
+核心技术文档都在 [docs](/Volumes/Yaoy/project/LocalFarmer/docs)：
+
+- [architecture_report.md](/Volumes/Yaoy/project/LocalFarmer/docs/architecture_report.md)：完整技术架构
+- [consumption_real_estate_design.md](/Volumes/Yaoy/project/LocalFarmer/docs/consumption_real_estate_design.md)：消费与地产设计
+- [undergrad_system_explainer.md](/Volumes/Yaoy/project/LocalFarmer/docs/undergrad_system_explainer.md)：面向本科生的系统解释
+- [simulation_day312_review.md](/Volumes/Yaoy/project/LocalFarmer/docs/simulation_day312_review.md)：312 天运行复盘
+- [simulation_day312_academic_analysis.md](/Volumes/Yaoy/project/LocalFarmer/docs/simulation_day312_academic_analysis.md)：学术分析版
+- [emergent_behavior_casebook.md](/Volumes/Yaoy/project/LocalFarmer/docs/emergent_behavior_casebook.md)：10 个涌现行为案例
 
 ## 主要交互
 
 - `WASD / 方向键`：移动玩家
 - `E`：靠近角色后聚焦对话框
 - 鼠标滚轮：缩放地图
+- `放大地图 / 缩小地图`：手机和平板上更容易操作的缩放入口
 - 鼠标拖拽：平移地图
 - `系统运行：开/暂停`：冻结或恢复自动演化
 - `观察模式：开/关`：切换到“只观察和外部注入”的玩法
-- `时K / 日K`：切换大盘图形
+- `时K / 日K / 月K / 年K`：切换大盘图形
 
 ## 当前前端布局
 

@@ -28,7 +28,7 @@ flowchart LR
     Repo --> SQLite["SQLite\nsave/localfarmer.db"]
     Engine --> Logger["ActivityLogger\napp/services/activity_logger.py"]
     Logger --> JSONL["logs/activity.jsonl"]
-    API --> OpenAI["OpenAI 对话服务\napp/services/openai_dialogue_service.py"]
+    API --> LLM["LLM 兼容对话服务\nOpenAI / Qwen\napp/services/openai_dialogue_service.py"]
     API --> Brave["Brave Search\napp/services/brave_service.py"]
     API --> Mapper["事件映射\napp/services/event_mapper.py"]
     Mapper --> Engine
@@ -53,7 +53,7 @@ flowchart LR
 职责：
 
 - 初始化 `GameEngine`
-- 装配 OpenAI、Brave、快照仓储和日志器
+- 装配 LLM 提供方、Brave、快照仓储和日志器
 - 暴露 API 并保存状态
 
 当前关键接口：
@@ -101,7 +101,7 @@ flowchart LR
 - `SocialThread`
 - `StoryBeat`
 
-当前世界状态版本为 `24`。旧快照会在加载时补齐新字段；如果版本过旧，则丢弃并回到新的初始世界。
+当前世界状态版本为 `30`。旧快照会在加载时补齐新字段；如果版本过旧，则丢弃并回到新的初始世界。
 
 ### 3.3 世界引擎
 
@@ -148,7 +148,9 @@ flowchart LR
   - 欲望驱动式短对话
 
 - [app/services/openai_dialogue_service.py](/Volumes/Yaoy/project/LocalFarmer/app/services/openai_dialogue_service.py)
-  - 玩家主动对话优先调用 `gpt-5-mini`
+  - 通过 OpenAI-compatible 协议接 OpenAI 或 Qwen
+  - OpenAI 默认模型是 `gpt-5-mini`
+  - Qwen 默认示例模型是 `qwen-plus`
   - 观察模式下自动发言也优先走同一条链路
   - Prompt 注入角色记忆、主欲望、局部视角、财务压力和关系语境
 
@@ -923,9 +925,24 @@ GeoAI / 空间智能进度不再封顶，而是持续累加。
 - 真实密钥不进入仓库
 - 默认从 `/tmp/localfarmer.env` 读取
 - `.env.example` 只保留空占位
-- 默认模型为 `gpt-5-mini`
+- 支持 `LLM_PROVIDER=openai|qwen`
+- OpenAI 默认模型为 `gpt-5-mini`
+- Qwen 默认示例模型为 `qwen-plus`
 
 这是本地开发友好的 secrets 策略，但不是生产环境方案。
+
+推荐配置方式：
+
+- 开发机：`LOCALFARMER_ENV_FILE=/tmp/localfarmer.env`
+- 服务器：把 env 文件放到仓库外的私有目录
+- 对外访问：应用只监听 `127.0.0.1:8765`，由独立反向代理负责 HTTPS、域名和访问控制
+
+移动端前端策略：
+
+- 采用静态 HTML + 原生 JS + CSS 媒体查询
+- 窄屏下右侧侧栏退化为纵向信息流
+- 地图提供额外的缩放按钮，避免手机 Safari 缺少滚轮时无法缩放
+- 使用 `100dvh` 和 safe-area inset 兼容刘海屏与 Safari 底部工具栏
 
 ## 12. 当前优势
 
