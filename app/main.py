@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import Settings, load_settings
 from app.engine.game_engine import GameEngine
-from app.models import AdvanceRequest, BankBorrowRequest, BankRepayRequest, ConsumeRequest, GrayCaseActionRequest, MacroNewsRequest, MoveRequest, NewsRequest, PropertyFinanceRequest, SpeakRequest, TaxPolicyRequest, TradeRequest, WorldState
+from app.models import AdvanceRequest, BankBorrowRequest, BankRepayRequest, ConsumeRequest, GrayCaseActionRequest, MacroNewsRequest, MoveRequest, NewsRequest, PropertyFinanceRequest, SpeakRequest, StateDiffRequest, StateDiffResponse, TaxPolicyRequest, TradeRequest, WorldState
 from app.services.activity_logger import ActivityLogger
 from app.services.openai_dialogue_service import OpenAIDialogueError, OpenAIDialogueService
 from app.services.brave_service import BraveSearchError, BraveService
@@ -51,6 +51,12 @@ app = FastAPI(title="LocalFarmer", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=Path(__file__).parent.parent / "static"), name="static")
 
 
+def _persist_and_return_state() -> WorldState:
+    state = context.engine.get_state()
+    context.repository.save(state)
+    return state
+
+
 async def _apply_ai_player_dialogue(agent_id: str, text: str, observer_mode: bool = False) -> None:
     cleaned = text.strip()
     if not cleaned:
@@ -81,7 +87,12 @@ async def root() -> FileResponse:
 
 @app.get("/api/state", response_model=WorldState)
 async def get_state() -> WorldState:
-    return context.engine.get_state()
+    return _persist_and_return_state()
+
+
+@app.post("/api/state/diff", response_model=StateDiffResponse)
+async def get_state_diff(payload: StateDiffRequest) -> StateDiffResponse:
+    return context.engine.get_state_diff(payload.signatures)
 
 
 @app.post("/api/move", response_model=WorldState)
@@ -90,8 +101,7 @@ async def move_player(payload: MoveRequest) -> WorldState:
         state = context.engine.move_player(payload.dx, payload.dy)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    context.repository.save(state)
-    return state
+    return _persist_and_return_state()
 
 
 @app.post("/api/interact/{agent_id}", response_model=WorldState)
@@ -102,9 +112,7 @@ async def interact(agent_id: str) -> WorldState:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    state = context.engine.get_state()
-    context.repository.save(state)
-    return state
+    return _persist_and_return_state()
 
 
 @app.post("/api/speak/{agent_id}", response_model=WorldState)
@@ -115,9 +123,7 @@ async def speak(agent_id: str, payload: SpeakRequest) -> WorldState:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    state = context.engine.get_state()
-    context.repository.save(state)
-    return state
+    return _persist_and_return_state()
 
 
 @app.post("/api/auto-speak/{agent_id}", response_model=WorldState)
@@ -128,23 +134,19 @@ async def auto_speak(agent_id: str, payload: SpeakRequest) -> WorldState:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    state = context.engine.get_state()
-    context.repository.save(state)
-    return state
+    return _persist_and_return_state()
 
 
 @app.post("/api/advance", response_model=WorldState)
 async def advance(payload: AdvanceRequest) -> WorldState:
-    state = context.engine.advance_for_reflection(payload.reason)
-    context.repository.save(state)
-    return state
+    context.engine.advance_for_reflection(payload.reason)
+    return _persist_and_return_state()
 
 
 @app.post("/api/simulate", response_model=WorldState)
 async def simulate() -> WorldState:
-    state = context.engine.simulate_world()
-    context.repository.save(state)
-    return state
+    context.engine.simulate_world()
+    return _persist_and_return_state()
 
 
 @app.post("/api/news", response_model=WorldState)
@@ -165,9 +167,8 @@ async def inject_news(payload: NewsRequest) -> WorldState:
     if not results:
         raise HTTPException(status_code=404, detail="No Brave results found for this topic.")
     event = map_search_result_to_event(results[0], payload.topic, context.engine.get_state().time_slot, payload.category)
-    state = context.engine.inject_event(event)
-    context.repository.save(state)
-    return state
+    context.engine.inject_event(event)
+    return _persist_and_return_state()
 
 
 @app.post("/api/macro-news", response_model=WorldState)
@@ -176,16 +177,14 @@ async def inject_macro_news(payload: MacroNewsRequest) -> WorldState:
         event = map_macro_news_to_event(payload, context.engine.get_state().time_slot)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    state = context.engine.inject_event(event)
-    context.repository.save(state)
-    return state
+    context.engine.inject_event(event)
+    return _persist_and_return_state()
 
 
 @app.post("/api/government/policy", response_model=WorldState)
 async def update_tax_policy(payload: TaxPolicyRequest) -> WorldState:
-    state = context.engine.update_tax_policy(payload.model_dump())
-    context.repository.save(state)
-    return state
+    context.engine.update_tax_policy(payload.model_dump())
+    return _persist_and_return_state()
 
 
 @app.post("/api/player/trade", response_model=WorldState)
@@ -194,15 +193,13 @@ async def player_trade(payload: TradeRequest) -> WorldState:
         state = context.engine.player_trade(payload.symbol, payload.side, payload.shares)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    context.repository.save(state)
-    return state
+    return _persist_and_return_state()
 
 
 @app.post("/api/player/auto-trade", response_model=WorldState)
 async def player_auto_trade() -> WorldState:
-    state = context.engine.auto_trade_player()
-    context.repository.save(state)
-    return state
+    context.engine.auto_trade_player()
+    return _persist_and_return_state()
 
 
 @app.post("/api/lifestyle/consume", response_model=WorldState)
@@ -213,8 +210,7 @@ async def player_consume(payload: ConsumeRequest) -> WorldState:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    context.repository.save(state)
-    return state
+    return _persist_and_return_state()
 
 
 @app.post("/api/properties/{property_id}/buy", response_model=WorldState)
@@ -225,8 +221,7 @@ async def player_buy_property(property_id: str, payload: PropertyFinanceRequest)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    context.repository.save(state)
-    return state
+    return _persist_and_return_state()
 
 
 @app.post("/api/properties/{property_id}/sell", response_model=WorldState)
@@ -237,8 +232,7 @@ async def player_sell_property(property_id: str) -> WorldState:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    context.repository.save(state)
-    return state
+    return _persist_and_return_state()
 
 
 @app.post("/api/bank/borrow", response_model=WorldState)
@@ -247,8 +241,7 @@ async def bank_borrow(payload: BankBorrowRequest) -> WorldState:
         state = context.engine.player_bank_borrow(payload.amount, payload.term_days)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    context.repository.save(state)
-    return state
+    return _persist_and_return_state()
 
 
 @app.post("/api/bank/repay/{loan_id}", response_model=WorldState)
@@ -259,8 +252,7 @@ async def bank_repay(loan_id: str, payload: BankRepayRequest) -> WorldState:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    context.repository.save(state)
-    return state
+    return _persist_and_return_state()
 
 
 @app.post("/api/gray-cases/{case_id}/action", response_model=WorldState)
@@ -271,5 +263,4 @@ async def gray_case_action(case_id: str, payload: GrayCaseActionRequest) -> Worl
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    context.repository.save(state)
-    return state
+    return _persist_and_return_state()

@@ -85,7 +85,7 @@ const welfareBankruptcyInput = document.getElementById("welfareBankruptcyInput")
 const taxPolicyNoteInput = document.getElementById("taxPolicyNoteInput");
 const taxPolicySubmitBtn = document.getElementById("taxPolicySubmitBtn");
 const taxPolicyStatus = document.getElementById("taxPolicyStatus");
-const ASSET_VERSION = "20260312v";
+const ASSET_VERSION = "20260312x";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -299,6 +299,11 @@ function escapeHtml(value) {
 
 function serializeSignature(value) {
   return JSON.stringify(value);
+}
+
+function serverSignature(name, fallback, extras = []) {
+  const signatureBase = state?.section_signatures?.[name] || serializeSignature(fallback);
+  return extras.length ? [signatureBase, ...extras] : signatureBase;
 }
 
 function renderIfChanged(key, signatureValue, renderer) {
@@ -533,6 +538,7 @@ let highlightedGrayCaseId = "";
 let selectedConsumeItemId = "";
 let selectedOwnedPropertyId = "";
 let selectedListedPropertyId = "";
+let diffInFlight = false;
 const cameraState = {
   zoom: 1,
   manual: false,
@@ -707,82 +713,82 @@ function renderPanels() {
   refreshComposerAvailability();
   renderIfChanged(
     "metrics",
-    [state.day, state.time_slot, state.weather, state.lab, state.geoai_milestones, state.market, state.company],
+    serverSignature("metrics", [state.day, state.time_slot, state.weather, state.lab, state.geoai_milestones, state.market, state.company]),
     () => renderMetrics(),
   );
   renderIfChanged(
     "analysis",
-    [state.analysis_history, state.agents, state.player, state.events, state.gray_cases, state.market, selectedActorId],
+    serverSignature("analysis", [state.analysis_history, state.agents, state.player, state.events, state.gray_cases, state.market]),
     () => renderAnalysisPanel(),
   );
   renderIfChanged(
     "fiscal-panel",
-    [state.day, state.government, state.finance_history?.slice(0, 120), busy],
+    serverSignature("fiscal", [state.day, state.government, state.finance_history?.slice(0, 120)]),
     () => renderFiscalPanel(),
   );
   renderIfChanged(
     "tasks",
-    [state.tasks, state.archived_tasks],
+    serverSignature("tasks", [state.tasks, state.archived_tasks]),
     () => renderTasks(),
   );
   renderIfChanged(
     "events",
-    [state.gray_cases, state.story_beats, state.events, highlightedEventId, highlightedStoryId, highlightedGrayCaseId],
+    serverSignature("events", [state.gray_cases, state.story_beats, state.events], [highlightedEventId, highlightedStoryId, highlightedGrayCaseId]),
     () => renderEvents(),
   );
   renderIfChanged(
     "finance-history",
-    [state.finance_history?.slice(0, 20)],
+    serverSignature("finance", [state.finance_history?.slice(0, 20)]),
     () => renderFinanceHistory(),
   );
   renderIfChanged(
     "dialogue-filters",
-    [state.agents.map((agent) => [agent.id, agent.name]), dialogueFilterMode, dialogueFilterActor],
+    serverSignature("memory", state.agents.map((agent) => [agent.id, agent.name]), [dialogueFilterMode, dialogueFilterActor]),
     () => renderDialogueFilterControls(),
   );
   renderIfChanged(
     "dialogue",
-    [state.latest_dialogue, state.dialogue_history?.slice(0, 200), state.loans, pendingDialogue, dialogueFilterMode, dialogueFilterActor, highlightedDialogueId],
+    serverSignature("dialogue", [state.latest_dialogue, state.dialogue_history?.slice(0, 200), state.loans], [pendingDialogue, dialogueFilterMode, dialogueFilterActor, highlightedDialogueId]),
     () => renderDialogue(),
   );
   renderIfChanged(
     "daily",
-    [state.daily_briefings?.[0]],
+    serverSignature("daily", [state.daily_briefings?.[0]]),
     () => renderDailyBrief(),
   );
   renderIfChanged(
     "gray-cases",
-    [state.gray_cases, highlightedGrayCaseId],
+    serverSignature("gray_cases", [state.gray_cases], [highlightedGrayCaseId]),
     () => renderGrayCaseActions(),
   );
   renderIfChanged(
     "memory",
-    [selectedActorId, state.player, state.agents, state.properties, state.loans, state.bank_loans, state.dialogue_history?.slice(0, 40), state.company, state.time_slot, state.day],
+    serverSignature("memory", [state.player, state.agents, state.properties, state.loans, state.bank_loans, state.dialogue_history?.slice(0, 40), state.company, state.time_slot, state.day], [selectedActorId]),
     () => renderMemory(),
   );
   renderIfChanged(
     "market-module",
-    [state.market, state.player, state.agents, state.bank, state.bank_loans, busy],
+    serverSignature("market", [state.market, state.player, state.agents, state.bank, state.bank_loans], [busy]),
     () => renderMarketModule(),
   );
   renderIfChanged(
     "bank-module",
-    [state.bank, state.bank_loans, state.player.cash, state.player.credit_score, state.agents, bankBorrowAmount?.value, bankBorrowTerm?.value, busy],
+    serverSignature("bank", [state.bank, state.bank_loans, state.player.cash, state.player.credit_score, state.agents], [bankBorrowAmount?.value, bankBorrowTerm?.value, busy]),
     () => renderBankModule(),
   );
   renderIfChanged(
     "market-chart",
-    [marketViewMode, state.market?.index_history, state.market?.daily_index_history, state.market?.regime, state.market?.rotation_leader, state.market?.rotation_age],
+    serverSignature("market", [state.market?.index_history, state.market?.daily_index_history, state.market?.regime, state.market?.rotation_leader, state.market?.rotation_age], [marketViewMode]),
     () => renderMarketChart(),
   );
   renderIfChanged(
     "lifestyle-panel",
-    [state.player, state.agents, state.properties, state.lifestyle_catalog, state.company, selectedActorId, busy],
+    serverSignature("lifestyle", [state.player, state.agents, state.properties, state.lifestyle_catalog, state.company], [selectedActorId, busy]),
     () => renderLifestylePanel(),
   );
   renderIfChanged(
     "trade-meta",
-    [tradeSymbol?.value, state.player, state.market?.stocks, state.bank_loans, busy],
+    serverSignature("market", [state.player, state.market?.stocks, state.bank_loans], [tradeSymbol?.value, busy]),
     () => renderTradeMeta(),
   );
 }
@@ -3487,10 +3493,46 @@ async function api(path, options = {}) {
   return response.json();
 }
 
+function applyStateSections(sections = {}, signatures = null) {
+  if (!state) return;
+  Object.values(sections).forEach((payload) => {
+    if (payload && typeof payload === "object") {
+      Object.assign(state, payload);
+    }
+  });
+  if (signatures) {
+    state.section_signatures = signatures;
+  }
+  syncSceneEntities();
+}
+
 async function loadState() {
   state = await api("/api/state");
   syncSceneEntities();
   renderPanels();
+}
+
+async function loadStateDiff() {
+  if (!state || busy || diffInFlight) return;
+  diffInFlight = true;
+  try {
+    const diff = await api("/api/state/diff", {
+      method: "POST",
+      body: JSON.stringify({
+        signatures: state.section_signatures || {},
+      }),
+    });
+    if (diff.changed?.length) {
+      applyStateSections(diff.sections || {}, diff.signatures || {});
+      renderPanels();
+    } else if (diff.signatures) {
+      state.section_signatures = diff.signatures;
+    }
+  } catch (error) {
+    console.debug("state diff skipped", error);
+  } finally {
+    diffInFlight = false;
+  }
 }
 
 async function move(dx, dy, manual = false) {
@@ -3703,6 +3745,13 @@ function scheduleSimulation() {
       signalStatus.textContent = error.message;
     }
   }, 2600);
+}
+
+function scheduleStateDiff() {
+  setInterval(async () => {
+    if (!state || busy || diffInFlight) return;
+    await loadStateDiff();
+  }, 2400);
 }
 
 function scheduleAutoExplore() {
@@ -4341,6 +4390,7 @@ zoomOutBtn?.addEventListener("click", () => {
 Promise.all([loadAssets(), loadState()])
   .then(() => {
     scheduleSimulation();
+    scheduleStateDiff();
     scheduleAutoExplore();
     scheduleObserverMode();
     requestAnimationFrame(loop);

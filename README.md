@@ -2,6 +2,9 @@
 
 `GeoAI Pixel Lab Test (UrbanComp Lab)` 的本地多智能体像素仿真系统。
 
+- 开发方：`UrbanComp Lab` ([urbancomp.net](https://urbancomp.net))
+- 仓库地址：[github.com/whuyao/PixelLab](https://github.com/whuyao/PixelLab)
+
 它不是单纯的聊天演示，而是一个持续运行的田园实验室世界：
 
 - 中文前端，地图为主体，支持缩放、拖拽、点选角色

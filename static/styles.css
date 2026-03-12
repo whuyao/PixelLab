@@ -30,6 +30,39 @@ body {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+.project-banner,
+.project-footer {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 10px 18px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: rgba(47, 42, 34, 0.88);
+  font-size: 0.88rem;
+}
+
+.project-banner {
+  padding-top: 14px;
+}
+
+.project-footer {
+  padding-bottom: 18px;
+}
+
+.project-banner a,
+.project-footer a {
+  color: #2f5f3a;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.project-banner a:hover,
+.project-footer a:hover {
+  text-decoration: underline;
+}
+
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 1.92fr) minmax(340px, 0.82fr);
@@ -1226,6 +1259,12 @@ canvas {
   .layout {
     gap: 12px;
     padding: 12px;
+  }
+
+  .project-banner,
+  .project-footer {
+    padding: 10px 12px;
+    font-size: 0.82rem;
   }
 
   .stage-panel,

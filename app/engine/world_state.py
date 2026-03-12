@@ -606,7 +606,7 @@ def build_initial_world() -> WorldState:
         ),
     ]
     return WorldState(
-        version=30,
+        version=31,
         world_width=44,
         world_height=26,
         day=1,

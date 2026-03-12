@@ -440,7 +440,7 @@ class AnalysisPoint(BaseModel):
 
 
 class WorldState(BaseModel):
-    version: int = 28
+    version: int = 31
     world_width: int = 44
     world_height: int = 26
     day: int
@@ -470,6 +470,7 @@ class WorldState(BaseModel):
     properties: list[PropertyAsset] = Field(default_factory=list)
     finance_history: list[FinanceRecord] = Field(default_factory=list)
     analysis_history: list[AnalysisPoint] = Field(default_factory=list)
+    section_signatures: dict[str, str] = Field(default_factory=dict)
 
 
 class MoveRequest(BaseModel):
@@ -530,6 +531,17 @@ class TaxPolicyRequest(BaseModel):
     welfare_base_support: int | None = None
     welfare_bankruptcy_support: int | None = None
     note: str = ""
+
+
+class StateDiffRequest(BaseModel):
+    signatures: dict[str, str] = Field(default_factory=dict)
+
+
+class StateDiffResponse(BaseModel):
+    version: int
+    signatures: dict[str, str] = Field(default_factory=dict)
+    changed: list[str] = Field(default_factory=list)
+    sections: dict[str, object] = Field(default_factory=dict)
 
 
 class ConsumeRequest(BaseModel):

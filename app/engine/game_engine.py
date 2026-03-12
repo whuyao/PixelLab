@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import random
 import re
 from dataclasses import dataclass
@@ -20,7 +22,7 @@ from app.engine.social_engine import SocialEngine
 from app.engine.task_system import apply_task_progress
 from app.engine.time_system import advance_time
 from app.engine.world_state import build_initial_world
-from app.models import AnalysisPoint, Agent, BankLoanRecord, ConsumableItem, DailyBriefItem, DailyBriefing, DialogueOutcome, DialogueRecord, FinanceRecord, GrayCase, IndexCandle, LabEvent, LoanRecord, MemoryEntry, Point, PropertyAsset, SocialThread, StoryBeat, Task, WorldState
+from app.models import AnalysisPoint, Agent, BankLoanRecord, ConsumableItem, DailyBriefItem, DailyBriefing, DialogueOutcome, DialogueRecord, FinanceRecord, GrayCase, IndexCandle, LabEvent, LoanRecord, MemoryEntry, Point, PropertyAsset, SocialThread, StateDiffResponse, StoryBeat, Task, WorldState
 from app.services.activity_logger import ActivityLogger
 
 
@@ -166,7 +168,128 @@ class GameEngine:
         self._refresh_tasks()
         self.social_engine.prepare_view()
         self.lifestyle_engine.prepare_view()
+        self._refresh_state_signatures()
         return self.state
+
+    def get_state_diff(self, signatures: dict[str, str] | None = None) -> StateDiffResponse:
+        self.get_state()
+        sections = self._build_state_sections()
+        current_signatures = self._sign_sections(sections)
+        changed = [
+            name
+            for name, signature in current_signatures.items()
+            if (signatures or {}).get(name) != signature
+        ]
+        return StateDiffResponse(
+            version=self.state.version,
+            signatures=current_signatures,
+            changed=changed,
+            sections={name: sections[name] for name in changed},
+        )
+
+    def _refresh_state_signatures(self) -> None:
+        self.state.version = max(self.state.version, 31)
+        self.state.section_signatures = self._sign_sections(self._build_state_sections())
+
+    def _sign_sections(self, sections: dict[str, object]) -> dict[str, str]:
+        return {
+            name: hashlib.sha1(
+                json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()[:12]
+            for name, payload in sections.items()
+        }
+
+    def _build_state_sections(self) -> dict[str, object]:
+        state = self.state
+        def dump(value: object) -> object:
+            if hasattr(value, "model_dump"):
+                return value.model_dump(mode="json")
+            if isinstance(value, list):
+                return [dump(item) for item in value]
+            if isinstance(value, dict):
+                return {key: dump(item) for key, item in value.items()}
+            return value
+
+        return {
+            "metrics": {
+                "day": state.day,
+                "time_slot": state.time_slot,
+                "weather": state.weather,
+                "lab": dump(state.lab),
+                "geoai_milestones": list(state.geoai_milestones),
+                "market": dump(state.market),
+                "company": dump(state.company),
+            },
+            "analysis": {
+                "analysis_history": dump(state.analysis_history[-40:]),
+                "agents": dump(state.agents),
+                "player": dump(state.player),
+                "events": dump(state.events),
+                "gray_cases": dump(state.gray_cases),
+                "market": dump(state.market),
+            },
+            "fiscal": {
+                "day": state.day,
+                "government": dump(state.government),
+                "finance_history": dump(state.finance_history[:240]),
+            },
+            "tasks": {
+                "tasks": dump(state.tasks),
+                "archived_tasks": dump(state.archived_tasks[:20]),
+            },
+            "events": {
+                "gray_cases": dump(state.gray_cases),
+                "story_beats": dump(state.story_beats[:18]),
+                "events": dump(state.events),
+            },
+            "finance": {
+                "finance_history": dump(state.finance_history[:240]),
+            },
+            "dialogue": {
+                "latest_dialogue": dump(state.latest_dialogue),
+                "dialogue_history": dump(state.dialogue_history[:220]),
+                "loans": dump(state.loans),
+            },
+            "daily": {
+                "daily_briefings": dump(state.daily_briefings[:3]),
+            },
+            "gray_cases": {
+                "gray_cases": dump(state.gray_cases),
+            },
+            "memory": {
+                "player": dump(state.player),
+                "agents": dump(state.agents),
+                "properties": dump(state.properties),
+                "loans": dump(state.loans),
+                "bank_loans": dump(state.bank_loans),
+                "dialogue_history": dump(state.dialogue_history[:80]),
+                "company": dump(state.company),
+                "day": state.day,
+                "time_slot": state.time_slot,
+            },
+            "market": {
+                "market": dump(state.market),
+                "player": dump(state.player),
+                "agents": dump(state.agents),
+                "bank": dump(state.bank),
+                "bank_loans": dump(state.bank_loans),
+            },
+            "bank": {
+                "bank": dump(state.bank),
+                "bank_loans": dump(state.bank_loans),
+                "player": dump(state.player),
+                "agents": dump(state.agents),
+            },
+            "lifestyle": {
+                "player": dump(state.player),
+                "agents": dump(state.agents),
+                "properties": dump(state.properties),
+                "lifestyle_catalog": dump(state.lifestyle_catalog),
+                "company": dump(state.company),
+                "bank_loans": dump(state.bank_loans),
+                "bank": dump(state.bank),
+            },
+        }
 
     def log_world_snapshot(self, event_type: str, details: dict[str, object] | None = None) -> None:
         self._log(event_type, **(details or {}))
@@ -5385,7 +5508,7 @@ class GameEngine:
 
     def _ensure_agent_runtime_fields(self) -> None:
         previous_version = self.state.version or 0
-        self.state.version = max(self.state.version, 30)
+        self.state.version = max(self.state.version, 31)
         if self.state.loans is None:
             self.state.loans = []
         if self.state.archived_tasks is None:
@@ -5404,6 +5527,8 @@ class GameEngine:
             self.state.properties = build_initial_world().properties
         if self.state.finance_history is None:
             self.state.finance_history = []
+        if self.state.section_signatures is None:
+            self.state.section_signatures = {}
         player_owned = [asset.id for asset in self.state.properties if asset.owner_type == "player" and asset.owner_id == self.state.player.id and asset.status == "owned"]
         if player_owned and not self.state.player.owned_property_ids:
             self.state.player.owned_property_ids = player_owned

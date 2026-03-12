@@ -1,5 +1,8 @@
 # GeoAI Pixel Lab 技术架构报告
 
+- 开发方：`UrbanComp Lab` ([urbancomp.net](https://urbancomp.net))
+- 仓库地址：[github.com/whuyao/PixelLab](https://github.com/whuyao/PixelLab)
+
 ## 1. 系统定位
 
 `GeoAI Pixel Lab Test (UrbanComp Lab)` 是一个本地运行的多智能体社会仿真系统。它把以下几类机制耦合在同一个持续演化的世界里：
