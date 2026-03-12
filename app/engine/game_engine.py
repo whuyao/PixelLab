@@ -14,12 +14,13 @@ from app.engine.dialogue_system import (
     weather_label,
 )
 from app.engine.event_system import build_internal_event
+from app.engine.lifestyle_engine import LifestyleEngine
 from app.engine.market_engine import MarketEngine
 from app.engine.social_engine import SocialEngine
 from app.engine.task_system import apply_task_progress
 from app.engine.time_system import advance_time
 from app.engine.world_state import build_initial_world
-from app.models import Agent, BankLoanRecord, DailyBriefItem, DailyBriefing, DialogueOutcome, DialogueRecord, GrayCase, IndexCandle, LabEvent, LoanRecord, MemoryEntry, Point, SocialThread, StoryBeat, WorldState
+from app.models import Agent, BankLoanRecord, ConsumableItem, DailyBriefItem, DailyBriefing, DialogueOutcome, DialogueRecord, FinanceRecord, GrayCase, IndexCandle, LabEvent, LoanRecord, MemoryEntry, Point, PropertyAsset, SocialThread, StoryBeat, WorldState
 from app.services.activity_logger import ActivityLogger
 
 
@@ -139,6 +140,7 @@ class GameEngine:
         self.state = state or build_initial_world()
         self.market_engine = MarketEngine(self)
         self.social_engine = SocialEngine(self)
+        self.lifestyle_engine = LifestyleEngine(self)
         self.state.world_width = WORLD_WIDTH
         self.state.world_height = WORLD_HEIGHT
         if is_new_world:
@@ -155,6 +157,7 @@ class GameEngine:
         self.market_engine.prepare_view()
         self._refresh_tasks()
         self.social_engine.prepare_view()
+        self.lifestyle_engine.prepare_view()
         return self.state
 
     def log_world_snapshot(self, event_type: str, details: dict[str, object] | None = None) -> None:
@@ -184,6 +187,15 @@ class GameEngine:
 
     def auto_trade_player(self) -> WorldState:
         return self.market_engine.auto_trade_player()
+
+    def player_consume_item(self, item_id: str, recipient_id: str = "player", financed: bool = False) -> WorldState:
+        return self.lifestyle_engine.player_consume(item_id, recipient_id=recipient_id, financed=financed)
+
+    def player_buy_property(self, property_id: str, financed: bool = False) -> WorldState:
+        return self.lifestyle_engine.player_buy_property(property_id, financed=financed)
+
+    def player_sell_property(self, property_id: str) -> WorldState:
+        return self.lifestyle_engine.player_sell_property(property_id)
 
     def speak_to_agent(self, agent_id: str, player_text: str) -> DialogueOutcome:
         return self.social_engine.speak_to_agent(agent_id, player_text)
@@ -249,11 +261,13 @@ class GameEngine:
     def simulate_world(self) -> WorldState:
         self.market_engine.prepare_view()
         self.social_engine.prepare_view()
+        self.lifestyle_engine.prepare_view()
         self.market_engine.run_intraday_tick()
         self._maybe_generate_system_news()
         self._maybe_trigger_random_lab_event()
         self._move_agents_autonomously()
         self._trigger_bank_activity()
+        self.lifestyle_engine.run_tick()
         self.social_engine.run_tick()
         self._advance_gray_cases(daily_roll=False)
         self._settle_due_loans()
@@ -982,6 +996,13 @@ class GameEngine:
             self.state.lab.reputation = self._bounded(self.state.lab.reputation + 1)
         elif active_gray_cases <= 1 and self.state.lab.team_atmosphere >= 72 and self.state.lab.research_progress >= 30:
             self.state.lab.reputation = self._bounded(self.state.lab.reputation + 1)
+        player_relation_avg = int(sum(self.state.player.social_links.values()) / max(1, len(self.state.player.social_links))) if self.state.player.social_links else 0
+        self.state.player.life_satisfaction = self._bounded(
+            self.state.player.life_satisfaction
+            + (2 if self.state.player.housing_quality >= 55 else -1)
+            + (1 if self.state.player.cash >= 40 else -2 if self.state.player.cash <= 12 else 0)
+            + (1 if player_relation_avg >= 18 else -1 if player_relation_avg <= -8 else 0)
+        )
         for agent in self.state.agents:
             if agent.is_resting:
                 continue
@@ -990,6 +1011,12 @@ class GameEngine:
             agent.state.stress = self._bounded(agent.state.stress - 4 + loan_load * 2)
             agent.state.focus = self._bounded(agent.state.focus + 2 - (2 if loan_load else 0))
             agent.state.curiosity = self._bounded(agent.state.curiosity + (2 if self.state.market.is_open else 0))
+            agent.life_satisfaction = self._bounded(
+                agent.life_satisfaction
+                + (2 if agent.housing_quality >= 55 else -1)
+                + (1 if agent.cash >= 36 else -2 if agent.cash <= 10 else 0)
+                + (1 if agent.state.energy >= 60 else -1)
+            )
             agent.current_bubble = "新一天开始了。"
             agent.last_interaction = f"第 {self.state.day} 天开始，正在重新判断今天该靠近谁。"
             self._remember(agent, f"第 {self.state.day} 天开始了。天气是{weather_label(self.state.weather)}，你在重新判断今天的节奏。", 2)
@@ -1333,6 +1360,16 @@ class GameEngine:
             agent={"id": agent.id, "name": agent.name},
             trade={"symbol": symbol, "name": quote.name, "side": side, "shares": shares, "amount": amount, "reason": reason},
         )
+        self._append_finance_record(
+            actor_id=agent.id,
+            actor_name=agent.name,
+            category="market",
+            action="buy" if side == "buy" else "sell",
+            summary=f"{agent.name}{'买入' if side == 'buy' else '卖出'}了 {quote.name} {shares} 股，金额约 ${amount}。",
+            amount=amount,
+            asset_name=quote.name,
+            counterparty="Pixel Exchange",
+        )
         self._refresh_tasks()
         return True
 
@@ -1401,6 +1438,16 @@ class GameEngine:
             "player_market_trade",
             trade={"symbol": symbol, "name": quote.name, "side": side, "shares": shares, "amount": amount, "manual": manual, "reason": reason},
         )
+        self._append_finance_record(
+            actor_id=self.state.player.id,
+            actor_name=self.state.player.name,
+            category="market",
+            action="buy" if side == "buy" else "sell",
+            summary=f"你{'买入' if side == 'buy' else '卖出'}了 {quote.name} {shares} 股，金额约 ${amount}。",
+            amount=amount,
+            asset_name=quote.name,
+            counterparty="Pixel Exchange",
+        )
         self._refresh_tasks()
         return True
 
@@ -1445,6 +1492,17 @@ class GameEngine:
         )
         self.state.loans.insert(0, loan)
         self.state.loans = self.state.loans[:20]
+        self._append_finance_record(
+            actor_id=borrower.id,
+            actor_name=borrower.name,
+            category="loan",
+            action="borrow",
+            summary=f"{borrower.name} 向 {lender.name} 借入 ${principal}，约定次日归还 ${amount_due}。",
+            amount=principal,
+            asset_name="人际借款",
+            counterparty=lender.name,
+            interest_rate=float(interest_rate),
+        )
         return loan
 
     def _repay_loan(self, loan: LoanRecord, borrower: Agent, lender: Agent) -> None:
@@ -1540,6 +1598,18 @@ class GameEngine:
             lender={"id": lender.id, "name": lender.name},
             borrower={"id": borrower.id, "name": borrower.name},
         )
+        if payment > 0:
+            self._append_finance_record(
+                actor_id=borrower.id,
+                actor_name=borrower.name,
+                category="loan",
+                action="repay",
+                summary=f"{borrower.name} 向 {lender.name} 归还了 ${payment}，剩余 ${loan.amount_due}。",
+                amount=payment,
+                asset_name="人际借款",
+                counterparty=lender.name,
+                interest_rate=float(loan.interest_rate),
+            )
 
     def _settle_due_loans(self) -> None:
         for loan in self.state.loans:
@@ -1734,6 +1804,18 @@ class GameEngine:
             mood="warm" if credit_score >= 70 else "neutral",
             transcript=[f"{self.state.bank.name}：这笔可以批，按 {loan.total_rate_pct:.2f}% 总利率走。"] if borrower_type == "player" else [f"{borrower_name}：先借 ${amount} 周转。"],
         )
+        self._append_finance_record(
+            actor_id=borrower_id,
+            actor_name=borrower_name,
+            category="bank",
+            action="borrow",
+            summary=f"{borrower_name} 从 {self.state.bank.name} 借入 ${amount}，期限 {term_days} 天，应还 ${loan.amount_due}。",
+            amount=amount,
+            asset_name="银行贷款",
+            counterparty=self.state.bank.name,
+            interest_rate=loan.total_rate_pct,
+            financed=True,
+        )
         self._log(
             "bank_loan_created",
             loan={"id": loan.id, "borrower_type": borrower_type, "borrower_id": borrower_id, "principal": amount, "term_days": term_days, "amount_due": loan.amount_due},
@@ -1792,6 +1874,19 @@ class GameEngine:
             transcript=[f"{borrower_name}：这次先还 ${payment}。", f"{self.state.bank.name}：{'这笔已经结清。' if loan.status == 'repaid' else f'剩余 ${loan.amount_due}，已记逾期。'}"],
             amount_paid=payment,
         )
+        if payment > 0:
+            self._append_finance_record(
+                actor_id=loan.borrower_id,
+                actor_name=borrower_name,
+                category="bank",
+                action="repay",
+                summary=f"{borrower_name} 向 {self.state.bank.name} 归还了 ${payment}，剩余 ${loan.amount_due}。",
+                amount=payment,
+                asset_name="银行贷款",
+                counterparty=self.state.bank.name,
+                interest_rate=loan.total_rate_pct,
+                financed=True,
+            )
         self._log(
             "bank_loan_repayment",
             loan={"id": loan.id, "status": loan.status, "remaining_due": loan.amount_due, "payment": payment},
@@ -1867,6 +1962,337 @@ class GameEngine:
                 self._bank_borrow("agent", agent.id, amount, term_days, "现金和体力都偏紧，先从银行周转。")
             except ValueError:
                 continue
+
+    def _item_by_id(self, item_id: str) -> ConsumableItem:
+        for item in self.state.lifestyle_catalog:
+            if item.id == item_id:
+                return item
+        raise KeyError(item_id)
+
+    def _property_by_id(self, property_id: str) -> PropertyAsset:
+        for asset in self.state.properties:
+            if asset.id == property_id:
+                return asset
+        raise KeyError(property_id)
+
+    def _property_owner_name(self, asset: PropertyAsset) -> str:
+        if asset.owner_type == "player":
+            return self.state.player.name
+        if asset.owner_type == "agent":
+            return self._find_agent(asset.owner_id).name
+        return "市场"
+
+    def _active_property_assets(self, owner_type: str, owner_id: str) -> list[PropertyAsset]:
+        return [asset for asset in self.state.properties if asset.owner_type == owner_type and asset.owner_id == owner_id and asset.status == "owned"]
+
+    def _player_lifestyle_burden(self) -> int:
+        loan_burden = sum(max(1, loan.amount_due // max(1, loan.term_days)) for loan in self._borrower_bank_loans("player", self.state.player.id))
+        property_burden = sum(asset.daily_maintenance for asset in self._active_property_assets("player", self.state.player.id))
+        return loan_burden + property_burden
+
+    def _agent_lifestyle_burden(self, agent: Agent) -> int:
+        loan_burden = sum(max(1, loan.amount_due // max(1, loan.term_days)) for loan in self._borrower_bank_loans("agent", agent.id))
+        property_burden = sum(asset.daily_maintenance for asset in self._active_property_assets("agent", agent.id))
+        return loan_burden + property_burden
+
+    def _maybe_player_finance_gap(self, cost: int, reason: str, financed: bool, term_days: int) -> None:
+        if self.state.player.cash >= cost:
+            return
+        if not financed:
+            raise ValueError(f"当前现金只有 ${self.state.player.cash}，不够支付 ${cost}。可以勾选贷款购买。")
+        gap = cost - self.state.player.cash
+        self._bank_borrow("player", self.state.player.id, gap, term_days, reason, manual=True)
+
+    def _adjust_player_satisfaction(self, delta: int) -> None:
+        self.state.player.life_satisfaction = self._bounded(self.state.player.life_satisfaction + delta)
+
+    def _adjust_agent_satisfaction(self, agent: Agent, delta: int) -> None:
+        agent.life_satisfaction = self._bounded(agent.life_satisfaction + delta)
+
+    def _player_consume_item(self, item_id: str, recipient_id: str, financed: bool = False) -> None:
+        item = self._item_by_id(item_id)
+        recipient_name = self.state.player.name
+        relation_delta = 0
+        recipient_agent: Agent | None = None
+        if recipient_id != "player":
+            recipient_agent = self._find_agent(recipient_id)
+            if not item.giftable:
+                raise ValueError("这件物品不适合送给别人。")
+            recipient_name = recipient_agent.name
+        self._maybe_player_finance_gap(item.price, f"购买{item.name}", financed=financed and item.debt_eligible, term_days=1)
+        self.state.player.cash = max(0, self.state.player.cash - item.price)
+        self._adjust_player_satisfaction(item.satisfaction_gain + (1 if recipient_agent else 0))
+        self.state.player.monthly_burden = self._player_lifestyle_burden()
+        if recipient_agent is None:
+            self.state.player.housing_quality = self._bounded(self.state.player.housing_quality + item.comfort_gain)
+            self.state.player.last_trade_summary = f"刚花 ${item.price} 买了{item.name}。"
+            summary = f"你刚买了{item.name}，生活满意度有些回升。"
+        else:
+            recipient_agent.state.mood = self._bounded(recipient_agent.state.mood + item.mood_gain)
+            recipient_agent.state.energy = self._bounded(recipient_agent.state.energy + item.energy_gain)
+            recipient_agent.housing_quality = self._bounded(recipient_agent.housing_quality + item.comfort_gain)
+            self._adjust_agent_satisfaction(recipient_agent, item.satisfaction_gain)
+            relation_delta = item.relation_bonus or 1
+            self._adjust_player_relation(recipient_agent, relation_delta, f"你送了 {recipient_agent.name} 一份{item.name}。")
+            self.state.player.last_trade_summary = f"刚花 ${item.price} 给 {recipient_agent.name} 买了{item.name}。"
+            recipient_agent.current_bubble = f"{item.name} 还挺让人开心。"
+            recipient_agent.last_interaction = f"你刚送了他一份{item.name}。"
+            self._remember(recipient_agent, f"玩家刚送了你一份{item.name}。", 2)
+            summary = f"你给 {recipient_agent.name} 买了{item.name}，这轮关系和满意度都往上走了一点。"
+        self.state.player.daily_actions.append(f"consume:{item.name}->{recipient_name}")
+        self.state.events.insert(
+            0,
+            build_internal_event(
+                title=f"发生了一笔生活消费：{item.name}",
+                summary=summary,
+                slot=self.state.time_slot,
+                category="general",
+            ),
+        )
+        self.state.events = self.state.events[:8]
+        self._append_dialogue_record(
+            DialogueRecord(
+                id=f"dialogue-{uuid4().hex[:8]}",
+                kind="player_dialogue",
+                day=self.state.day,
+                time_slot=self.state.time_slot,
+                participants=["player"] + ([recipient_agent.id] if recipient_agent else []),
+                participant_names=[self.state.player.name] + ([recipient_agent.name] if recipient_agent else []),
+                topic=f"消费：{item.name}",
+                summary=summary,
+                key_point=f"你花了 ${item.price} 购买{item.name}，生活满意度 {item.satisfaction_gain:+d}。",
+                transcript=[f"你：先买个{item.name}。", f"{recipient_name}：这笔消费让这会儿舒服多了。"],
+                desire_labels={self.state.player.name: "把日子过舒服一点", recipient_name: "获得一点现实回报"},
+                mood="warm",
+                financial_note=f"消费 ${item.price}，满意度 +{item.satisfaction_gain}，关系变化 {relation_delta:+d}",
+            )
+        )
+        self._append_finance_record(
+            actor_id=self.state.player.id,
+            actor_name=self.state.player.name,
+            category="consume",
+            action="buy",
+            summary=f"你购买了 {item.name}，花费 ${item.price}。{f' 送给了 {recipient_name}。' if recipient_agent else ''}",
+            amount=item.price,
+            asset_name=item.name,
+            counterparty=recipient_name if recipient_agent else "生活消费",
+            financed=financed and item.debt_eligible,
+        )
+        self._log("player_consumption", item=item.model_dump(), recipient=recipient_id, financed=financed)
+        self._refresh_presence()
+
+    def _player_buy_property(self, property_id: str, financed: bool = False) -> None:
+        asset = self._property_by_id(property_id)
+        if asset.owner_type != "market" or asset.status != "listed":
+            raise ValueError("这处地产当前不在出售。")
+        self._maybe_player_finance_gap(asset.purchase_price, f"购买地产 {asset.name}", financed=financed and asset.debt_eligible, term_days=3)
+        self.state.player.cash = max(0, self.state.player.cash - asset.purchase_price)
+        asset.owner_type = "player"
+        asset.owner_id = self.state.player.id
+        asset.status = "owned"
+        asset.listed = False
+        asset.built = True
+        if asset.id not in self.state.player.owned_property_ids:
+            self.state.player.owned_property_ids.append(asset.id)
+        self.state.player.housing_quality = self._bounded(self.state.player.housing_quality + asset.comfort_bonus)
+        self._adjust_player_satisfaction(6 + asset.social_bonus)
+        self.state.player.monthly_burden = self._player_lifestyle_burden()
+        self.state.player.last_trade_summary = f"刚买下{asset.name}，花了 ${asset.purchase_price}。"
+        self.state.events.insert(
+            0,
+            build_internal_event(
+                title=f"你买下了{asset.name}",
+                summary=f"这笔地产交易花了 ${asset.purchase_price}，后续每天会带来收益和维护成本。",
+                slot=self.state.time_slot,
+                category="market",
+            ),
+        )
+        self.state.events = self.state.events[:8]
+        self._append_finance_record(
+            actor_id=self.state.player.id,
+            actor_name=self.state.player.name,
+            category="property",
+            action="buy",
+            summary=f"你买下了 {asset.name}，成交价 ${asset.purchase_price}。",
+            amount=asset.purchase_price,
+            asset_name=asset.name,
+            counterparty="地产市场",
+            financed=financed and asset.debt_eligible,
+        )
+        self._log("player_property_purchase", property=asset.model_dump(), financed=financed)
+        self._refresh_presence()
+
+    def _player_sell_property(self, property_id: str) -> None:
+        asset = self._property_by_id(property_id)
+        if asset.owner_type != "player" or asset.owner_id != self.state.player.id:
+            raise ValueError("这处地产不属于你。")
+        if asset.id == "property-player-cottage":
+            raise ValueError("你当前的小屋不能直接卖掉。")
+        payout = max(12, int(round(asset.estimated_value * 0.82)))
+        self.state.player.cash += payout
+        asset.owner_type = "market"
+        asset.owner_id = "market"
+        asset.status = "listed"
+        asset.listed = True
+        if asset.id in self.state.player.owned_property_ids:
+            self.state.player.owned_property_ids.remove(asset.id)
+        self.state.player.housing_quality = self._bounded(self.state.player.housing_quality - max(0, asset.comfort_bonus // 2))
+        self._adjust_player_satisfaction(-2 + max(0, asset.daily_income // 6))
+        self.state.player.monthly_burden = self._player_lifestyle_burden()
+        self.state.player.last_trade_summary = f"刚卖出{asset.name}，回笼 ${payout}。"
+        self.state.events.insert(
+            0,
+            build_internal_event(
+                title=f"你卖出了{asset.name}",
+                summary=f"卖出后回笼 ${payout}，相应的日收益和维护责任也一起移除了。",
+                slot=self.state.time_slot,
+                category="market",
+            ),
+        )
+        self.state.events = self.state.events[:8]
+        self._append_finance_record(
+            actor_id=self.state.player.id,
+            actor_name=self.state.player.name,
+            category="property",
+            action="sell",
+            summary=f"你卖出了 {asset.name}，回笼 ${payout}。",
+            amount=payout,
+            asset_name=asset.name,
+            counterparty="地产市场",
+        )
+        self._log("player_property_sale", property=asset.id, payout=payout)
+        self._refresh_presence()
+
+    def _refresh_lifestyle_state(self) -> None:
+        self.state.player.monthly_burden = self._player_lifestyle_burden()
+        player_relation_avg = int(sum(self.state.player.social_links.values()) / max(1, len(self.state.player.social_links))) if self.state.player.social_links else 0
+        self.state.player.consumption_desire = self._bounded(
+            22
+            + self.state.player.materialism // 2
+            + max(0, 55 - self.state.player.life_satisfaction) // 2
+            + max(0, 48 - self.state.player.cash) // 4
+            + max(0, 55 - self.state.player.housing_quality) // 3
+            + (4 if self.state.weather in {"drizzle", "breezy"} else 0)
+            + max(0, player_relation_avg // 10)
+            - self.state.player.monthly_burden // 4
+        )
+        for agent in self.state.agents:
+            agent.monthly_burden = self._agent_lifestyle_burden(agent)
+            relation_avg = int(sum(agent.relations.values()) / max(1, len(agent.relations))) if agent.relations else 0
+            agent.consumption_desire = self._bounded(
+                20
+                + agent.materialism // 2
+                + max(0, 55 - agent.life_satisfaction) // 2
+                + max(0, 52 - agent.cash) // 4
+                + max(0, 50 - agent.housing_quality) // 3
+                + max(0, agent.state.stress - 55) // 5
+                + max(0, relation_avg // 12)
+                - agent.monthly_burden // 4
+            )
+
+    def _settle_property_income(self) -> None:
+        for asset in self.state.properties:
+            if asset.status != "owned":
+                continue
+            owner_name = self._property_owner_name(asset)
+            net_income = asset.daily_income - asset.daily_maintenance
+            if asset.owner_type == "player":
+                self.state.player.cash = max(0, self.state.player.cash + net_income)
+                self.state.player.housing_quality = self._bounded(self.state.player.housing_quality + max(0, asset.comfort_bonus // 4))
+                self._adjust_player_satisfaction(max(-2, asset.comfort_bonus // 3))
+                if asset.daily_income or asset.daily_maintenance:
+                    self.state.player.last_trade_summary = f"{asset.name} 昨天结算净额 ${net_income}。"
+            elif asset.owner_type == "agent":
+                owner = self._find_agent(asset.owner_id)
+                owner.cash = max(0, owner.cash + net_income)
+                owner.housing_quality = self._bounded(owner.housing_quality + max(0, asset.comfort_bonus // 4))
+                self._adjust_agent_satisfaction(owner, max(-2, asset.comfort_bonus // 3))
+                if asset.daily_income or asset.daily_maintenance:
+                    owner.last_trade_summary = f"{asset.name} 昨天结算净额 ${net_income}。"
+            if asset.daily_income or asset.daily_maintenance:
+                self.state.events.insert(
+                    0,
+                    build_internal_event(
+                        title=f"{asset.name} 完成了一次日结",
+                        summary=f"{owner_name} 的 {asset.name} 昨天结算净额 ${net_income}。",
+                        slot=self.state.time_slot,
+                        category="market",
+                    ),
+                )
+                owner_id = self.state.player.id if asset.owner_type == "player" else asset.owner_id
+                self._append_finance_record(
+                    actor_id=owner_id,
+                    actor_name=owner_name,
+                    category="property",
+                    action="settle",
+                    summary=f"{owner_name} 的 {asset.name} 完成日结，净额 ${net_income}。",
+                    amount=net_income,
+                    asset_name=asset.name,
+                    counterparty="地产结算",
+                )
+        self.state.events = self.state.events[:8]
+
+    def _trigger_lifestyle_activity(self) -> None:
+        if not self.state.market.is_open:
+            return
+        for agent in self.state.agents:
+            if agent.is_resting or self.random.random() > 0.13:
+                continue
+            candidate_items = []
+            for item in self.state.lifestyle_catalog:
+                if item.price <= agent.cash:
+                    candidate_items.append(item)
+                elif item.debt_eligible and agent.credit_score >= 55 and agent.cash >= max(4, item.price // 3):
+                    candidate_items.append(item)
+            if not candidate_items:
+                continue
+            if agent.consumption_desire < 48 and agent.life_satisfaction > 55:
+                continue
+            if agent.cash < 10 and agent.credit_score < 50:
+                continue
+            item = self.random.choice(candidate_items)
+            gifted = item.giftable and self.random.random() < 0.28
+            target = None
+            if gifted:
+                nearby = [other for other in self.state.agents if other.id != agent.id and abs(other.position.x - agent.position.x) + abs(other.position.y - agent.position.y) <= 6]
+                if nearby:
+                    target = sorted(nearby, key=lambda other: other.relations.get(agent.id, 0), reverse=True)[0]
+            if agent.cash < item.price and item.debt_eligible:
+                gap = item.price - agent.cash
+                try:
+                    self._bank_borrow("agent", agent.id, gap, 1, f"想买{item.name}，先周转一下。")
+                except ValueError:
+                    continue
+            if agent.cash < item.price:
+                continue
+            agent.cash -= item.price
+            agent.state.mood = self._bounded(agent.state.mood + item.mood_gain)
+            agent.state.energy = self._bounded(agent.state.energy + item.energy_gain)
+            agent.housing_quality = self._bounded(agent.housing_quality + item.comfort_gain)
+            self._adjust_agent_satisfaction(agent, item.satisfaction_gain)
+            agent.current_bubble = f"先花点钱把这会儿过舒服。"
+            agent.last_trade_summary = f"刚买了{item.name}，花了 ${item.price}。"
+            self._remember(agent, f"你刚花 ${item.price} 买了{item.name}。", 2)
+            summary = f"{agent.name} 刚买了{item.name}，生活满意度和状态往上提了一点。"
+            if target is not None:
+                target.state.mood = self._bounded(target.state.mood + item.mood_gain)
+                self._adjust_agent_satisfaction(target, max(1, item.satisfaction_gain - 1))
+                self._adjust_relation(agent, target, item.relation_bonus, f"一起围绕 {item.name} 发生了一笔生活消费")
+                target.current_bubble = f"{agent.name} 刚给我带了{item.name}。"
+                summary = f"{agent.name} 刚给 {target.name} 买了{item.name}，两个人的生活满意度和关系都有点上升。"
+            self.state.events.insert(0, build_internal_event(title=f"{agent.name} 发生了一笔生活消费", summary=summary, slot=self.state.time_slot, category="general"))
+            self._append_finance_record(
+                actor_id=agent.id,
+                actor_name=agent.name,
+                category="consume",
+                action="buy",
+                summary=f"{agent.name} 购买了 {item.name}，花费 ${item.price}。{f' 目标是 {target.name}。' if target else ''}",
+                amount=item.price,
+                asset_name=item.name,
+                counterparty=target.name if target else "生活消费",
+                financed=False,
+            )
+        self.state.events = self.state.events[:8]
 
     def _refresh_agent_plans(self) -> None:
         latest_event = self.state.events[0].title if self.state.events else "今天的研究安排"
@@ -2204,6 +2630,7 @@ class GameEngine:
             self._update_index_history(append=True)
             self._update_daily_index_history()
             self._advance_gray_cases(daily_roll=True)
+            self.lifestyle_engine.run_new_day()
         for agent in self.state.agents:
             if agent.is_resting:
                 if slot == "morning" and day >= (agent.rest_until_day or day):
@@ -2363,6 +2790,8 @@ class GameEngine:
         relation_delta, changes = self._apply_player_dialogue_impact(agent, dialogue, intensity=0.35 if mode == "observer" else 1.0)
         self._adjust_player_relation(agent, relation_delta, reason)
         money_effects = self._resolve_player_money_exchange(agent, dialogue, relation_delta)
+        self._adjust_player_satisfaction(2 if relation_delta >= 0 else -1)
+        agent.life_satisfaction = self._bounded(agent.life_satisfaction + (2 if relation_delta >= 0 else 0))
         agent.current_bubble = dialogue.bubble_text
         self.state.lab.team_atmosphere = min(100, self.state.lab.team_atmosphere + (1 if mode == "observer" else 2))
         if mode != "observer":
@@ -2430,6 +2859,42 @@ class GameEngine:
             self.state.dialogue_history = []
         self.state.dialogue_history.insert(0, record)
         self.state.dialogue_history = self.state.dialogue_history[:200]
+
+    def _append_finance_record(
+        self,
+        *,
+        actor_id: str,
+        actor_name: str,
+        category: str,
+        action: str,
+        summary: str,
+        amount: int = 0,
+        asset_name: str = "",
+        counterparty: str = "",
+        interest_rate: float | None = None,
+        financed: bool = False,
+    ) -> None:
+        if self.state.finance_history is None:
+            self.state.finance_history = []
+        self.state.finance_history.insert(
+            0,
+            FinanceRecord(
+                id=f"finance-{uuid4().hex[:8]}",
+                day=self.state.day,
+                time_slot=self.state.time_slot,
+                actor_id=actor_id,
+                actor_name=actor_name,
+                category=category,
+                action=action,
+                summary=summary,
+                amount=amount,
+                asset_name=asset_name,
+                counterparty=counterparty,
+                interest_rate=interest_rate,
+                financed=financed,
+            ),
+        )
+        self.state.finance_history = self.state.finance_history[:200]
 
     def _player_desire_label(self, text: str) -> str:
         normalized = text.strip()
@@ -3491,6 +3956,7 @@ class GameEngine:
                 agent.last_interaction = "这一时段还没有发生新的深聊。"
 
     def _ensure_agent_runtime_fields(self) -> None:
+        self.state.version = max(self.state.version, 24)
         if self.state.loans is None:
             self.state.loans = []
         if self.state.archived_tasks is None:
@@ -3503,6 +3969,15 @@ class GameEngine:
             self.state.daily_briefings = []
         if self.state.gray_cases is None:
             self.state.gray_cases = []
+        if self.state.lifestyle_catalog is None or not self.state.lifestyle_catalog:
+            self.state.lifestyle_catalog = build_initial_world().lifestyle_catalog
+        if self.state.properties is None or not self.state.properties:
+            self.state.properties = build_initial_world().properties
+        if self.state.finance_history is None:
+            self.state.finance_history = []
+        player_owned = [asset.id for asset in self.state.properties if asset.owner_type == "player" and asset.owner_id == self.state.player.id and asset.status == "owned"]
+        if player_owned and not self.state.player.owned_property_ids:
+            self.state.player.owned_property_ids = player_owned
         for agent in self.state.agents:
             localized_name = DISPLAY_NAME_BY_ID.get(agent.id)
             if localized_name:
@@ -3534,6 +4009,24 @@ class GameEngine:
                 agent.risk_appetite = 50
             if agent.portfolio is None:
                 agent.portfolio = {}
+            if not agent.life_satisfaction:
+                agent.life_satisfaction = 56
+            if not agent.consumption_desire:
+                agent.consumption_desire = 46
+            if not agent.housing_quality:
+                agent.housing_quality = 46
+            if not agent.materialism:
+                agent.materialism = 50
+            if not agent.comfort_preference:
+                agent.comfort_preference = 50
+            if agent.monthly_burden is None:
+                agent.monthly_burden = 0
+            if agent.owned_property_ids is None:
+                agent.owned_property_ids = []
+            if not agent.owned_property_ids:
+                owned = [asset.id for asset in self.state.properties if asset.owner_type == "agent" and asset.owner_id == agent.id and asset.status == "owned"]
+                if owned:
+                    agent.owned_property_ids = owned
             if agent.last_trade_summary is None:
                 agent.last_trade_summary = ""
             if not agent.goals:
@@ -3587,6 +4080,20 @@ class GameEngine:
             self.state.player.last_trade_summary = ""
         if not self.state.player.risk_appetite:
             self.state.player.risk_appetite = 52
+        if not self.state.player.life_satisfaction:
+            self.state.player.life_satisfaction = 56
+        if not self.state.player.consumption_desire:
+            self.state.player.consumption_desire = 44
+        if not self.state.player.housing_quality:
+            self.state.player.housing_quality = 48
+        if not self.state.player.materialism:
+            self.state.player.materialism = 52
+        if not self.state.player.comfort_preference:
+            self.state.player.comfort_preference = 58
+        if self.state.player.monthly_burden is None:
+            self.state.player.monthly_burden = 0
+        if self.state.player.owned_property_ids is None:
+            self.state.player.owned_property_ids = []
         if self.state.bank is None:
             self.state.bank = build_initial_world().bank
         if self.state.bank_loans is None:
@@ -3630,6 +4137,11 @@ class GameEngine:
             case.participant_names = [self._localized_text(name) for name in case.participant_names or []]
             case.topic = self._localized_text(case.topic)
             case.summary = self._localized_text(case.summary)
+        for record in self.state.finance_history or []:
+            record.actor_name = self._localized_text(record.actor_name)
+            record.summary = self._localized_text(record.summary)
+            record.asset_name = self._localized_text(record.asset_name)
+            record.counterparty = self._localized_text(record.counterparty)
 
     def _build_brief_entries_from_items(self, items: list[str]) -> list[DailyBriefItem]:
         entries: list[DailyBriefItem] = []

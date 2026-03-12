@@ -10,6 +10,7 @@ const weatherLabel = document.getElementById("weatherLabel");
 const metricsList = document.getElementById("metricsList");
 const taskList = document.getElementById("taskList");
 const eventList = document.getElementById("eventList");
+const financeHistoryBox = document.getElementById("financeHistoryBox");
 const dialogueBox = document.getElementById("dialogueBox");
 const dialogueActorFilter = document.getElementById("dialogueActorFilter");
 const dialogueFilterAll = document.getElementById("dialogueFilterAll");
@@ -37,6 +38,10 @@ const bankBorrowBtn = document.getElementById("bankBorrowBtn");
 const bankBorrowHint = document.getElementById("bankBorrowHint");
 const bankStatusBox = document.getElementById("bankStatusBox");
 const bankLoanList = document.getElementById("bankLoanList");
+const lifestyleSummary = document.getElementById("lifestyleSummary");
+const consumeCatalog = document.getElementById("consumeCatalog");
+const propertyList = document.getElementById("propertyList");
+const lifestyleStatus = document.getElementById("lifestyleStatus");
 const marketCanvas = document.getElementById("marketCanvas");
 const marketCtx = marketCanvas.getContext("2d");
 const marketMeta = document.getElementById("marketMeta");
@@ -54,7 +59,7 @@ const talkInput = document.getElementById("talkInput");
 const talkTarget = document.getElementById("talkTarget");
 const talkSendBtn = document.getElementById("talkSendBtn");
 const macroSubmitBtn = document.getElementById("macroSubmitBtn");
-const ASSET_VERSION = "20260312c";
+const ASSET_VERSION = "20260312f";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -447,6 +452,9 @@ let highlightedEventId = "";
 let highlightedStoryId = "";
 let highlightedDialogueId = "";
 let highlightedGrayCaseId = "";
+let selectedConsumeItemId = "";
+let selectedOwnedPropertyId = "";
+let selectedListedPropertyId = "";
 const cameraState = {
   zoom: 1,
   manual: false,
@@ -633,6 +641,11 @@ function renderPanels() {
     () => renderEvents(),
   );
   renderIfChanged(
+    "finance-history",
+    [state.finance_history?.slice(0, 20)],
+    () => renderFinanceHistory(),
+  );
+  renderIfChanged(
     "dialogue-filters",
     [state.agents.map((agent) => [agent.id, agent.name]), dialogueFilterMode, dialogueFilterActor],
     () => renderDialogueFilterControls(),
@@ -654,7 +667,7 @@ function renderPanels() {
   );
   renderIfChanged(
     "memory",
-    [selectedActorId, state.player, state.agents, state.loans, state.bank_loans, state.dialogue_history?.slice(0, 40), state.time_slot, state.day],
+    [selectedActorId, state.player, state.agents, state.properties, state.loans, state.bank_loans, state.dialogue_history?.slice(0, 40), state.time_slot, state.day],
     () => renderMemory(),
   );
   renderIfChanged(
@@ -671,6 +684,11 @@ function renderPanels() {
     "market-chart",
     [marketViewMode, state.market?.index_history, state.market?.daily_index_history, state.market?.regime, state.market?.rotation_leader, state.market?.rotation_age],
     () => renderMarketChart(),
+  );
+  renderIfChanged(
+    "lifestyle-panel",
+    [state.player, state.agents, state.properties, state.lifestyle_catalog, selectedActorId, busy],
+    () => renderLifestylePanel(),
   );
   renderIfChanged(
     "trade-meta",
@@ -961,6 +979,203 @@ function renderBankModule() {
   }
 }
 
+function propertyTypeLabel(type) {
+  return {
+    home_upgrade: "小屋升级",
+    farm_plot: "农田",
+    rental_house: "出租屋",
+    shop: "小店铺",
+    greenhouse: "温室",
+  }[type] || type;
+}
+
+function itemCategoryLabel(type) {
+  return {
+    food: "吃喝",
+    gift: "礼物",
+    comfort: "舒适",
+    tool: "工具",
+  }[type] || type;
+}
+
+function financeCategoryLabel(type) {
+  return {
+    market: "股票交易",
+    consume: "生活消费",
+    property: "地产",
+    bank: "银行借贷",
+    loan: "人际借贷",
+  }[type] || type;
+}
+
+function financeActionLabel(type) {
+  return {
+    buy: "买入",
+    sell: "卖出",
+    borrow: "借入",
+    repay: "归还",
+    settle: "结算",
+  }[type] || type;
+}
+
+function renderFinanceHistoryEntries(records) {
+  return records.length
+    ? records
+        .map(
+          (record) => `
+            <article class="finance-history-entry">
+              <div class="finance-history-head">
+                <strong>${escapeHtml(record.actor_name)}</strong>
+                <span>${escapeHtml(timeLabels[record.time_slot] || record.time_slot)} · 第 ${record.day} 天</span>
+              </div>
+              <div class="memory-section">
+                <span class="memory-chip">${escapeHtml(financeCategoryLabel(record.category))}</span>
+                <span class="memory-chip">${escapeHtml(financeActionLabel(record.action))}</span>
+                ${record.asset_name ? `<span class="memory-chip">${escapeHtml(record.asset_name)}</span>` : ""}
+                ${record.interest_rate != null ? `<span class="memory-chip">利率 ${Number(record.interest_rate).toFixed(2)}%</span>` : ""}
+              </div>
+              <div class="metric-meta">${escapeHtml(record.summary)}</div>
+              <div class="metric-meta">金额 ${record.amount >= 0 ? `+$${record.amount}` : `-$${Math.abs(record.amount)}`}${record.counterparty ? ` · 对手方 ${escapeHtml(record.counterparty)}` : ""}</div>
+            </article>
+          `,
+        )
+        .join("")
+    : '<div class="metric-meta">新的经济动作会在这里持续滚动。</div>';
+}
+
+function currentGiftRecipient() {
+  if (!selectedActorId || selectedActorId === "player") return null;
+  return state.agents.find((agent) => agent.id === selectedActorId) || null;
+}
+
+function renderLifestylePanel() {
+  if (!state) return;
+  const catalog = state.lifestyle_catalog || [];
+  const playerProperties = (state.properties || []).filter((asset) => asset.owner_type === "player" && asset.owner_id === state.player.id && asset.status === "owned");
+  const listedProperties = (state.properties || []).filter((asset) => asset.owner_type === "market" && asset.status === "listed");
+  const teamAverageSatisfaction = state.agents.length
+    ? Math.round(state.agents.reduce((sum, agent) => sum + (agent.life_satisfaction || 0), 0) / state.agents.length)
+    : state.player.life_satisfaction || 0;
+  const recipient = currentGiftRecipient();
+  if (!selectedConsumeItemId || !catalog.some((item) => item.id === selectedConsumeItemId)) {
+    selectedConsumeItemId = catalog[0]?.id || "";
+  }
+  if (!selectedOwnedPropertyId || !playerProperties.some((asset) => asset.id === selectedOwnedPropertyId)) {
+    selectedOwnedPropertyId = playerProperties[0]?.id || "";
+  }
+  if (!selectedListedPropertyId || !listedProperties.some((asset) => asset.id === selectedListedPropertyId)) {
+    selectedListedPropertyId = listedProperties[0]?.id || "";
+  }
+  const selectedItem = catalog.find((item) => item.id === selectedConsumeItemId) || null;
+  const selectedOwnedProperty = playerProperties.find((asset) => asset.id === selectedOwnedPropertyId) || null;
+  const selectedListedProperty = listedProperties.find((asset) => asset.id === selectedListedPropertyId) || null;
+
+  if (lifestyleSummary) {
+    lifestyleSummary.innerHTML = `
+      <article class="metric-summary-card">
+        <strong>你的生活状态</strong>
+        <div class="metric-summary-grid">
+          <div class="status-pill"><strong>生活满意度</strong><span>${state.player.life_satisfaction}</span></div>
+          <div class="status-pill"><strong>消费意愿</strong><span>${state.player.consumption_desire}</span></div>
+          <div class="status-pill"><strong>住房品质</strong><span>${state.player.housing_quality}</span></div>
+          <div class="status-pill"><strong>固定负担</strong><span>$${state.player.monthly_burden}</span></div>
+        </div>
+      </article>
+      <article class="position-card">
+        <strong>团队生活面</strong>
+        <div class="metric-meta">同事平均满意度 ${teamAverageSatisfaction}</div>
+        <div class="metric-meta">你当前持有地产 ${playerProperties.length} 处</div>
+        <div class="metric-meta">当前选中送礼对象：${recipient ? recipient.name : "未选中同事"}</div>
+      </article>
+    `;
+  }
+
+  if (consumeCatalog) {
+    if (!selectedItem) {
+      consumeCatalog.innerHTML = '<article class="position-card"><strong>当前没有可消费物品</strong><div class="metric-meta">后续可以继续扩充餐饮、礼物和家居消费。</div></article>';
+    } else {
+      const recipientText = recipient && selectedItem.giftable ? `送给 ${recipient.name}` : "买给自己";
+      consumeCatalog.innerHTML = `
+        <article class="position-card selection-card">
+          <label class="selection-label" for="consumeItemSelect">消费目录</label>
+          <select id="consumeItemSelect" class="selection-select">
+            ${catalog.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === selectedItem.id ? "selected" : ""}>${escapeHtml(item.name)} · ${escapeHtml(itemCategoryLabel(item.category))} · $${item.price}</option>`).join("")}
+          </select>
+          <div class="selection-detail">
+            <strong>${escapeHtml(selectedItem.name)}</strong>
+            <div class="metric-meta">${escapeHtml(selectedItem.description || "一件能改善日常状态的消费品。")}</div>
+            <div class="memory-section">
+              <span class="memory-chip">满意度 +${selectedItem.satisfaction_gain}</span>
+              ${selectedItem.mood_gain ? `<span class="memory-chip">心情 +${selectedItem.mood_gain}</span>` : ""}
+              ${selectedItem.energy_gain ? `<span class="memory-chip">体力 +${selectedItem.energy_gain}</span>` : ""}
+              ${selectedItem.comfort_gain ? `<span class="memory-chip">住房品质 +${selectedItem.comfort_gain}</span>` : ""}
+              ${selectedItem.relation_bonus ? `<span class="memory-chip">关系 +${selectedItem.relation_bonus}</span>` : ""}
+            </div>
+          </div>
+          <div class="lifestyle-actions">
+            <button type="button" class="consume-btn" data-item-id="${escapeHtml(selectedItem.id)}" data-recipient-id="${recipient && selectedItem.giftable ? recipient.id : "player"}" data-financed="false">${recipientText}</button>
+            ${selectedItem.debt_eligible ? `<button type="button" class="consume-btn" data-item-id="${escapeHtml(selectedItem.id)}" data-recipient-id="player" data-financed="true">贷款购买</button>` : ""}
+          </div>
+        </article>
+      `;
+    }
+  }
+
+  if (propertyList) {
+    propertyList.innerHTML = `
+      <div class="stack">
+        <article class="position-card selection-card">
+          <strong>我的地产</strong>
+          <div class="metric-meta">会在每天早晨结算收益、维护费和舒适度回报。</div>
+          ${
+            selectedOwnedProperty
+              ? `
+                <label class="selection-label" for="ownedPropertySelect">持有资产</label>
+                <select id="ownedPropertySelect" class="selection-select">
+                  ${playerProperties.map((asset) => `<option value="${escapeHtml(asset.id)}" ${asset.id === selectedOwnedProperty.id ? "selected" : ""}>${escapeHtml(asset.name)} · ${escapeHtml(propertyTypeLabel(asset.property_type))}</option>`).join("")}
+                </select>
+                <div class="selection-detail">
+                  <strong>${escapeHtml(selectedOwnedProperty.name)}</strong>
+                  <div class="metric-meta">${escapeHtml(propertyTypeLabel(selectedOwnedProperty.property_type))} · 估值 $${selectedOwnedProperty.estimated_value}</div>
+                  <div class="metric-meta">日收益 $${selectedOwnedProperty.daily_income} · 维护 $${selectedOwnedProperty.daily_maintenance}</div>
+                  <div class="metric-meta">舒适 +${selectedOwnedProperty.comfort_bonus} · 社交 +${selectedOwnedProperty.social_bonus}</div>
+                  <div class="metric-meta">${escapeHtml(selectedOwnedProperty.description || "一处已经持有的地产。")}</div>
+                </div>
+                ${selectedOwnedProperty.id !== "property-player-cottage" ? `<div class="lifestyle-actions"><button type="button" class="property-sell-btn" data-property-id="${escapeHtml(selectedOwnedProperty.id)}">卖出当前资产</button></div>` : ""}
+              `
+              : '<div class="metric-meta">你当前没有额外地产，可以先从农田、出租屋或温室地块开始。</div>'
+          }
+        </article>
+        <article class="position-card selection-card">
+          <strong>挂牌地产</strong>
+          <div class="metric-meta">可以直接买入，也可以贷款买入。</div>
+          ${
+            selectedListedProperty
+              ? `
+                <label class="selection-label" for="listedPropertySelect">挂牌目录</label>
+                <select id="listedPropertySelect" class="selection-select">
+                  ${listedProperties.map((asset) => `<option value="${escapeHtml(asset.id)}" ${asset.id === selectedListedProperty.id ? "selected" : ""}>${escapeHtml(asset.name)} · 挂牌 $${asset.purchase_price}</option>`).join("")}
+                </select>
+                <div class="selection-detail">
+                  <strong>${escapeHtml(selectedListedProperty.name)}</strong>
+                  <div class="metric-meta">${escapeHtml(propertyTypeLabel(selectedListedProperty.property_type))} · 挂牌价 $${selectedListedProperty.purchase_price}</div>
+                  <div class="metric-meta">日收益 $${selectedListedProperty.daily_income} · 维护 $${selectedListedProperty.daily_maintenance}</div>
+                  <div class="metric-meta">舒适 +${selectedListedProperty.comfort_bonus} · 社交 +${selectedListedProperty.social_bonus}</div>
+                  <div class="metric-meta">${selectedListedProperty.buildable ? "空地可直接建造" : "已建成可直接接手"} · ${escapeHtml(selectedListedProperty.description || "一处可交易地产。")}</div>
+                </div>
+                <div class="lifestyle-actions">
+                  <button type="button" class="property-buy-btn" data-property-id="${escapeHtml(selectedListedProperty.id)}" data-financed="false">${selectedListedProperty.buildable ? "建造并买入" : "直接买入"}</button>
+                  ${selectedListedProperty.debt_eligible ? `<button type="button" class="property-buy-btn" data-property-id="${escapeHtml(selectedListedProperty.id)}" data-financed="true">贷款买入</button>` : ""}
+                </div>
+              `
+              : '<div class="metric-meta">当前没有新的挂牌资产。</div>'
+          }
+        </article>
+      </div>
+    `;
+  }
+}
+
 function renderTasks() {
   const activeMarkup = (state.tasks || [])
     .map((task) => {
@@ -1170,6 +1385,11 @@ function renderEvents() {
   eventList.innerHTML = `${grayCaseMarkup}${storyMarkup}${eventMarkup}`;
 }
 
+function renderFinanceHistory() {
+  if (!financeHistoryBox) return;
+  financeHistoryBox.innerHTML = renderFinanceHistoryEntries((state.finance_history || []).slice(0, 20));
+}
+
 function renderDialogue() {
   const timelineSnapshot = captureDialogueTimelineState();
   const latest = pendingDialogue || state.latest_dialogue;
@@ -1318,6 +1538,11 @@ function renderMemory() {
     const playerRelationBuckets = getPlayerRelationBuckets();
     const activeBankDebt = activeBankLoansFor("player", state.player.id).reduce((sum, loan) => sum + (loan.amount_due || 0), 0);
     const marketExposure = `${formatPortfolio(state.player.portfolio)} · ${formatShortPortfolio(state.player.short_positions)}`;
+    const ownedProperties =
+      (state.properties || [])
+        .filter((asset) => asset.owner_type === "player" && asset.owner_id === state.player.id && asset.status === "owned")
+        .map((asset) => `<span class="memory-chip">${asset.name}</span>`)
+        .join("") || '<span class="memory-meta">当前没有额外地产。</span>';
     memoryBox.innerHTML = `
       <h3>${state.player.name}</h3>
       <div class="memory-meta">玩家角色 · 坐标 (${state.player.position.x}, ${state.player.position.y})</div>
@@ -1328,6 +1553,9 @@ function renderMemory() {
         <div class="status-pill"><strong>附近对象</strong><span>${nearby ? nearby.name : "无人"}</span></div>
         <div class="status-pill"><strong>现金</strong><span>$${state.player.cash}</span></div>
         <div class="status-pill"><strong>信用值</strong><span>${state.player.credit_score} · ${creditLabel(state.player.credit_score)}</span></div>
+        <div class="status-pill"><strong>生活满意度</strong><span>${state.player.life_satisfaction}</span></div>
+        <div class="status-pill"><strong>消费意愿</strong><span>${state.player.consumption_desire}</span></div>
+        <div class="status-pill"><strong>住房品质</strong><span>${state.player.housing_quality}</span></div>
         <div class="status-pill"><strong>风险偏好</strong><span>${state.player.risk_appetite}</span></div>
         <div class="status-pill"><strong>持仓</strong><span>${formatPortfolio(state.player.portfolio)}</span></div>
         <div class="status-pill"><strong>空仓</strong><span>${formatShortPortfolio(state.player.short_positions)}</span></div>
@@ -1372,6 +1600,10 @@ function renderMemory() {
           <span class="memory-chip">风险偏好 ${state.player.risk_appetite}</span>
           <span class="memory-chip">银行待还 $${activeBankDebt}</span>
         </div>
+      </div>
+      <div class="memory-section">
+        <strong>地产持有</strong>
+        <div>${ownedProperties}</div>
       </div>
       <div class="memory-section">
         <strong>借款状态</strong>
@@ -1555,6 +1787,7 @@ function drawWorld(now) {
   drawRooms(now);
   drawDecorations(now);
   drawCottages(now);
+  drawPropertyAssets(now);
   drawCharacters(now);
   drawBubbles();
   ctx.restore();
@@ -1788,6 +2021,75 @@ function drawCottage(x, y, agent, now) {
     ctx.fillRect(x + 10, y + 26, 4, 4);
     ctx.fillRect(x + 34, y + 26, 4, 4);
   }
+}
+
+function propertyOwnerColor(asset) {
+  if (asset.owner_type === "player") return "#4f8ab8";
+  if (asset.owner_type === "agent") return "#a87452";
+  return "#8a8a70";
+}
+
+function drawPropertyAssets(now) {
+  (state.properties || []).forEach((asset) => {
+    const px = (asset.position.x - 1) * tile;
+    const py = (asset.position.y - 1) * tile;
+    const width = asset.width * tile;
+    const height = asset.height * tile;
+    const ownerColor = propertyOwnerColor(asset);
+    if (asset.property_type === "farm_plot") {
+      ctx.fillStyle = "#9c8240";
+      ctx.fillRect(px, py, width, height);
+      for (let x = 6; x < width - 4; x += 14) {
+        ctx.fillStyle = "rgba(236, 216, 124, 0.34)";
+        ctx.fillRect(px + x + Math.sin(now / 400 + x) * 1.5, py + 8, 3, height - 16);
+      }
+    } else if (asset.property_type === "greenhouse") {
+      ctx.fillStyle = asset.built ? "#7ab08a" : "#b9ad8f";
+      roundRect(px + 2, py + 4, width - 4, height - 8, 10, true);
+      ctx.fillStyle = "rgba(239, 251, 240, 0.42)";
+      ctx.fillRect(px + 10, py + 10, width - 20, height - 20);
+      if (!asset.built) {
+        ctx.strokeStyle = "#7c6a57";
+        ctx.setLineDash([6, 4]);
+        ctx.strokeRect(px + 2, py + 4, width - 4, height - 8);
+        ctx.setLineDash([]);
+      }
+    } else {
+      ctx.fillStyle = shadeColor(ownerColor, -18);
+      ctx.fillRect(px + 4, py + 18, width - 8, height - 20);
+      ctx.fillStyle = ownerColor;
+      ctx.fillRect(px + 6, py + 20, width - 12, height - 24);
+      ctx.fillStyle = "#74533a";
+      ctx.beginPath();
+      ctx.moveTo(px + 2, py + 20);
+      ctx.lineTo(px + width / 2, py + 2);
+      ctx.lineTo(px + width - 2, py + 20);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#f6ebd6";
+      ctx.fillRect(px + 12, py + 28, 8, 10);
+      ctx.fillRect(px + width - 20, py + 28, 8, 10);
+      if (asset.property_type === "shop") {
+        ctx.fillStyle = "#f4d48a";
+        ctx.fillRect(px + 10, py + 12, width - 20, 5);
+      }
+      if (asset.property_type === "rental_house") {
+        ctx.fillStyle = "#d5c6a6";
+        ctx.fillRect(px + width / 2 - 5, py + 32, 10, 12);
+      }
+    }
+    ctx.fillStyle = "rgba(48, 40, 31, 0.64)";
+    roundRect(px + 4, py - 16, Math.min(width - 8, 96), 14, 6, true);
+    ctx.fillStyle = "#fff8e8";
+    ctx.font = '11px "PingFang SC", sans-serif';
+    ctx.fillText(asset.name.slice(0, 8), px + 8, py - 6);
+    if (asset.listed) {
+      ctx.fillStyle = "#f7e8bf";
+      ctx.fillRect(px + width - 18, py + 6, 12, 12);
+      ctx.fillStyle = "#74583b";
+      ctx.fillText("售", px + width - 16, py + 16);
+    }
+  });
 }
 
 function drawCharacters(now) {
@@ -3185,6 +3487,97 @@ if (bankLoanList) {
     } finally {
       busy = false;
       renderPanels();
+    }
+  });
+}
+
+if (consumeCatalog) {
+  consumeCatalog.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLSelectElement)) return;
+    if (target.id === "consumeItemSelect") {
+      selectedConsumeItemId = target.value;
+      renderLifestylePanel();
+    }
+  });
+  consumeCatalog.addEventListener("click", async (event) => {
+    const button = event.target.closest(".consume-btn");
+    if (!button) return;
+    if (busy) {
+      if (lifestyleStatus) lifestyleStatus.textContent = "系统正在刷新世界状态，请稍等一秒再消费。";
+      return;
+    }
+    busy = true;
+    try {
+      if (lifestyleStatus) {
+        lifestyleStatus.textContent = button.dataset.recipientId && button.dataset.recipientId !== "player" ? "正在处理这笔消费和送礼..." : "正在处理这笔生活消费...";
+      }
+      state = await api("/api/lifestyle/consume", {
+        method: "POST",
+        body: JSON.stringify({
+          item_id: button.dataset.itemId,
+          recipient_id: button.dataset.recipientId || "player",
+          financed: button.dataset.financed === "true",
+        }),
+      });
+      syncSceneEntities();
+      renderPanels();
+      if (lifestyleStatus) {
+        lifestyleStatus.textContent = button.dataset.recipientId && button.dataset.recipientId !== "player" ? "这笔消费和送礼已经生效。" : "这笔消费已经记进生活满意度。";
+      }
+    } catch (error) {
+      if (lifestyleStatus) lifestyleStatus.textContent = error.message;
+    } finally {
+      busy = false;
+    }
+  });
+}
+
+if (propertyList) {
+  propertyList.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLSelectElement)) return;
+    if (target.id === "ownedPropertySelect") {
+      selectedOwnedPropertyId = target.value;
+      renderLifestylePanel();
+      return;
+    }
+    if (target.id === "listedPropertySelect") {
+      selectedListedPropertyId = target.value;
+      renderLifestylePanel();
+    }
+  });
+  propertyList.addEventListener("click", async (event) => {
+    const buyButton = event.target.closest(".property-buy-btn");
+    const sellButton = event.target.closest(".property-sell-btn");
+    if (!buyButton && !sellButton) return;
+    if (busy) {
+      if (lifestyleStatus) lifestyleStatus.textContent = "系统正在刷新世界状态，请稍等一秒再做地产操作。";
+      return;
+    }
+    busy = true;
+    try {
+      if (buyButton) {
+        if (lifestyleStatus) lifestyleStatus.textContent = "正在处理地产买入...";
+        state = await api(`/api/properties/${buyButton.dataset.propertyId}/buy`, {
+          method: "POST",
+          body: JSON.stringify({ financed: buyButton.dataset.financed === "true" }),
+        });
+        if (lifestyleStatus) lifestyleStatus.textContent = "地产交易已经完成。";
+      } else if (sellButton) {
+        if (lifestyleStatus) lifestyleStatus.textContent = "正在处理地产卖出...";
+        state = await api(`/api/properties/${sellButton.dataset.propertyId}/sell`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+        if (lifestyleStatus) lifestyleStatus.textContent = "地产卖出已经完成。";
+      }
+      syncSceneEntities();
+      renderPanels();
+    } catch (error) {
+      if (lifestyleStatus) lifestyleStatus.textContent = error.message;
+    } finally {
+      busy = false;
     }
   });
 }

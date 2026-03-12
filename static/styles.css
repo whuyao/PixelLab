@@ -182,6 +182,10 @@ canvas {
   padding: 14px;
 }
 
+.lifestyle-panel {
+  padding: 14px;
+}
+
 .market-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.28fr) minmax(360px, 0.88fr);
@@ -189,8 +193,17 @@ canvas {
   align-items: start;
 }
 
+.lifestyle-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(360px, 0.92fr);
+  gap: 14px;
+  align-items: start;
+}
+
 .market-main-block,
-.market-side-block {
+.market-side-block,
+.lifestyle-main-block,
+.lifestyle-side-block {
   display: grid;
   gap: 12px;
   align-content: start;
@@ -222,6 +235,75 @@ canvas {
 .bank-loan-card {
   display: grid;
   gap: 6px;
+}
+
+.lifestyle-card,
+.property-card {
+  display: grid;
+  gap: 8px;
+}
+
+.selection-card {
+  display: grid;
+  gap: 10px;
+}
+
+.selection-label {
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(46, 39, 31, 0.72);
+}
+
+.selection-select {
+  width: 100%;
+  min-height: 42px;
+}
+
+.selection-detail {
+  border: 2px solid rgba(58, 50, 43, 0.2);
+  background: rgba(252, 247, 232, 0.92);
+  padding: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.finance-history-list {
+  display: grid;
+  gap: 8px;
+  max-height: 420px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.finance-history-entry {
+  border: 2px solid rgba(58, 50, 43, 0.24);
+  background: rgba(248, 242, 224, 0.92);
+  padding: 9px 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.finance-history-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.finance-history-head span {
+  font-size: 0.78rem;
+  color: rgba(46, 39, 31, 0.72);
+}
+
+.lifestyle-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lifestyle-actions button {
+  min-width: 112px;
 }
 
 .bank-loan-actions {
@@ -849,7 +931,13 @@ canvas {
   }
 
   .market-main-block,
-  .market-side-block {
+  .market-side-block,
+  .lifestyle-main-block,
+  .lifestyle-side-block {
+    grid-template-columns: 1fr;
+  }
+
+  .lifestyle-layout {
     grid-template-columns: 1fr;
   }
 

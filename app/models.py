@@ -30,6 +30,13 @@ class Player(BaseModel):
     injected_topics: list[str] = Field(default_factory=list)
     social_links: dict[str, int] = Field(default_factory=dict)
     daily_actions: list[str] = Field(default_factory=list)
+    life_satisfaction: int = 56
+    consumption_desire: int = 44
+    housing_quality: int = 48
+    materialism: int = 52
+    comfort_preference: int = 58
+    monthly_burden: int = 0
+    owned_property_ids: list[str] = Field(default_factory=list)
 
 
 class AgentState(BaseModel):
@@ -92,6 +99,13 @@ class Agent(BaseModel):
     speech_habits: list[str] = Field(default_factory=list)
     immediate_intent: str = ""
     memory_stream: list[str] = Field(default_factory=list)
+    life_satisfaction: int = 56
+    consumption_desire: int = 46
+    housing_quality: int = 46
+    materialism: int = 50
+    comfort_preference: int = 50
+    monthly_burden: int = 0
+    owned_property_ids: list[str] = Field(default_factory=list)
 
 
 class Task(BaseModel):
@@ -222,6 +236,60 @@ class BankState(BaseModel):
     defaults_count: int = 0
 
 
+class ConsumableItem(BaseModel):
+    id: str
+    name: str
+    category: Literal["food", "gift", "comfort", "tool"]
+    price: int
+    description: str = ""
+    satisfaction_gain: int = 0
+    mood_gain: int = 0
+    energy_gain: int = 0
+    relation_bonus: int = 0
+    comfort_gain: int = 0
+    debt_eligible: bool = False
+    giftable: bool = False
+
+
+class PropertyAsset(BaseModel):
+    id: str
+    owner_type: Literal["player", "agent", "market"]
+    owner_id: str
+    property_type: Literal["home_upgrade", "farm_plot", "rental_house", "shop", "greenhouse"]
+    name: str
+    position: Point
+    width: int = 2
+    height: int = 2
+    purchase_price: int
+    estimated_value: int
+    daily_income: int = 0
+    daily_maintenance: int = 0
+    comfort_bonus: int = 0
+    social_bonus: int = 0
+    debt_eligible: bool = True
+    buildable: bool = False
+    listed: bool = False
+    built: bool = True
+    status: str = "owned"
+    description: str = ""
+
+
+class FinanceRecord(BaseModel):
+    id: str
+    day: int
+    time_slot: TimeSlot
+    actor_id: str
+    actor_name: str
+    category: Literal["market", "consume", "property", "bank", "loan"]
+    action: str
+    summary: str
+    amount: int = 0
+    asset_name: str = ""
+    counterparty: str = ""
+    interest_rate: float | None = None
+    financed: bool = False
+
+
 class GrayCase(BaseModel):
     id: str
     case_type: str
@@ -290,7 +358,7 @@ class DailyBriefItem(BaseModel):
 
 
 class WorldState(BaseModel):
-    version: int = 22
+    version: int = 24
     world_width: int = 44
     world_height: int = 26
     day: int
@@ -314,6 +382,9 @@ class WorldState(BaseModel):
     bank: BankState = Field(default_factory=BankState)
     bank_loans: list[BankLoanRecord] = Field(default_factory=list)
     gray_cases: list[GrayCase] = Field(default_factory=list)
+    lifestyle_catalog: list[ConsumableItem] = Field(default_factory=list)
+    properties: list[PropertyAsset] = Field(default_factory=list)
+    finance_history: list[FinanceRecord] = Field(default_factory=list)
 
 
 class MoveRequest(BaseModel):
@@ -360,3 +431,13 @@ class BankRepayRequest(BaseModel):
 
 class GrayCaseActionRequest(BaseModel):
     action: Literal["suppress", "report", "mediate", "short"]
+
+
+class ConsumeRequest(BaseModel):
+    item_id: str
+    recipient_id: str = "player"
+    financed: bool = False
+
+
+class PropertyFinanceRequest(BaseModel):
+    financed: bool = False

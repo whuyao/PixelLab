@@ -5,11 +5,12 @@
 它不是单纯的聊天演示，而是一个持续运行的田园实验室世界：
 
 - 中文前端，地图为主体，支持缩放、拖拽、点选角色
-- 左侧主列展示地图、市场中心、实验室主面板、角色信息；右侧侧栏承载任务、对话、晨报、信号和事件
+- 左侧主列展示地图、市场中心、生活与地产、实验室主面板、角色信息；右侧侧栏承载任务、对话、晨报、信号、经济事件流和最近事件
 - 玩家与智能体对话优先走 `gpt-5-mini`
 - 智能体有长期记忆、短期记忆、关系、欲望、信用、口碑、体力和小屋作息
 - 观察模式下，玩家会自动移动、自动发言、自动交易、自动推进
 - 股市、银行借贷、人际借贷、信用、实验室口碑、灰色交易和地下案件会互相联动
+- 玩家和智能体的消费、股票、地产、银行借贷、人际借贷都会写入统一的经济事件流
 - 每天早晨自动生成 `Lab Daily` 晨报，并同步进入所有人的记忆
 - SQLite 快照存档 + JSONL 行为日志
 
@@ -181,6 +182,10 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
   - 玩家交易
   - 银行借贷
   - 持仓与资金分布
+- 生活与地产
+  - 生活满意度与消费意愿
+  - 可消费物品
+  - 房产买入 / 卖出 / 贷款买入
 - 实验室主面板
   - 实验室指标
   - 当前角色信息
@@ -196,6 +201,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 - `Lab Daily`
 - 信号终端
 - 地下案件处置台
+- 经济事件流
 - 最近事件
 
 ## 智能体系统
@@ -238,6 +244,31 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 - 夜晚会回屋休息，熬夜会掉体力
 - 在家完整休息一个阶段会回满体力
 - 每天早晨会刷新心情、压力、专注、好奇心和当日倾向
+
+### 消费与地产
+
+- 玩家和智能体都新增了 `生活满意度 / 消费意愿 / 住房品质`
+- 日常消费会直接影响满意度、关系、状态摘要和现金
+- 送礼类消费会优先作用于当前选中的对象
+- 消费目录和挂牌地产都改成了“列表选择 + 详情区 + 操作按钮”的模式，避免大卡片堆叠
+- 房产分成 `住宅 / 农田 / 温室 / 商铺 / 出租屋`
+- 房产会持续影响：
+  - 住房品质
+  - 每日维护成本
+  - 每日租金或经营收入
+  - 生活满意度
+- 买房现金不足时，可以直接走银行融资
+
+### 经济事件流
+
+- `finance_history` 会记录最近 200 条经济动作
+- 当前会写入：
+  - 玩家与智能体股票买卖
+  - 玩家与智能体生活消费
+  - 玩家地产买入 / 卖出 / 每日结算
+  - 银行借贷与归还
+  - 人际借款与归还
+- 右侧独立“经济事件流”面板默认展示最近 20 条，便于观察每个人最近在花钱、借钱还是做交易
 
 ## 对话与社会系统
 
@@ -517,12 +548,15 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 - `POST /api/player/auto-trade`
 - `POST /api/bank/borrow`
 - `POST /api/bank/repay/{loan_id}`
+- `POST /api/lifestyle/consume`
+- `POST /api/properties/{property_id}/buy`
+- `POST /api/properties/{property_id}/sell`
 - `POST /api/gray-cases/{case_id}/action`
 
 ## 说明
 
 - 默认模型是 `gpt-5-mini`
 - 服务默认监听 `127.0.0.1:8765`
-- 当前世界状态版本为 `22`
+- 当前世界状态版本为 `24`
 - 旧存档如果版本落后会被自动丢弃，这是正常行为
-- 当前内部已经拆出 [market_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/market_engine.py) 和 [social_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/social_engine.py)，`GameEngine` 主要负责总编排
+- 当前内部已经拆出 [market_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/market_engine.py)、[social_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/social_engine.py) 和 [lifestyle_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/lifestyle_engine.py)，`GameEngine` 主要负责总编排

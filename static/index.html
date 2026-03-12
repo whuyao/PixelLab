@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GeoAI Pixel Lab Test (UrbanComp Lab)</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260312c" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260312f" />
   </head>
   <body>
     <main class="layout">
@@ -147,6 +147,41 @@
           </div>
         </section>
 
+        <section class="panel lifestyle-panel">
+          <div class="panel-head">
+            <h2>生活与地产</h2>
+            <span class="panel-tag">消费 / 满意度 / 房产</span>
+          </div>
+          <div class="lifestyle-layout">
+            <div class="lifestyle-main-block">
+              <section class="market-subpanel">
+                <div class="panel-head compact-head">
+                  <h3>生活满意度</h3>
+                  <span class="panel-tag">玩家 + 团队</span>
+                </div>
+                <div id="lifestyleSummary" class="stack"></div>
+              </section>
+              <section class="market-subpanel">
+                <div class="panel-head compact-head">
+                  <h3>消费目录</h3>
+                  <span class="panel-tag">可贷款购买</span>
+                </div>
+                <div id="consumeCatalog" class="stack"></div>
+              </section>
+            </div>
+            <div class="lifestyle-side-block">
+              <section class="market-subpanel">
+                <div class="panel-head compact-head">
+                  <h3>地产资产</h3>
+                  <span class="panel-tag">买入 / 卖出 / 建造</span>
+                </div>
+                <div id="propertyList" class="stack"></div>
+              </section>
+            </div>
+          </div>
+          <p id="lifestyleStatus" class="signal-status"></p>
+        </section>
+
         <section class="lower-board">
           <section class="panel metrics-panel">
             <div class="panel-head">
@@ -236,6 +271,13 @@
         </section>
         <section class="panel event-panel">
           <div class="panel-head">
+            <h2>经济事件流</h2>
+            <span class="panel-tag">交易 / 消费 / 借贷</span>
+          </div>
+          <div id="financeHistoryBox" class="finance-history-list"></div>
+        </section>
+        <section class="panel event-panel">
+          <div class="panel-head">
             <h2>最近事件</h2>
             <span class="panel-tag">世界</span>
           </div>
@@ -243,6 +285,6 @@
         </section>
       </aside>
     </main>
-    <script src="/static/app.js?v=20260312c" type="module"></script>
+    <script src="/static/app.js?v=20260312f" type="module"></script>
   </body>
 </html>

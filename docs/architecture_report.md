@@ -21,6 +21,7 @@ flowchart LR
     API --> Engine["GameEngine\napp/engine/game_engine.py"]
     Engine --> Market["MarketEngine\napp/engine/market_engine.py"]
     Engine --> Social["SocialEngine\napp/engine/social_engine.py"]
+    Engine --> Lifestyle["LifestyleEngine\napp/engine/lifestyle_engine.py"]
     Engine --> Models["状态模型\napp/models.py"]
     Engine --> Init["初始世界构造\napp/engine/world_state.py"]
     Engine --> Repo["SnapshotRepository\napp/storage/repository.py"]
@@ -38,6 +39,7 @@ flowchart LR
 - 世界仿真域
 - 社交与记忆域
 - 市场与金融域
+- 生活消费与地产域
 - 地下案件域
 - 外部事件域
 - 前端观察与控制域
@@ -68,6 +70,9 @@ flowchart LR
 - `POST /api/player/auto-trade`
 - `POST /api/bank/borrow`
 - `POST /api/bank/repay/{loan_id}`
+- `POST /api/lifestyle/consume`
+- `POST /api/properties/{property_id}/buy`
+- `POST /api/properties/{property_id}/sell`
 - `POST /api/gray-cases/{case_id}/action`
 
 ### 3.2 领域模型层
@@ -89,11 +94,14 @@ flowchart LR
 - `LoanRecord`
 - `BankState`
 - `BankLoanRecord`
+- `ConsumableItem`
+- `PropertyAsset`
+- `FinanceRecord`
 - `GrayCase`
 - `SocialThread`
 - `StoryBeat`
 
-当前世界状态版本为 `22`。旧快照会在加载时补齐新字段；如果版本过旧，则丢弃并回到新的初始世界。
+当前世界状态版本为 `24`。旧快照会在加载时补齐新字段；如果版本过旧，则丢弃并回到新的初始世界。
 
 ### 3.3 世界引擎
 
@@ -126,6 +134,12 @@ flowchart LR
   - NPC 互聊
   - 社交视图准备
   - 晨报与记忆同步
+
+- [app/engine/lifestyle_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/lifestyle_engine.py)
+  - 生活与地产视图准备
+  - 日常消费 tick
+  - 新一天的住房与满意度结算
+  - 玩家消费、买房、卖房和融资买房入口
 
 ### 3.4 对话层
 
@@ -162,6 +176,7 @@ flowchart LR
 - GeoAI 研究累计值与里程碑
 - 社交线程与故事线
 - 最近对话与 `dialogue_history`
+- `finance_history`
 - `daily_briefings`
 - `gray_cases`
 
@@ -229,6 +244,15 @@ flowchart LR
 - 小屋位置
 - 是否休息
 - 何时醒来
+
+7. 生活消费与地产层
+- 生活满意度
+- 消费意愿
+- 住房品质
+- 物质偏好
+- 舒适偏好
+- 每日生活负担
+- 已持有房产
 
 ### 5.2 中文名迁移
 
@@ -323,6 +347,7 @@ flowchart LR
 - 左侧 `main-column`
   - 地图主舞台
   - 市场中心
+  - 生活与地产
   - 实验室主面板
 
 - 右侧 `action-rail`
@@ -332,6 +357,7 @@ flowchart LR
   - Lab Daily
   - 信号终端
   - 地下案件处置台
+  - 经济事件流
   - 最近事件
 
 这个拆法的目的，是让右侧信息流不再把左侧主舞台挤出大片空白。
@@ -355,7 +381,34 @@ flowchart LR
 - 左侧主列：K 线、宏观调控台、持仓与资金分布
 - 右侧操作列：盘面总览、玩家交易、银行借贷
 
-### 7.3 实时对话区
+### 7.3 生活与地产面板
+
+生活消费和房地产被单独放在左侧主列，避免继续和市场中心混在一起。
+
+当前包含：
+
+- 玩家生活满意度、消费意愿、住房品质摘要
+- 团队平均满意度
+- 可消费物品目录
+- 当前可交易房产目录
+- 玩家已持有房产目录
+
+这块对应的后端数据主要来自：
+
+- `WorldState.lifestyle_catalog`
+- `WorldState.properties`
+- `Player.life_satisfaction`
+- `Agent.life_satisfaction`
+
+当前交互已经从大卡片平铺改成：
+
+- 下拉选择
+- 当前项详情
+- 操作按钮
+
+这样能在不压缩信息密度的前提下，明显降低左侧面板的视觉噪音。
+
+### 7.4 实时对话区
 
 对话区已经从“整段文本硬铺开”改成结构化卡片。每条记录展示：
 
@@ -375,11 +428,35 @@ flowchart LR
 - 展开详情状态保持
 - 滚动位置保持
 
-## 8. 经济系统详解
+### 7.5 经济事件流
+
+右侧新增了独立的“经济事件流”面板，位置在“最近事件”上方。
+
+它和“最近事件”的区别是：
+
+- 最近事件：偏世界层摘要，混合任务、故事线、地下案件、新闻
+- 经济事件流：只记录真实资金动作
+
+当前会写入 `finance_history` 的行为包括：
+
+- 玩家和智能体股票买卖
+- 玩家和智能体生活消费
+- 玩家地产买入 / 卖出 / 日结
+- 银行借贷与还款
+- 人际借款与还款
+
+前端默认展示最近 20 条，用于快速判断：
+
+- 谁最近在消费
+- 谁最近在借钱
+- 谁刚买了房
+- 谁最近主要在做股票交易
+
+## 8. 经济与生活系统详解
 
 ### 8.1 经济系统组成
 
-经济系统由六层组成：
+经济与生活系统由八层组成：
 
 1. 股票市场
 2. 市场阶段
@@ -388,6 +465,8 @@ flowchart LR
 5. 银行借贷与信用
 6. 人际借贷
 7. 地下案件与实验室口碑
+8. 生活消费与房地产
+9. 经济事件流
 
 这些层不是彼此独立的，而是共同作用于 `MarketState`、团队现金、角色欲望和社交结构。
 
@@ -693,6 +772,72 @@ flowchart LR
   - 板块和个股
 
 这使市场和实验室资金不再只由交易决定，而是会受到经营层面的随机扰动。
+
+### 8.13 生活消费与房地产
+
+这层是新增的轻量生活金融系统，目标不是单独做一个经营游戏，而是把“花钱换舒适度、住房和关系”接进现有世界。
+
+核心对象：
+
+- `ConsumableItem`
+- `PropertyAsset`
+- `Player.life_satisfaction`
+- `Agent.life_satisfaction`
+
+当前规则：
+
+- 消费会减少现金，但提高生活满意度
+- 礼物类消费会额外推动关系
+- 房产会带来住房品质、维护费、租金或经营收入
+- 买房现金不足时，允许直接走银行融资
+- 每天早晨会统一结算房产收益和生活状态
+
+这层会继续反馈到：
+
+- 对话欲望
+- 当日计划
+- 银行借贷需求
+- 日常情绪与压力
+- 前端“生活与地产”面板
+
+### 8.14 经济事件流
+
+为了把“谁刚刚做了什么资金动作”从杂乱的世界事件里拆出来，系统新增了 `FinanceRecord` 和 `WorldState.finance_history`。
+
+单条 `FinanceRecord` 主要包含：
+
+- `day`
+- `time_slot`
+- `actor_id / actor_name`
+- `category`
+- `action`
+- `summary`
+- `amount`
+- `asset_name`
+- `counterparty`
+- `interest_rate`
+- `financed`
+
+这层的设计目标是：
+
+1. 让所有经济动作都能追踪
+2. 让前端可以统一展示，不必再到对话记录、最近事件、人物卡里分别拼接
+3. 为后续统计、图表和过滤器预留结构化基础
+
+当前写入路径：
+
+- 股票交易：`market`
+- 日常消费：`consume`
+- 房产买卖和房产日结：`property`
+- 银行借贷和还款：`bank`
+- 人际借款和归还：`loan`
+
+它和 `dialogue_history` 的关系是：
+
+- `dialogue_history` 记录“说了什么、欲望是什么、关系怎么变化”
+- `finance_history` 记录“钱是怎么动的、利率多少、对象是谁”
+
+这两个时间线并行存在，分别服务社交观察和金融观察。
 
 ## 9. 任务、研究与晨报
 
