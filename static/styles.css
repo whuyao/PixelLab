@@ -30,6 +30,10 @@ body {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+body.modal-open {
+  overflow: hidden;
+}
+
 .project-banner,
 .project-footer {
   max-width: 1600px;
@@ -63,21 +67,122 @@ body {
   text-decoration: underline;
 }
 
-.layout {
+.workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1.92fr) minmax(340px, 0.82fr);
-  gap: 18px;
+  gap: 16px;
   padding: 18px;
   align-items: start;
-  max-width: 1600px;
+  max-width: 1660px;
   margin: 0 auto;
 }
 
-.main-column {
+.view-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.view-tab {
+  min-width: 112px;
+}
+
+.view-tab.is-active {
+  background: linear-gradient(180deg, #7f9b5e, #688349);
+}
+
+.view {
+  display: none;
+}
+
+.view.is-active {
+  display: block;
+}
+
+.home-layout,
+.journal-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.76fr) minmax(340px, 0.88fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.government-board {
+  grid-template-columns: minmax(0, 1.2fr) minmax(380px, 0.95fr);
+}
+
+.home-main,
+.home-side,
+.journal-main,
+.journal-side,
+.government-main-stack,
+.government-side-stack {
   display: grid;
   gap: 14px;
   min-width: 0;
   align-content: start;
+}
+
+.home-cockpit-panel {
+  padding: 14px;
+}
+
+.home-main {
+  gap: 16px;
+}
+
+.home-side {
+  gap: 12px;
+}
+
+.cockpit-card,
+.cockpit-pulse-card {
+  min-height: 88px;
+}
+
+.cockpit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cockpit-value {
+  font-size: 1.44rem;
+  font-weight: 700;
+  margin-top: 8px;
+  color: var(--line);
+}
+
+.cockpit-trend {
+  font-size: 0.78rem;
+  color: rgba(47, 42, 34, 0.78);
+  border: 2px solid rgba(74, 62, 47, 0.18);
+  background: rgba(255, 250, 238, 0.82);
+  padding: 2px 6px;
+}
+
+.cockpit-card.cockpit-alert,
+.cockpit-pulse-card.cockpit-alert {
+  background: linear-gradient(180deg, rgba(255, 234, 226, 0.97), rgba(246, 219, 204, 0.94));
+  border-color: rgba(153, 76, 61, 0.86);
+}
+
+.cockpit-card.cockpit-warm,
+.cockpit-pulse-card.cockpit-warm {
+  background: linear-gradient(180deg, rgba(255, 241, 225, 0.97), rgba(245, 227, 194, 0.94));
+  border-color: rgba(173, 117, 62, 0.82);
+}
+
+.cockpit-card.cockpit-cool,
+.cockpit-pulse-card.cockpit-cool {
+  background: linear-gradient(180deg, rgba(232, 247, 242, 0.97), rgba(214, 236, 227, 0.94));
+  border-color: rgba(84, 132, 116, 0.82);
+}
+
+.cockpit-card.cockpit-steady,
+.cockpit-pulse-card.cockpit-steady {
+  background: linear-gradient(180deg, rgba(247, 243, 231, 0.97), rgba(235, 226, 201, 0.94));
 }
 
 .overview-grid {
@@ -190,11 +295,44 @@ canvas {
   touch-action: none;
 }
 
-.action-rail {
-  grid-column: 2;
-  display: grid;
-  gap: 12px;
-  align-content: start;
+.actor-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.actor-modal[hidden] {
+  display: none;
+}
+
+.actor-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 17, 13, 0.52);
+  backdrop-filter: blur(4px);
+}
+
+.actor-modal-panel {
+  position: relative;
+  width: min(980px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  margin: 24px auto;
+  border: 4px solid var(--line);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 22%),
+    linear-gradient(180deg, rgba(252, 247, 233, 0.98), rgba(236, 224, 194, 0.97));
+  box-shadow: 0 18px 40px rgba(20, 17, 13, 0.4);
+  padding: 14px;
+  color: var(--ink);
+}
+
+.actor-modal-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding-bottom: 10px;
+  background: linear-gradient(180deg, rgba(252, 247, 233, 0.98), rgba(252, 247, 233, 0.9));
 }
 
 .market-panel,
@@ -224,8 +362,57 @@ canvas {
     linear-gradient(180deg, rgba(252, 243, 217, 0.98), rgba(237, 220, 181, 0.98));
 }
 
+.metrics-panel {
+  padding: 14px;
+}
+
+.metrics-panel .metric-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.metrics-panel .metric-compact-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .market-hub-panel {
   padding: 14px;
+}
+
+.market-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 12px;
+  padding: 8px;
+  border: 3px solid rgba(58, 50, 43, 0.44);
+  background: linear-gradient(180deg, rgba(41, 49, 39, 0.86), rgba(63, 73, 59, 0.82));
+  box-shadow: inset 0 0 0 1px rgba(255, 248, 232, 0.08);
+}
+
+.market-subnav-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px 0 2px;
+  font-size: 0.74rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(226, 241, 213, 0.72);
+}
+
+.market-tab {
+  min-width: 116px;
+  border-color: rgba(206, 216, 186, 0.4);
+  background: linear-gradient(180deg, rgba(20, 25, 21, 0.94), rgba(46, 53, 43, 0.9));
+  color: #e6f1d8;
+}
+
+.market-tab.is-active {
+  background: linear-gradient(180deg, #89a85f, #6f8e4e);
+  color: #fbfff2;
+}
+
+.market-group.is-hidden {
+  display: none;
 }
 
 .lifestyle-panel {
@@ -320,6 +507,72 @@ canvas {
   max-height: 420px;
   overflow: auto;
   padding-right: 4px;
+}
+
+.journal-toolbar-panel {
+  margin-bottom: 14px;
+  position: sticky;
+  top: 12px;
+  z-index: 5;
+}
+
+.journal-toolbar {
+  display: grid;
+  gap: 10px;
+}
+
+.journal-toolbar-group {
+  display: grid;
+  gap: 8px;
+  border: 2px solid rgba(58, 50, 43, 0.22);
+  background: rgba(252, 247, 232, 0.78);
+  padding: 10px;
+}
+
+.toolbar-label {
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(46, 39, 31, 0.66);
+  font-weight: 700;
+}
+
+.journal-toolbar-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.journal-nav-btn {
+  min-width: 106px;
+}
+
+.journal-filter-bar {
+  margin-bottom: 0;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dialogue-filter-module {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  margin-bottom: 10px;
+  border: 2px solid rgba(58, 50, 43, 0.18);
+  background: rgba(251, 246, 232, 0.88);
+}
+
+.dialogue-filter-module-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.dialogue-filter-note {
+  font-size: 0.8rem;
+  color: rgba(46, 39, 31, 0.68);
 }
 
 .finance-history-entry {
@@ -511,6 +764,70 @@ canvas {
   border: 3px solid rgba(58, 50, 43, 0.75);
   background: linear-gradient(180deg, rgba(255, 247, 228, 0.96), rgba(241, 231, 200, 0.94));
   padding: 10px 12px;
+}
+
+.fiscal-panel {
+  padding: 14px;
+}
+
+.fiscal-summary-panel {
+  min-height: 100%;
+}
+
+.fiscal-policy-panel {
+  padding-bottom: 16px;
+}
+
+.fiscal-panel .metric-list {
+  gap: 12px;
+}
+
+.fiscal-hero-card {
+  padding: 14px 16px;
+}
+
+.fiscal-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.fiscal-dashboard-card {
+  border: 3px solid rgba(58, 50, 43, 0.26);
+  background: rgba(255, 251, 241, 0.9);
+  padding: 10px;
+}
+
+.government-main-stack .fiscal-dashboard-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.government-side-stack .event-card {
+  min-height: 0;
+}
+
+.fiscal-settlement-card {
+  background: linear-gradient(180deg, rgba(244, 238, 220, 0.98), rgba(233, 225, 197, 0.94));
+}
+
+.fiscal-revenue-card {
+  background: linear-gradient(180deg, rgba(234, 248, 240, 0.98), rgba(216, 237, 224, 0.94));
+}
+
+.fiscal-welfare-card {
+  background: linear-gradient(180deg, rgba(246, 239, 252, 0.98), rgba(229, 220, 241, 0.94));
+}
+
+.fiscal-assets-card {
+  background: linear-gradient(180deg, rgba(233, 247, 248, 0.98), rgba(213, 233, 235, 0.94));
+}
+
+.fiscal-governance-card {
+  background: linear-gradient(180deg, rgba(251, 240, 231, 0.98), rgba(241, 223, 209, 0.94));
+}
+
+.fiscal-policy-card {
+  background: linear-gradient(180deg, rgba(240, 245, 228, 0.98), rgba(225, 234, 206, 0.94));
 }
 
 .metric-summary-grid {
@@ -810,6 +1127,7 @@ canvas {
   background: rgba(255, 251, 241, 0.88);
   padding: 10px;
   line-height: 1.55;
+  color: var(--ink);
 }
 
 .dialogue-box {
@@ -1008,6 +1326,14 @@ canvas {
   font-size: 0.84rem;
 }
 
+.dialogue-filter-summary {
+  border: 2px solid rgba(58, 50, 43, 0.18);
+  background: rgba(246, 240, 222, 0.86);
+  color: rgba(46, 39, 31, 0.76);
+  padding: 7px 9px;
+  font-size: 0.82rem;
+}
+
 .dialogue-financial-strip {
   border: 2px solid rgba(58, 50, 43, 0.3);
   background: rgba(248, 241, 222, 0.82);
@@ -1155,15 +1481,18 @@ canvas {
 .memory-box h3 {
   margin: 0 0 6px;
   font-size: 1rem;
+  color: var(--line);
 }
 
 .memory-section {
   margin-top: 10px;
+  color: rgba(47, 42, 34, 0.96);
 }
 
 .memory-section strong {
   display: block;
   margin-bottom: 4px;
+  color: var(--accent-deep);
 }
 
 .memory-chip {
@@ -1201,11 +1530,23 @@ canvas {
 .status-pill strong {
   margin-bottom: 2px;
   font-size: 0.82rem;
+  color: rgba(56, 49, 40, 0.84);
 }
 
 .status-pill span {
   color: var(--accent-deep);
   font-weight: 700;
+}
+
+.memory-box p,
+.memory-box div,
+.memory-box span,
+.memory-box li {
+  color: inherit;
+}
+
+.memory-box .memory-meta {
+  color: rgba(75, 67, 56, 0.82);
 }
 
 .relation-item {
@@ -1437,7 +1778,10 @@ canvas {
 }
 
 @media (max-width: 1080px) {
-  .layout {
+  .workspace,
+  .home-layout,
+  .journal-layout,
+  .government-board {
     grid-template-columns: 1fr;
   }
 
@@ -1447,8 +1791,10 @@ canvas {
   }
 
   .stage-panel,
-  .main-column,
-  .action-rail,
+  .home-main,
+  .home-side,
+  .journal-main,
+  .journal-side,
   .market-hub-panel,
   .mission-panel,
   .metrics-panel {
@@ -1472,16 +1818,23 @@ canvas {
 
   .analysis-layout,
   .analysis-people-grid,
-  .metric-compact-grid {
+  .metric-compact-grid,
+  .metric-summary-grid {
     grid-template-columns: 1fr;
   }
 
-  .rail-analysis-panel .analysis-people-grid {
+  .metrics-panel .metric-summary-grid,
+  .metrics-panel .metric-compact-grid,
+  .fiscal-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .analysis-panel .analysis-people-grid {
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   }
 
   .market-summary-grid,
-  .metric-summary-grid {
+  .journal-toolbar {
     grid-template-columns: 1fr;
   }
 
@@ -1497,7 +1850,7 @@ canvas {
     font-size: 15px;
   }
 
-  .layout {
+  .workspace {
     gap: 12px;
     padding: 12px;
   }
@@ -1506,6 +1859,15 @@ canvas {
   .project-footer {
     padding: 10px 12px;
     font-size: 0.82rem;
+  }
+
+  .view-nav {
+    gap: 8px;
+  }
+
+  .view-tab {
+    width: calc(50% - 4px);
+    min-width: 0;
   }
 
   .stage-panel,
@@ -1555,11 +1917,6 @@ canvas {
     min-height: 220px;
   }
 
-  .action-rail {
-    position: static;
-    gap: 10px;
-  }
-
   .dialogue-box,
   .memory-box,
   .daily-brief-box {
@@ -1585,9 +1942,39 @@ canvas {
   .metric-compact-grid,
   .status-grid,
   .market-summary-grid,
+  .metric-summary-grid,
   .analysis-layout,
   .analysis-people-grid,
   .position-grid {
     grid-template-columns: 1fr;
+  }
+
+  .metrics-panel .metric-summary-grid,
+  .metrics-panel .metric-compact-grid,
+  .fiscal-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .market-subnav,
+  .journal-toolbar-nav,
+  .journal-filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .market-subnav-label {
+    padding: 0;
+  }
+
+  .market-tab,
+  .journal-nav-btn {
+    width: 100%;
+  }
+
+  .actor-modal-panel {
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    margin: 8px auto;
+    padding: 12px;
   }
 }

@@ -4,42 +4,98 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GeoAI Pixel Lab Test (UrbanComp Lab)</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260313k" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260313u" />
   </head>
   <body>
     <div class="project-banner">
       <span>项目仓库：<a href="https://github.com/whuyao/PixelLab" target="_blank" rel="noreferrer">github.com/whuyao/PixelLab</a></span>
       <span>由 <a href="https://urbancomp.net" target="_blank" rel="noreferrer">UrbanComp Lab</a> 开发</span>
     </div>
-    <main class="layout">
-      <section class="main-column">
-        <section class="stage-panel main-stage">
-          <header class="stage-header">
-            <div>
-              <p class="eyebrow">GeoAI Pixel Lab Test (UrbanComp Lab)</p>
-              <h1>GeoAI Pixel Lab Test (UrbanComp Lab)</h1>
-            </div>
-            <div class="status-strip">
-              <span id="dayLabel">第 1 天</span>
-              <span id="timeLabel">上午</span>
-              <span id="weatherLabel">晴朗</span>
-            </div>
-          </header>
-          <canvas id="labCanvas" width="1184" height="720"></canvas>
-          <div class="controls">
-            <span>移动：WASD / 方向键</span>
-            <span>按 `E`：和身边的人说话</span>
-            <span>滚轮缩放 / 拖拽平移</span>
-            <button id="zoomInBtn" type="button">放大地图</button>
-            <button id="zoomOutBtn" type="button">缩小地图</button>
-            <button id="systemRunBtn" type="button">系统运行：开</button>
-            <button id="observerModeBtn" type="button">观察模式：开</button>
-            <button id="autoExploreBtn" type="button">自动漫游：开</button>
-            <button id="resetCameraBtn" type="button">重置视角</button>
-            <button id="advanceBtn" type="button">推进时段</button>
-          </div>
-        </section>
+    <main class="workspace">
+      <nav class="view-nav">
+        <button type="button" class="view-tab is-active" data-view="home">首页</button>
+        <button type="button" class="view-tab" data-view="market">市场</button>
+        <button type="button" class="view-tab" data-view="life">生活与地产</button>
+        <button type="button" class="view-tab" data-view="government">财政与政府</button>
+        <button type="button" class="view-tab" data-view="journal">日志与观察</button>
+      </nav>
 
+      <section class="view view-home is-active" data-view="home">
+        <div class="home-layout">
+          <div class="home-main">
+            <section class="stage-panel main-stage">
+              <header class="stage-header">
+                <div>
+                  <p class="eyebrow">GeoAI Pixel Lab Test (UrbanComp Lab)</p>
+                  <h1>GeoAI Pixel Lab Test (UrbanComp Lab)</h1>
+                </div>
+                <div class="status-strip">
+                  <span id="dayLabel">第 1 天</span>
+                  <span id="timeLabel">上午</span>
+                  <span id="weatherLabel">晴朗</span>
+                </div>
+              </header>
+              <canvas id="labCanvas" width="1184" height="720"></canvas>
+              <div class="controls">
+                <span>移动：WASD / 方向键</span>
+                <span>按 `E`：和身边的人说话</span>
+                <span>滚轮缩放 / 拖拽平移</span>
+                <button id="zoomInBtn" type="button">放大地图</button>
+                <button id="zoomOutBtn" type="button">缩小地图</button>
+                <button id="systemRunBtn" type="button">系统运行：开</button>
+                <button id="observerModeBtn" type="button">观察模式：开</button>
+                <button id="autoExploreBtn" type="button">自动漫游：开</button>
+                <button id="resetCameraBtn" type="button">重置视角</button>
+                <button id="advanceBtn" type="button">推进时段</button>
+              </div>
+            </section>
+            <section class="panel home-cockpit-panel">
+              <div class="panel-head">
+                <h2>驾驶舱</h2>
+                <span class="panel-tag">关键指标 / 快速判断</span>
+              </div>
+              <div id="homeCockpit" class="metric-summary-grid"></div>
+              <div id="homePulse" class="stack"></div>
+            </section>
+            <section class="panel metrics-panel">
+              <div class="panel-head">
+                <h2>实验室主面板</h2>
+                <span class="panel-tag">首页摘要</span>
+              </div>
+              <div id="metricsList" class="metric-list"></div>
+            </section>
+          </div>
+          <aside class="home-side">
+            <section class="composer-panel">
+              <div class="composer-head">
+                <h2>玩家对话</h2>
+                <span id="talkTarget">当前对象：未靠近任何同事</span>
+              </div>
+              <form id="talkForm" class="talk-form">
+                <input id="talkInput" name="text" type="text" placeholder="例如：你觉得这个 GeoAI 线索值得继续做吗？" />
+                <button id="talkSendBtn" type="submit">发送</button>
+              </form>
+              <p class="composer-tip">靠近同事后按 `E` 会自动聚焦到输入框，回车即可发送。</p>
+            </section>
+            <section class="panel mission-panel">
+              <div class="panel-head">
+                <h2>任务进展</h2>
+                <span class="panel-tag">主线区</span>
+              </div>
+              <div id="taskList" class="stack"></div>
+            </section>
+            <section class="panel event-panel">
+              <div class="panel-head">
+                <h2>首页摘要</h2>
+                <span class="panel-tag">重点动态</span>
+              </div>
+              <div id="homeHighlights" class="stack"></div>
+            </section>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view" data-view="market">
         <section class="panel market-panel market-hub-panel">
           <div class="panel-head">
             <h2>市场中心</h2>
@@ -50,8 +106,14 @@
               <button id="marketYearlyBtn" type="button">年K</button>
             </div>
           </div>
+          <div class="market-subnav">
+            <span class="market-subnav-label">模块切换</span>
+            <button type="button" class="market-tab is-active" data-market-tab="overview">盘面总览</button>
+            <button type="button" class="market-tab" data-market-tab="trading">交易与银行</button>
+            <button type="button" class="market-tab" data-market-tab="flow">资金流与游客</button>
+          </div>
           <div class="market-layout">
-            <div class="market-main-block">
+            <div class="market-main-block market-group" data-market-tab-group="overview flow">
               <div class="market-chart-block">
                 <p id="marketMeta" class="market-meta">正在等待今天的第一笔盘中波动。</p>
                 <canvas id="marketCanvas" width="960" height="320"></canvas>
@@ -80,14 +142,14 @@
               </section>
             </div>
             <div class="market-side-block">
-              <section class="market-subpanel">
+              <section class="market-subpanel market-group" data-market-tab-group="overview">
                 <div class="panel-head compact-head">
                   <h3>盘面总览</h3>
                   <span class="panel-tag">股票</span>
                 </div>
                 <div id="marketSummary" class="market-summary-grid"></div>
               </section>
-              <section class="market-subpanel">
+              <section class="market-subpanel market-group" data-market-tab-group="trading">
                 <div class="panel-head compact-head">
                   <h3>玩家交易</h3>
                   <span class="panel-tag">手动 / 自动</span>
@@ -110,7 +172,7 @@
                 </div>
                 <p id="tradeMeta" class="composer-tip">可用资金：$0 · 当前持仓：空仓</p>
               </section>
-              <section class="market-subpanel">
+              <section class="market-subpanel market-group" data-market-tab-group="trading">
                 <div class="panel-head compact-head">
                   <h3>银行借贷</h3>
                   <span class="panel-tag">青松合作银行</span>
@@ -136,7 +198,9 @@
             </div>
           </div>
         </section>
+      </section>
 
+      <section class="view" data-view="life">
         <section class="panel lifestyle-panel">
           <div class="panel-head">
             <h2>生活与地产</h2>
@@ -171,22 +235,25 @@
           </div>
           <p id="lifestyleStatus" class="signal-status"></p>
         </section>
+      </section>
 
-        <section class="lower-board">
-          <div class="lower-main-stack">
-            <section class="panel metrics-panel">
+      <section class="view" data-view="government">
+        <section class="lower-board government-board">
+          <div class="government-main-stack">
+            <section class="panel fiscal-panel fiscal-summary-panel">
               <div class="panel-head">
-                <h2>实验室主面板</h2>
-                <span class="panel-tag">实验室状态</span>
-              </div>
-              <div id="metricsList" class="metric-list"></div>
-            </section>
-            <section class="panel fiscal-panel">
-              <div class="panel-head">
-                <h2>税务与财政</h2>
-                <span class="panel-tag">政府 / 调税</span>
+                <h2>税务与财政总览</h2>
+                <span class="panel-tag">财政状态 / 运营结果</span>
               </div>
               <div id="fiscalSummary" class="metric-list"></div>
+            </section>
+          </div>
+          <aside class="government-side-stack">
+            <section class="panel fiscal-panel fiscal-policy-panel">
+              <div class="panel-head">
+                <h2>税率与保障调节</h2>
+                <span class="panel-tag">政策控制台</span>
+              </div>
               <form id="taxPolicyForm" class="signal-form tax-form">
                 <div class="policy-group">
                   <p class="policy-group-title">税率设置</p>
@@ -258,146 +325,204 @@
               </form>
               <p id="taxPolicyStatus" class="signal-status"></p>
             </section>
-          </div>
-          <section class="panel memory-panel">
-            <div class="panel-head">
-              <h2>当前角色信息</h2>
-              <span class="panel-tag">点选查看</span>
-            </div>
-            <div id="memoryBox" class="memory-box">点击地图中的玩家或同事，这里会显示他的主要信息、状态、记忆和关系。</div>
-          </section>
+            <section class="panel event-panel">
+              <div class="panel-head">
+                <h2>政府事件摘要</h2>
+                <span class="panel-tag">监管 / 投资 / 保障</span>
+              </div>
+              <div id="governmentHighlights" class="stack"></div>
+            </section>
+            <section class="panel event-panel">
+              <div class="panel-head">
+                <h2>政策说明</h2>
+                <span class="panel-tag">当前逻辑</span>
+              </div>
+              <div class="stack">
+                <article class="event-card">
+                  <strong>财政流向</strong>
+                  <div>税收、罚缴、政府资产收入会进入财政储备，再按保障、公共服务和政府建设流出。</div>
+                  <div class="event-meta">财政页会集中展示税率、保障、政府设施和运营议程。</div>
+                </article>
+                <article class="event-card">
+                  <strong>调税反馈</strong>
+                  <div>工资、证券、地产和消费税会直接影响工资、市场、房地产和日常消费结算。</div>
+                  <div class="event-meta">监管强度会改变抽查频率、罚缴压力和曝光节奏。</div>
+                </article>
+              </div>
+            </section>
+            <section class="panel event-panel">
+              <div class="panel-head">
+                <h2>页面说明</h2>
+                <span class="panel-tag">阅读顺序</span>
+              </div>
+              <div class="stack">
+                <article class="event-card">
+                  <strong>左侧看结果</strong>
+                  <div>财政总览会集中展示税收、储备、保障、政府资产、运营议程和当前税制结果，适合先快速判断系统状态。</div>
+                </article>
+                <article class="event-card">
+                  <strong>右侧做调节</strong>
+                  <div>税率、监管和财政保障参数集中在右侧控制台，修改后会直接影响工资、消费、股市、地产和监管节奏。</div>
+                </article>
+              </div>
+            </section>
+          </aside>
         </section>
       </section>
 
-      <aside class="action-rail">
-        <section class="composer-panel">
-          <div class="composer-head">
-            <h2>玩家对话</h2>
-            <span id="talkTarget">当前对象：未靠近任何同事</span>
-          </div>
-          <form id="talkForm" class="talk-form">
-            <input id="talkInput" name="text" type="text" placeholder="例如：你觉得这个 GeoAI 线索值得继续做吗？" />
-            <button id="talkSendBtn" type="submit">发送</button>
-          </form>
-          <p class="composer-tip">靠近同事后按 `E` 会自动聚焦到输入框，回车即可发送。</p>
-        </section>
-        <section class="panel mission-panel">
+      <section class="view" data-view="journal">
+        <section class="panel journal-toolbar-panel">
           <div class="panel-head">
-            <h2>任务进展</h2>
-            <span class="panel-tag">主线区</span>
+            <h2>日志观察台</h2>
+            <span class="panel-tag">日志工具栏</span>
           </div>
-          <div id="taskList" class="stack"></div>
-        </section>
-        <section class="panel analysis-panel rail-analysis-panel">
-          <div class="panel-head">
-            <h2>实时分析</h2>
-            <span class="panel-tag">市场 / 资金 / 财政 / 状态 / 事件</span>
-          </div>
-          <div class="analysis-layout">
-            <section class="analysis-block">
-              <h3>市场与物价</h3>
-              <canvas id="marketAnalysisCanvas" width="640" height="220"></canvas>
-              <p id="marketAnalysisMeta" class="market-meta">等待分析数据。</p>
-            </section>
-            <section class="analysis-block">
-              <h3>团队资金与存款</h3>
-              <canvas id="capitalAnalysisCanvas" width="640" height="220"></canvas>
-              <p id="capitalAnalysisMeta" class="market-meta">等待分析数据。</p>
-            </section>
-            <section class="analysis-block">
-              <h3>玩家与财政</h3>
-              <canvas id="fiscalAnalysisCanvas" width="640" height="220"></canvas>
-              <p id="fiscalAnalysisMeta" class="market-meta">等待分析数据。</p>
-            </section>
-            <section class="analysis-block">
-              <h3>人群状态</h3>
-              <canvas id="socialAnalysisCanvas" width="640" height="220"></canvas>
-              <p id="socialAnalysisMeta" class="market-meta">等待分析数据。</p>
-            </section>
-            <section class="analysis-block">
-              <h3>事件与游客数量</h3>
-              <canvas id="eventAnalysisCanvas" width="640" height="220"></canvas>
-              <p id="eventAnalysisMeta" class="market-meta">等待分析数据。</p>
-            </section>
-            <section class="analysis-block analysis-people-block">
-              <h3>人物剖面</h3>
-              <div id="peopleAnalysis" class="analysis-people-grid"></div>
-            </section>
-          </div>
-        </section>
-        <section class="panel dialogue-panel rail-dialogue-panel">
-          <div class="panel-head">
-            <h2>实时对话</h2>
-            <span class="panel-tag">近 200 条</span>
-          </div>
-          <div class="dialogue-filter-bar">
-            <select id="dialogueActorFilter">
-              <option value="all">全部人物</option>
-            </select>
-            <div class="dialogue-filter-tabs">
-              <button id="dialogueFilterAll" type="button">全部</button>
-              <button id="dialogueFilterLoan" type="button">只看借贷</button>
-              <button id="dialogueFilterGray" type="button">只看灰色交易</button>
-              <button id="dialogueFilterDesire" type="button">只看欲望冲突</button>
+          <div class="journal-toolbar">
+            <div class="journal-toolbar-group">
+              <div class="toolbar-label">快速跳转</div>
+              <div class="journal-toolbar-nav">
+                <button type="button" class="journal-nav-btn" data-journal-target="analysis">实时分析</button>
+                <button type="button" class="journal-nav-btn" data-journal-target="dialogue">实时对话</button>
+                <button type="button" class="journal-nav-btn" data-journal-target="finance">经济事件流</button>
+                <button type="button" class="journal-nav-btn" data-journal-target="daily">Lab Daily</button>
+                <button type="button" class="journal-nav-btn" data-journal-target="events">最近事件</button>
+                <button type="button" class="journal-nav-btn" data-journal-target="timeline">新闻时间线</button>
+              </div>
             </div>
           </div>
-          <div id="dialogueBox" class="dialogue-box">走近同事后按 E，就会像日常交流一样聊起来。</div>
         </section>
-        <section class="panel daily-panel">
-          <div class="panel-head">
-            <h2>Lab Daily</h2>
-            <span class="panel-tag">晨间简报</span>
+        <div class="journal-layout">
+          <div class="journal-main">
+            <section class="panel analysis-panel" data-journal-section="analysis">
+              <div class="panel-head">
+                <h2>实时分析</h2>
+                <span class="panel-tag">市场 / 资金 / 财政 / 状态 / 事件</span>
+              </div>
+              <div class="analysis-layout">
+                <section class="analysis-block">
+                  <h3>市场与物价</h3>
+                  <canvas id="marketAnalysisCanvas" width="640" height="220"></canvas>
+                  <p id="marketAnalysisMeta" class="market-meta">等待分析数据。</p>
+                </section>
+                <section class="analysis-block">
+                  <h3>团队资金与存款</h3>
+                  <canvas id="capitalAnalysisCanvas" width="640" height="220"></canvas>
+                  <p id="capitalAnalysisMeta" class="market-meta">等待分析数据。</p>
+                </section>
+                <section class="analysis-block">
+                  <h3>玩家与财政</h3>
+                  <canvas id="fiscalAnalysisCanvas" width="640" height="220"></canvas>
+                  <p id="fiscalAnalysisMeta" class="market-meta">等待分析数据。</p>
+                </section>
+                <section class="analysis-block">
+                  <h3>人群状态</h3>
+                  <canvas id="socialAnalysisCanvas" width="640" height="220"></canvas>
+                  <p id="socialAnalysisMeta" class="market-meta">等待分析数据。</p>
+                </section>
+                <section class="analysis-block">
+                  <h3>事件与游客数量</h3>
+                  <canvas id="eventAnalysisCanvas" width="640" height="220"></canvas>
+                  <p id="eventAnalysisMeta" class="market-meta">等待分析数据。</p>
+                </section>
+                <section class="analysis-block analysis-people-block">
+                  <h3>人物剖面</h3>
+                  <div id="peopleAnalysis" class="analysis-people-grid"></div>
+                </section>
+              </div>
+            </section>
+            <section class="panel dialogue-panel" data-journal-section="dialogue">
+              <div class="panel-head">
+                <h2>实时对话</h2>
+                <span class="panel-tag">近 200 条</span>
+              </div>
+              <div class="dialogue-filter-module">
+                <div class="dialogue-filter-module-head">
+                  <div class="toolbar-label">实时对话筛选</div>
+                  <div class="dialogue-filter-note">只影响当前对话流，不影响分析图、事件流和其他日志模块</div>
+                </div>
+                <div class="dialogue-filter-bar">
+                  <select id="dialogueActorFilter">
+                    <option value="all">全部人物</option>
+                  </select>
+                  <div class="dialogue-filter-tabs">
+                    <button id="dialogueFilterAll" type="button">全部</button>
+                    <button id="dialogueFilterLoan" type="button">只看借贷</button>
+                    <button id="dialogueFilterGray" type="button">只看灰色交易</button>
+                    <button id="dialogueFilterDesire" type="button">只看欲望冲突</button>
+                  </div>
+                </div>
+              </div>
+              <div id="dialogueBox" class="dialogue-box">走近同事后按 E，就会像日常交流一样聊起来。</div>
+            </section>
+            <section class="panel event-panel" data-journal-section="finance">
+              <div class="panel-head">
+                <h2>经济事件流</h2>
+                <span class="panel-tag">交易 / 消费 / 借贷</span>
+              </div>
+              <div id="financeHistoryBox" class="finance-history-list"></div>
+            </section>
           </div>
-          <div id="dailyBriefBox" class="daily-brief-box">明天早上会自动生成一份 Lab Daily。</div>
-        </section>
-        <section class="panel daily-panel">
-          <div class="panel-head">
-            <h2>地下案件处置台</h2>
-            <span class="panel-tag">玩家介入</span>
+          <aside class="journal-side">
+            <section class="panel daily-panel" data-journal-section="daily">
+              <div class="panel-head">
+                <h2>Lab Daily</h2>
+                <span class="panel-tag">晨间简报</span>
+              </div>
+              <div id="dailyBriefBox" class="daily-brief-box">明天早上会自动生成一份 Lab Daily。</div>
+            </section>
+            <section class="panel daily-panel">
+              <div class="panel-head">
+                <h2>地下案件处置台</h2>
+                <span class="panel-tag">玩家介入</span>
+              </div>
+              <div id="grayCaseActionBox" class="daily-brief-box">一旦出现活跃地下案件，这里会出现压消息、举报、和解和做空入口。</div>
+            </section>
+            <section class="panel event-panel" data-journal-section="events">
+              <div class="panel-head">
+                <h2>最近事件</h2>
+                <span class="panel-tag">近 200 条</span>
+              </div>
+              <div id="eventList" class="stack scroll-panel-list"></div>
+            </section>
+            <section class="panel signal-panel" data-journal-section="timeline">
+              <div class="panel-head">
+                <h2>主线新闻时间线</h2>
+                <span class="panel-tag">系统自动拉取</span>
+              </div>
+              <div class="signal-form timeline-toolbar">
+                <label class="policy-field">
+                  <span class="policy-label">新闻频率窗口</span>
+                  <span class="policy-hint">系统会在这个窗口内随机排入几条主线新闻。</span>
+                  <select id="newsWindowSelect">
+                    <option value="3">3 天</option>
+                    <option value="7">7 天</option>
+                    <option value="14">14 天</option>
+                  </select>
+                </label>
+                <button id="newsWindowSubmitBtn" type="button">更新频率</button>
+              </div>
+              <p class="composer-tip">系统会自动从 Brave 拉取主线新闻；如果未配置 Brave，则会自动编造市场新闻补足时间线。</p>
+              <p id="signalStatus" class="signal-status"></p>
+              <div id="newsTimelineBox" class="daily-brief-box scroll-panel-list">这里会显示未来几个时段排好的主线新闻。</div>
+            </section>
+          </aside>
+        </div>
+      </section>
+
+      <div id="actorModal" class="actor-modal" hidden>
+        <div id="actorModalBackdrop" class="actor-modal-backdrop"></div>
+        <div class="actor-modal-panel">
+          <div class="panel-head actor-modal-head">
+            <h2>角色详情</h2>
+            <button id="actorModalCloseBtn" type="button">关闭</button>
           </div>
-          <div id="grayCaseActionBox" class="daily-brief-box">一旦出现活跃地下案件，这里会出现压消息、举报、和解和做空入口。</div>
-        </section>
-        <section class="panel event-panel">
-          <div class="panel-head">
-            <h2>经济事件流</h2>
-            <span class="panel-tag">交易 / 消费 / 借贷</span>
-          </div>
-          <div id="financeHistoryBox" class="finance-history-list"></div>
-        </section>
-        <section class="panel event-panel">
-          <div class="panel-head">
-            <h2>最近事件</h2>
-            <span class="panel-tag">近 200 条</span>
-          </div>
-          <div id="eventList" class="stack scroll-panel-list"></div>
-        </section>
-        <section class="panel signal-panel">
-          <div class="panel-head">
-            <h2>主线新闻时间线</h2>
-            <span class="panel-tag">系统自动拉取</span>
-          </div>
-          <div class="signal-form timeline-toolbar">
-            <label class="policy-field">
-              <span class="policy-label">新闻频率窗口</span>
-              <span class="policy-hint">系统会在这个窗口内随机排入几条主线新闻。</span>
-              <select id="newsWindowSelect">
-                <option value="3">3 天</option>
-                <option value="7">7 天</option>
-                <option value="14">14 天</option>
-              </select>
-            </label>
-            <button id="newsWindowSubmitBtn" type="button">更新频率</button>
-          </div>
-          <p class="composer-tip">系统会自动从 Brave 拉取主线新闻；如果未配置 Brave，则会自动编造市场新闻补足时间线。</p>
-          <p id="signalStatus" class="signal-status"></p>
-          <div id="newsTimelineBox" class="daily-brief-box scroll-panel-list">这里会显示未来几个时段排好的主线新闻。</div>
-        </section>
-      </aside>
+          <div id="memoryBox" class="memory-box">点击地图中的玩家或同事，这里会显示他的主要信息、状态、记忆和关系。</div>
+        </div>
+      </div>
     </main>
     <footer class="project-footer">
       <span>UrbanComp Lab (<a href="https://urbancomp.net" target="_blank" rel="noreferrer">https://urbancomp.net</a>) 开发</span>
       <span>GitHub：<a href="https://github.com/whuyao/PixelLab" target="_blank" rel="noreferrer">https://github.com/whuyao/PixelLab</a></span>
     </footer>
-    <script src="/static/app.js?v=20260313k" type="module"></script>
+    <script src="/static/app.js?v=20260313u" type="module"></script>
   </body>
 </html>

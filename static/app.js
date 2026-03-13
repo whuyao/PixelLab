@@ -25,6 +25,18 @@ const dailyBriefBox = document.getElementById("dailyBriefBox");
 const newsTimelineBox = document.getElementById("newsTimelineBox");
 const grayCaseActionBox = document.getElementById("grayCaseActionBox");
 const memoryBox = document.getElementById("memoryBox");
+const homeHighlights = document.getElementById("homeHighlights");
+const governmentHighlights = document.getElementById("governmentHighlights");
+const homeCockpit = document.getElementById("homeCockpit");
+const homePulse = document.getElementById("homePulse");
+const actorModal = document.getElementById("actorModal");
+const actorModalBackdrop = document.getElementById("actorModalBackdrop");
+const actorModalCloseBtn = document.getElementById("actorModalCloseBtn");
+const viewTabs = Array.from(document.querySelectorAll(".view-tab"));
+const viewPanels = Array.from(document.querySelectorAll(".view"));
+const marketTabs = Array.from(document.querySelectorAll(".market-tab"));
+const marketGroups = Array.from(document.querySelectorAll("[data-market-tab-group]"));
+const journalNavBtns = Array.from(document.querySelectorAll(".journal-nav-btn"));
 const macroNewsForm = document.getElementById("macroNewsForm");
 const tradeForm = document.getElementById("tradeForm");
 const tradeSymbol = document.getElementById("tradeSymbol");
@@ -101,7 +113,7 @@ const welfareBankruptcyInput = document.getElementById("welfareBankruptcyInput")
 const taxPolicyNoteInput = document.getElementById("taxPolicyNoteInput");
 const taxPolicySubmitBtn = document.getElementById("taxPolicySubmitBtn");
 const taxPolicyStatus = document.getElementById("taxPolicyStatus");
-const ASSET_VERSION = "20260313k";
+const ASSET_VERSION = "20260313u";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -118,6 +130,60 @@ const weatherLabels = {
   cloudy: "多云",
   drizzle: "小雨",
 };
+
+const availableViews = new Set(["home", "market", "life", "government", "journal"]);
+
+function routeForTargetKind(targetKind) {
+  if (["market", "stock"].includes(targetKind)) return "market";
+  if (["gray_case", "dialogue", "event", "story"].includes(targetKind)) return "journal";
+  return "journal";
+}
+
+function setCurrentView(view, { updateHash = true } = {}) {
+  const normalized = availableViews.has(view) ? view : "home";
+  currentView = normalized;
+  viewTabs.forEach((button) => button.classList.toggle("is-active", button.dataset.view === normalized));
+  viewPanels.forEach((panel) => panel.classList.toggle("is-active", panel.dataset.view === normalized));
+  if (updateHash && location.hash !== `#/${normalized}`) {
+    history.replaceState(null, "", `#/${normalized}`);
+  }
+}
+
+function syncViewFromHash() {
+  const match = location.hash.match(/^#\/([^/?]+)/);
+  const view = match?.[1] || "home";
+  setCurrentView(view, { updateHash: false });
+}
+
+function isViewVisible(view) {
+  return currentView === view;
+}
+
+function setCurrentMarketTab(tab) {
+  const normalized = ["overview", "trading", "flow"].includes(tab) ? tab : "overview";
+  currentMarketTab = normalized;
+  marketTabs.forEach((button) => button.classList.toggle("is-active", button.dataset.marketTab === normalized));
+  marketGroups.forEach((section) => {
+    const allowed = String(section.dataset.marketTabGroup || "")
+      .split(/\s+/)
+      .filter(Boolean);
+    section.classList.toggle("is-hidden", !allowed.includes(normalized));
+  });
+}
+
+function openActorModal() {
+  if (!actorModal) return;
+  actorModalVisible = true;
+  actorModal.hidden = false;
+  document.body.classList.add("modal-open");
+}
+
+function closeActorModal() {
+  if (!actorModal) return;
+  actorModalVisible = false;
+  actorModal.hidden = true;
+  document.body.classList.remove("modal-open");
+}
 
 const categoryLabels = {
   geoai: "GeoAI",
@@ -747,6 +813,9 @@ let selectedConsumeItemId = "";
 let selectedOwnedPropertyId = "";
 let selectedListedPropertyId = "";
 let diffInFlight = false;
+let currentView = "home";
+let actorModalVisible = false;
+let currentMarketTab = "overview";
 const cameraState = {
   zoom: 1,
   manual: false,
@@ -930,6 +999,8 @@ function animateEntity(entity, delta) {
 
 function renderPanels() {
   if (!state) return;
+  setCurrentView(currentView, { updateHash: false });
+  setCurrentMarketTab(currentMarketTab);
   dayLabel.textContent = `第 ${state.day} 天`;
   timeLabel.textContent = timeLabels[state.time_slot];
   weatherLabel.textContent = weatherLabels[state.weather] || state.weather || "晴朗";
@@ -942,91 +1013,116 @@ function renderPanels() {
   marketYearlyBtn?.classList.toggle("active", marketViewMode === "yearly");
   updateTalkTarget();
   refreshComposerAvailability();
-  renderIfChanged(
-    "metrics",
-    serverSignature("metrics", [state.day, state.time_slot, state.weather, state.lab, state.geoai_milestones, state.market, state.company]),
-    () => renderMetrics(),
-  );
-  renderIfChanged(
-    "analysis",
-    serverSignature("analysis", [state.analysis_history, state.agents, state.player, state.tourists, state.tourism, state.event_history, state.gray_cases, state.market]),
-    () => renderAnalysisPanel(),
-  );
-  renderIfChanged(
-    "fiscal-panel",
-    serverSignature("fiscal", [state.day, state.government, state.finance_history?.slice(0, 120)]),
-    () => renderFiscalPanel(),
-  );
-  renderIfChanged(
-    "tasks",
-    serverSignature("tasks", [state.tasks, state.archived_tasks]),
-    () => renderTasks(),
-  );
-  renderIfChanged(
-    "events",
-    serverSignature("events", [state.gray_cases, state.story_beats, state.event_history], [highlightedEventId, highlightedStoryId, highlightedGrayCaseId]),
-    () => renderEvents(),
-  );
-  renderIfChanged(
-    "finance-history",
-    serverSignature("finance", [state.finance_history?.slice(0, 20)]),
-    () => renderFinanceHistory(),
-  );
-  renderIfChanged(
-    "dialogue-filters",
-    serverSignature("memory", [...state.agents.map((agent) => [agent.id, agent.name]), ...(state.tourists || []).map((tourist) => [tourist.id, tourist.name])], [dialogueFilterMode, dialogueFilterActor]),
-    () => renderDialogueFilterControls(),
-  );
-  renderIfChanged(
-    "dialogue",
-    serverSignature("dialogue", [state.latest_dialogue, state.dialogue_history?.slice(0, 200), state.loans], [pendingDialogue, dialogueFilterMode, dialogueFilterActor, highlightedDialogueId]),
-    () => renderDialogue(),
-  );
-  renderIfChanged(
-    "daily",
-    serverSignature("daily", [state.daily_briefings?.[0]]),
-    () => renderDailyBrief(),
-  );
-  renderIfChanged(
-    "signals",
-    serverSignature("signals", [state.news_timeline?.slice(0, 40), state.event_history?.[0], state.tourism?.latest_signal], [busy]),
-    () => renderNewsTimeline(),
-  );
-  renderIfChanged(
-    "gray-cases",
-    serverSignature("gray_cases", [state.gray_cases], [highlightedGrayCaseId]),
-    () => renderGrayCaseActions(),
-  );
+  if (isViewVisible("home")) {
+    renderIfChanged(
+      "home-cockpit",
+      serverSignature("metrics", [state.day, state.time_slot, state.weather, state.lab, state.market, state.player, state.government, state.tourists, state.tasks?.slice(0, 3)]),
+      () => renderHomeCockpit(),
+    );
+    renderIfChanged(
+      "metrics",
+      serverSignature("metrics", [state.day, state.time_slot, state.weather, state.lab, state.geoai_milestones, state.market, state.company]),
+      () => renderMetrics(),
+    );
+    renderIfChanged(
+      "tasks",
+      serverSignature("tasks", [state.tasks, state.archived_tasks]),
+      () => renderTasks(),
+    );
+    renderIfChanged(
+      "home-highlights",
+      serverSignature("events", [state.events, state.event_history?.slice(0, 8), state.market, state.lab]),
+      () => renderHomeHighlights(),
+    );
+  }
+  if (isViewVisible("government")) {
+    renderIfChanged(
+      "fiscal-panel",
+      serverSignature("fiscal", [state.day, state.government, state.finance_history?.slice(0, 120)]),
+      () => renderFiscalPanel(),
+    );
+    renderIfChanged(
+      "government-highlights",
+      serverSignature("fiscal", [state.government, state.events, state.event_history?.slice(0, 16)]),
+      () => renderGovernmentHighlights(),
+    );
+  }
+  if (isViewVisible("journal")) {
+    renderIfChanged(
+      "analysis",
+      serverSignature("analysis", [state.analysis_history, state.agents, state.player, state.tourists, state.tourism, state.event_history, state.gray_cases, state.market]),
+      () => renderAnalysisPanel(),
+    );
+    renderIfChanged(
+      "events",
+      serverSignature("events", [state.gray_cases, state.story_beats, state.event_history], [highlightedEventId, highlightedStoryId, highlightedGrayCaseId]),
+      () => renderEvents(),
+    );
+    renderIfChanged(
+      "finance-history",
+      serverSignature("finance", [state.finance_history?.slice(0, 20)]),
+      () => renderFinanceHistory(),
+    );
+    renderIfChanged(
+      "dialogue-filters",
+      serverSignature("memory", [...state.agents.map((agent) => [agent.id, agent.name]), ...(state.tourists || []).map((tourist) => [tourist.id, tourist.name])], [dialogueFilterMode, dialogueFilterActor]),
+      () => renderDialogueFilterControls(),
+    );
+    renderIfChanged(
+      "dialogue",
+      serverSignature("dialogue", [state.latest_dialogue, state.dialogue_history?.slice(0, 200), state.loans], [pendingDialogue, dialogueFilterMode, dialogueFilterActor, highlightedDialogueId]),
+      () => renderDialogue(),
+    );
+    renderIfChanged(
+      "daily",
+      serverSignature("daily", [state.daily_briefings?.[0]]),
+      () => renderDailyBrief(),
+    );
+    renderIfChanged(
+      "signals",
+      serverSignature("signals", [state.news_timeline?.slice(0, 40), state.event_history?.[0], state.tourism?.latest_signal], [busy]),
+      () => renderNewsTimeline(),
+    );
+    renderIfChanged(
+      "gray-cases",
+      serverSignature("gray_cases", [state.gray_cases], [highlightedGrayCaseId]),
+      () => renderGrayCaseActions(),
+    );
+  }
   renderIfChanged(
     "memory",
     serverSignature("memory", [state.player, state.agents, state.tourists, state.tourism, state.properties, state.loans, state.bank_loans, state.dialogue_history?.slice(0, 40), state.company, state.time_slot, state.day], [selectedActorId]),
     () => renderMemory(),
   );
-  renderIfChanged(
-    "market-module",
-    serverSignature("market", [state.market, state.player, state.agents, state.tourists, state.tourism, state.bank, state.bank_loans], [busy]),
-    () => renderMarketModule(),
-  );
-  renderIfChanged(
-    "bank-module",
-    serverSignature("bank", [state.bank, state.bank_loans, state.daily_bank_history, state.player.cash, state.player.credit_score, state.agents], [bankBorrowAmount?.value, bankBorrowTerm?.value, busy]),
-    () => renderBankModule(),
-  );
-  renderIfChanged(
-    "market-chart",
-    serverSignature("market", [state.market?.index_history, state.market?.daily_index_history, state.market?.regime, state.market?.rotation_leader, state.market?.rotation_age], [marketViewMode]),
-    () => renderMarketChart(),
-  );
-  renderIfChanged(
-    "lifestyle-panel",
-    serverSignature("lifestyle", [state.player, state.agents, state.tourists, state.tourism, state.properties, state.lifestyle_catalog, state.company], [selectedActorId, busy]),
-    () => renderLifestylePanel(),
-  );
-  renderIfChanged(
-    "trade-meta",
-    serverSignature("market", [state.player, state.market?.stocks, state.bank_loans], [tradeSymbol?.value, busy]),
-    () => renderTradeMeta(),
-  );
+  if (isViewVisible("market")) {
+    renderIfChanged(
+      "market-module",
+      serverSignature("market", [state.market, state.player, state.agents, state.tourists, state.tourism, state.bank, state.bank_loans], [busy]),
+      () => renderMarketModule(),
+    );
+    renderIfChanged(
+      "bank-module",
+      serverSignature("bank", [state.bank, state.bank_loans, state.daily_bank_history, state.player.cash, state.player.credit_score, state.agents], [bankBorrowAmount?.value, bankBorrowTerm?.value, busy]),
+      () => renderBankModule(),
+    );
+    renderIfChanged(
+      "market-chart",
+      serverSignature("market", [state.market?.index_history, state.market?.daily_index_history, state.market?.regime, state.market?.rotation_leader, state.market?.rotation_age], [marketViewMode]),
+      () => renderMarketChart(),
+    );
+    renderIfChanged(
+      "trade-meta",
+      serverSignature("market", [state.player, state.market?.stocks, state.bank_loans], [tradeSymbol?.value, busy]),
+      () => renderTradeMeta(),
+    );
+  }
+  if (isViewVisible("life")) {
+    renderIfChanged(
+      "lifestyle-panel",
+      serverSignature("lifestyle", [state.player, state.agents, state.tourists, state.tourism, state.properties, state.lifestyle_catalog, state.company], [selectedActorId, busy]),
+      () => renderLifestylePanel(),
+    );
+  }
 }
 
 function renderDailyBrief() {
@@ -1220,6 +1316,115 @@ function renderMetrics() {
   `;
 }
 
+function renderHomeCockpit() {
+  if (!homeCockpit || !homePulse) return;
+  const history = state.analysis_history || [];
+  const latestPoint = history[history.length - 1] || null;
+  const prevPoint = history[history.length - 2] || latestPoint;
+  const teamCash = state.agents.reduce((sum, agent) => sum + (agent.cash || 0), 0);
+  const teamDeposits = state.agents.reduce((sum, agent) => sum + (agent.deposit_balance || 0), 0);
+  const teamAssets = teamCash + teamDeposits;
+  const activeEvents = (state.event_history || state.events || []).length;
+  const marketIndex = Number(state.market?.index_value || 0).toFixed(1);
+  const inflationIndex = Number(state.market?.inflation_index || 100).toFixed(1);
+  const trendLabel = (delta) => (delta > 0 ? `↑ ${delta.toFixed(1)}` : delta < 0 ? `↓ ${Math.abs(delta).toFixed(1)}` : "→ 0.0");
+  const cardTone = (kind) => {
+    if (kind === "alert") return "cockpit-alert";
+    if (kind === "warm") return "cockpit-warm";
+    if (kind === "cool") return "cockpit-cool";
+    return "cockpit-steady";
+  };
+  const cards = [
+    {
+      label: "团队总资金",
+      value: formatCompactCurrency(teamAssets),
+      meta: "现金 + 存款",
+      trend: trendLabel((latestPoint?.team_assets || teamAssets) - (prevPoint?.team_assets || teamAssets)),
+      tone: "warm",
+    },
+    {
+      label: "GeoAI 累计",
+      value: String(state.lab?.geoai_progress || 0),
+      meta: `里程碑 ${(state.geoai_milestones || []).length}`,
+      trend: `↑ ${(state.lab?.geoai_milestones || []).length}`,
+      tone: "cool",
+    },
+    {
+      label: "政府储备",
+      value: formatCompactCurrency(state.government?.reserve_balance || 0),
+      meta: `口碑 ${state.lab?.reputation || 0}`,
+      trend: trendLabel((latestPoint?.government_reserve || 0) - (prevPoint?.government_reserve || 0)),
+      tone: "steady",
+    },
+    {
+      label: "在场游客",
+      value: `${state.tourists?.length || 0}/${state.tourism?.active_visitor_cap || 5}`,
+      meta: tourismSeasonLabel(state.tourism?.season_mode),
+      trend: trendLabel((latestPoint?.tourists_active || 0) - (prevPoint?.tourists_active || 0)),
+      tone: "cool",
+    },
+    {
+      label: "市场指数",
+      value: marketIndex,
+      meta: `${marketRegimeLabels[state.market?.regime] || state.market?.regime || "震荡市"} · 物价 ${inflationIndex}`,
+      trend: trendLabel((latestPoint?.market_index || 0) - (prevPoint?.market_index || 0)),
+      tone: Number(state.market?.realized_volatility_pct || 0) > 6 ? "alert" : "steady",
+    },
+    {
+      label: "活跃事件",
+      value: String(activeEvents),
+      meta: `灰案 ${(state.gray_cases || []).filter((item) => item.status === "active").length}`,
+      trend: trendLabel((latestPoint?.active_events || activeEvents) - (prevPoint?.active_events || activeEvents)),
+      tone: activeEvents >= 8 ? "alert" : "warm",
+    },
+  ];
+  homeCockpit.innerHTML = cards
+    .map(
+      (card) => `
+        <article class="metric-summary-card cockpit-card ${cardTone(card.tone)}">
+          <div class="cockpit-head">
+            <strong>${escapeHtml(card.label)}</strong>
+            <span class="cockpit-trend">${escapeHtml(card.trend)}</span>
+          </div>
+          <div class="cockpit-value">${escapeHtml(card.value)}</div>
+          <div class="metric-meta">${escapeHtml(card.meta)}</div>
+        </article>
+      `,
+    )
+    .join("");
+  const pulses = [
+    {
+      title: "任务推进",
+      summary: state.tasks?.[0]?.title || "当前没有活动任务。",
+      meta: state.tasks?.[0]?.description || "系统正在等待新的目标刷新。",
+      tone: "steady",
+    },
+    {
+      title: "市场脉搏",
+      summary: `${marketRegimeLabels[state.market?.regime] || state.market?.regime || "震荡市"} · 主线 ${state.market?.rotation_leader || "broad"}`,
+      meta: `指数 ${marketIndex} · 游客收入 ${formatCompactCurrency(state.tourism?.daily_revenue || 0)}`,
+      tone: Number(state.market?.realized_volatility_pct || 0) > 6 ? "alert" : "cool",
+    },
+    {
+      title: "制度脉搏",
+      summary: state.government?.current_agenda || "财政与监管暂时平稳。",
+      meta: `今日税收 ${formatCompactCurrency(state.government?.daily_revenue || 0)} · 今日保障 ${formatCompactCurrency(state.government?.daily_welfare_paid || 0)}`,
+      tone: (state.government?.daily_welfare_paid || 0) > (state.government?.daily_revenue || 0) ? "warm" : "steady",
+    },
+  ];
+  homePulse.innerHTML = pulses
+    .map(
+      (item) => `
+        <article class="event-card cockpit-pulse-card ${cardTone(item.tone)}">
+          <strong>${escapeHtml(item.title)}</strong>
+          <div>${escapeHtml(item.summary)}</div>
+          <div class="event-meta">${escapeHtml(item.meta)}</div>
+        </article>
+      `,
+    )
+    .join("");
+}
+
 function renderFiscalPanel() {
   if (!state || !fiscalSummary) return;
   const government = state.government || {};
@@ -1237,7 +1442,7 @@ function renderFiscalPanel() {
   const expenditures = government.expenditures || {};
   const listedGovernmentAssets = (state.properties || []).filter((asset) => asset.owner_type === "government" && (asset.listed || asset.status === "listed"));
   fiscalSummary.innerHTML = `
-    <article class="metric-summary-card">
+    <article class="metric-summary-card fiscal-hero-card">
       <strong>财政总览</strong>
       <div class="fiscal-grid">
         <div class="status-pill"><strong>今日税收</strong><span>$${todayTaxes}</span></div>
@@ -1250,8 +1455,9 @@ function renderFiscalPanel() {
         <div class="status-pill"><strong>最近政策</strong><span>${escapeHtml(government.last_policy_note || "维持默认税率")}</span></div>
       </div>
     </article>
-    <section class="metric-group">
-      <h3 class="metric-group-title">15 天财政结算</h3>
+    <div class="fiscal-dashboard-grid">
+    <section class="metric-group fiscal-dashboard-card fiscal-settlement-card">
+      <h3 class="metric-group-title">结 · 15 天财政结算</h3>
       <div class="tax-rate-grid">
         <article class="tax-rate-item"><strong>周期长度</strong><span>${government.fiscal_cycle_days || 15} 天</span></article>
         <article class="tax-rate-item"><strong>下次结算</strong><span>第 ${government.next_distribution_day || 15} 天</span></article>
@@ -1265,8 +1471,8 @@ function renderFiscalPanel() {
         <article class="tax-rate-item"><strong>结算备注</strong><span>${escapeHtml(government.last_distribution_note || "财政周期还没有触发。")}</span></article>
       </div>
     </section>
-    <section class="metric-group">
-      <h3 class="metric-group-title">分税种收入</h3>
+    <section class="metric-group fiscal-dashboard-card fiscal-revenue-card">
+      <h3 class="metric-group-title">税 · 分税种收入</h3>
       <div class="tax-rate-grid">
         <article class="tax-rate-item"><strong>工资税</strong><span>$${revenues.wage || 0}</span></article>
         <article class="tax-rate-item"><strong>证券税</strong><span>$${revenues.market || 0}</span></article>
@@ -1278,8 +1484,8 @@ function renderFiscalPanel() {
         <article class="tax-rate-item"><strong>政府机构</strong><span>${escapeHtml(government.name || "园区财政与监管局")}</span></article>
       </div>
     </section>
-    <section class="metric-group">
-      <h3 class="metric-group-title">财政保障</h3>
+    <section class="metric-group fiscal-dashboard-card fiscal-welfare-card">
+      <h3 class="metric-group-title">保 · 财政保障</h3>
       <div class="tax-rate-grid">
         <article class="tax-rate-item"><strong>保障阈值</strong><span>$${government.welfare_low_cash_threshold || 0}</span></article>
         <article class="tax-rate-item"><strong>低收入补助</strong><span>$${government.welfare_base_support || 0}</span></article>
@@ -1290,8 +1496,8 @@ function renderFiscalPanel() {
         <article class="tax-rate-item"><strong>覆盖说明</strong><span>低现金 / 破产兜底</span></article>
       </div>
     </section>
-    <section class="metric-group">
-      <h3 class="metric-group-title">公共服务与政府资产</h3>
+    <section class="metric-group fiscal-dashboard-card fiscal-assets-card">
+      <h3 class="metric-group-title">建 · 公共服务与政府资产</h3>
       <div class="tax-rate-grid">
         <article class="tax-rate-item"><strong>公共服务等级</strong><span>${government.public_service_level || 0}</span></article>
         <article class="tax-rate-item"><strong>旅游支持</strong><span>${government.tourism_support_level || 0}</span></article>
@@ -1301,8 +1507,8 @@ function renderFiscalPanel() {
       </div>
       <div class="metric-meta">${governmentAssets.length ? governmentAssets.map((asset) => `${asset.name}（${facilityKindLabel(asset.facility_kind) || propertyTypeLabel(asset.property_type)}）`).join(" · ") : "当前还没有政府持有资产。"}</div>
     </section>
-    <section class="metric-group">
-      <h3 class="metric-group-title">政府运营智能体</h3>
+    <section class="metric-group fiscal-dashboard-card fiscal-governance-card">
+      <h3 class="metric-group-title">策 · 政府运营智能体</h3>
       <div class="tax-rate-grid">
         <article class="tax-rate-item"><strong>当前议程</strong><span>${escapeHtml(government.current_agenda || "观察游客、住房和财政储备。")}</span></article>
         <article class="tax-rate-item"><strong>最近动作</strong><span>${escapeHtml(government.last_agent_action || "还没有新的建设动作。")}</span></article>
@@ -1315,8 +1521,8 @@ function renderFiscalPanel() {
       </div>
       <div class="metric-meta">${(government.known_signals || []).length ? government.known_signals.map((signal) => escapeHtml(signal)).join(" · ") : "政府还在等待更多税收、游客和住房信号。"}</div>
     </section>
-    <section class="metric-group">
-      <h3 class="metric-group-title">当前税率</h3>
+    <section class="metric-group fiscal-dashboard-card fiscal-policy-card">
+      <h3 class="metric-group-title">律 · 当前税率</h3>
       <div class="tax-rate-grid">
         <article class="tax-rate-item"><strong>工资</strong><span>${Number(government.wage_tax_rate_pct || 0).toFixed(1)}%</span></article>
         <article class="tax-rate-item"><strong>证券</strong><span>${Number(government.securities_tax_rate_pct || 0).toFixed(1)}%</span></article>
@@ -1326,6 +1532,7 @@ function renderFiscalPanel() {
         <article class="tax-rate-item"><strong>奢侈</strong><span>${Number(government.luxury_tax_rate_pct || 0).toFixed(1)}%</span></article>
       </div>
     </section>
+    </div>
   `;
   if (wageTaxInput && document.activeElement !== wageTaxInput) wageTaxInput.value = Number(government.wage_tax_rate_pct || 0).toFixed(1);
   if (securitiesTaxInput && document.activeElement !== securitiesTaxInput) securitiesTaxInput.value = Number(government.securities_tax_rate_pct || 0).toFixed(1);
@@ -2365,13 +2572,22 @@ function renderTradeMeta() {
   }
 }
 
+function jumpToJournalSection(section) {
+  setCurrentView("journal");
+  renderPanels();
+  document.querySelector(`[data-journal-section="${CSS.escape(section)}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function jumpFromDailyBrief(targetKind, targetId, targetFilter) {
   clearJumpHighlights();
   if (targetKind === "market") {
+    setCurrentView("market");
+    renderPanels();
     document.querySelector(".market-hub-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
     return;
   }
   if (targetKind === "dialogue") {
+    setCurrentView(routeForTargetKind(targetKind));
     if (targetFilter) {
       dialogueFilterMode = targetFilter;
       renderCache.delete("dialogue-filters");
@@ -2381,26 +2597,29 @@ function jumpFromDailyBrief(targetKind, targetId, targetFilter) {
     renderCache.delete("dialogue-filters");
     renderPanels();
     scrollToElement(targetId ? `.dialogue-card[data-record-id="${CSS.escape(targetId)}"]` : ".dialogue-timeline", dialogueBox);
-    document.querySelector(".rail-dialogue-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    document.querySelector(".dialogue-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
     return;
   }
   if (targetKind === "event") {
+    setCurrentView(routeForTargetKind(targetKind));
     highlightedEventId = targetId || "";
     renderCache.delete("events");
     renderPanels();
     scrollToElement(`.event-card[data-event-id="${CSS.escape(targetId)}"]`, eventList);
-    document.querySelector(".event-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    eventList?.closest(".event-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
     return;
   }
   if (targetKind === "story") {
+    setCurrentView(routeForTargetKind(targetKind));
     highlightedStoryId = targetId || "";
     renderCache.delete("events");
     renderPanels();
     scrollToElement(`.event-card[data-story-id="${CSS.escape(targetId)}"]`, eventList);
-    document.querySelector(".event-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    eventList?.closest(".event-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
     return;
   }
   if (targetKind === "gray_case") {
+    setCurrentView(routeForTargetKind(targetKind));
     highlightedGrayCaseId = targetId || "";
     renderCache.delete("gray-cases");
     renderCache.delete("events");
@@ -2449,6 +2668,79 @@ function renderEvents() {
   eventList.innerHTML = `${grayCaseMarkup}${storyMarkup}${eventMarkup}`;
 }
 
+function renderHomeHighlights() {
+  if (!homeHighlights) return;
+  const cards = [
+    {
+      title: "当前主线",
+      summary: state.tasks?.[0]?.title || "当前没有活动主线任务。",
+      meta: state.tasks?.[0]?.description || "系统会自动补充新的任务目标。",
+    },
+    {
+      title: "市场阶段",
+      summary: `${marketRegimeLabels[state.market?.regime] || state.market?.regime || "震荡市"} · ${state.market?.rotation_leader || "broad"}`,
+      meta: `指数 ${Number(state.market?.index_value || 0).toFixed(1)} · 物价 ${Number(state.market?.inflation_index || 100).toFixed(1)}`,
+    },
+    {
+      title: "游客与活力",
+      summary: `在场 ${state.tourists?.length || 0} 人 · 今日游客收入 ${formatCompactCurrency(state.tourism?.daily_revenue || 0)}`,
+      meta: state.tourism?.latest_signal || "游客和外部消息会不断影响市场与行为。",
+    },
+    ...((state.event_history || state.events || []).slice(0, 2).map((event) => ({
+      title: event.title,
+      summary: event.summary,
+      meta: `${categoryLabels[event.category] || event.category || "综合"} · ${event.source || "实验室"}`,
+    }))),
+  ].slice(0, 5);
+  homeHighlights.innerHTML = cards
+    .map(
+      (item) => `
+        <article class="event-card">
+          <strong>${escapeHtml(item.title)}</strong>
+          <div>${escapeHtml(item.summary)}</div>
+          <div class="event-meta">${escapeHtml(item.meta)}</div>
+        </article>
+      `,
+    )
+    .join("");
+}
+
+function renderGovernmentHighlights() {
+  if (!governmentHighlights) return;
+  const government = state.government || {};
+  const decisionEvents = (state.event_history || [])
+    .filter((event) => String(event.title || "").startsWith("【政府决策】"))
+    .slice(0, 5);
+  const cards = [
+    {
+      title: "政府议程",
+      summary: government.current_agenda || "当前没有明确政府议程。",
+      meta: government.last_action || "等待下一轮财政与监管动作。",
+    },
+    {
+      title: "财政状态",
+      summary: `储备 ${formatCompactCurrency(government.reserve_balance || 0)} · 今日税收 ${formatCompactCurrency(government.daily_revenue || 0)}`,
+      meta: `公共投资 ${formatCompactCurrency(government.total_public_investment || 0)} · 今日保障 ${formatCompactCurrency(government.daily_welfare_paid || 0)}`,
+    },
+    ...decisionEvents.map((event) => ({
+      title: event.title,
+      summary: event.summary,
+      meta: `${categoryLabels[event.category] || event.category || "综合"} · ${event.source || "财政局"}`,
+    })),
+  ].slice(0, 5);
+  governmentHighlights.innerHTML = cards
+    .map(
+      (item) => `
+        <article class="event-card ${String(item.title).startsWith("【政府决策】") ? "event-government-decision" : ""}">
+          <strong>${escapeHtml(item.title)}</strong>
+          <div>${escapeHtml(item.summary)}</div>
+          <div class="event-meta">${escapeHtml(item.meta)}</div>
+        </article>
+      `,
+    )
+    .join("");
+}
+
 function renderFinanceHistory() {
   if (!financeHistoryBox) return;
   financeHistoryBox.innerHTML = renderFinanceHistoryEntries((state.finance_history || []).slice(0, 20));
@@ -2459,6 +2751,23 @@ function renderDialogue() {
   const latest = pendingDialogue || state.latest_dialogue;
   const history = ((state.dialogue_history || []).slice(0, 200)).filter((record) => recordMatchesDialogueFilters(record));
   const activeLoans = (state.loans || []).filter((loan) => loan.status === "active" || loan.status === "overdue");
+  const actorName =
+    dialogueFilterActor === "all"
+      ? "全部人物"
+      : dialogueFilterActor === "player"
+        ? "你"
+        : state.agents.find((agent) => agent.id === dialogueFilterActor)?.name ||
+          (state.tourists || []).find((tourist) => tourist.id === dialogueFilterActor)?.name ||
+          "指定人物";
+  const modeLabel =
+    dialogueFilterMode === "loan"
+      ? "只看借贷"
+      : dialogueFilterMode === "gray"
+        ? "只看灰色交易"
+        : dialogueFilterMode === "desire"
+          ? "只看欲望冲突"
+          : "全部类型";
+  const filterSummary = `当前筛选：${actorName} · ${modeLabel}`;
   const loanMarkup =
     activeLoans.map((loan) => `<span class="dialogue-chip loan-chip">${escapeHtml(formatLoan(loan))} · ${loan.status === "overdue" ? "逾期" : "进行中"}</span>`).join("") ||
     '<span class="memory-meta">当前没有活跃借款。</span>';
@@ -2500,6 +2809,7 @@ function renderDialogue() {
         <span>筛选结果 0 / 200 条</span>
         <span>活跃借款 ${activeLoans.length}</span>
       </div>
+      <div class="dialogue-filter-summary">${escapeHtml(filterSummary)}</div>
       ${latestMarkup}
       <div class="dialogue-financial-strip"><strong>借贷看板</strong><div>${loanMarkup}</div></div>
     `;
@@ -2512,6 +2822,7 @@ function renderDialogue() {
       <span>筛选结果 ${history.length} / 200 条</span>
       <span>活跃借款 ${activeLoans.length}</span>
     </div>
+    <div class="dialogue-filter-summary">${escapeHtml(filterSummary)}</div>
     ${latestMarkup}
     <div class="dialogue-financial-strip"><strong>借贷看板</strong><div>${loanMarkup}</div></div>
     <div class="dialogue-timeline">${historyMarkup}</div>
@@ -2559,7 +2870,11 @@ function renderMemory() {
   const subject = getSelectedCharacter();
   if (!subject) {
     memoryBox.textContent = "点击地图中的玩家、同事或游客，这里会显示他的主要信息、状态、记忆和关系。";
+    closeActorModal();
     return;
+  }
+  if (!actorModalVisible) {
+    closeActorModal();
   }
   if (subject.kind === "player") {
     const relationMatrix = renderRelationMatrix();
@@ -4998,6 +5313,43 @@ tradeSide.addEventListener("change", renderTradeMeta);
 bankBorrowAmount?.addEventListener("input", () => renderPanels());
 bankBorrowTerm?.addEventListener("change", () => renderPanels());
 bankDepositAmount?.addEventListener("input", () => renderPanels());
+viewTabs.forEach((button) => {
+  button.addEventListener("click", () => {
+    setCurrentView(button.dataset.view || "home");
+    renderPanels();
+  });
+});
+marketTabs.forEach((button) => {
+  button.addEventListener("click", () => {
+    setCurrentMarketTab(button.dataset.marketTab || "overview");
+    renderPanels();
+  });
+});
+journalNavBtns.forEach((button) => {
+  button.addEventListener("click", () => {
+    const target = button.dataset.journalTarget;
+    if (!target) return;
+    jumpToJournalSection(target);
+  });
+});
+window.addEventListener("hashchange", () => {
+  syncViewFromHash();
+  renderPanels();
+});
+actorModalCloseBtn?.addEventListener("click", () => {
+  closeActorModal();
+  renderPanels();
+});
+actorModalBackdrop?.addEventListener("click", () => {
+  closeActorModal();
+  renderPanels();
+});
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && actorModal && !actorModal.hidden) {
+    closeActorModal();
+    renderPanels();
+  }
+});
 if (dialogueActorFilter) {
   dialogueActorFilter.addEventListener("change", () => {
     dialogueFilterActor = dialogueActorFilter.value;
@@ -5272,6 +5624,11 @@ canvas.addEventListener("click", (event) => {
   const point = getCanvasWorldPoint(event);
   const picked = pickActorAt(point.x, point.y);
   selectedActorId = picked?.id || null;
+  if (picked) {
+    openActorModal();
+  } else {
+    closeActorModal();
+  }
   renderPanels();
 });
 
@@ -5346,6 +5703,8 @@ zoomOutBtn?.addEventListener("click", () => {
 
 Promise.all([loadAssets(), loadState()])
   .then(() => {
+    syncViewFromHash();
+    renderPanels();
     scheduleSimulation();
     scheduleStateDiff();
     scheduleAutoExplore();
