@@ -1079,6 +1079,22 @@ canvas {
   min-width: 0;
 }
 
+.analysis-person-finance {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.analysis-finance-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 2px solid rgba(58, 50, 43, 0.18);
+  background: rgba(244, 238, 220, 0.92);
+  padding: 3px 7px;
+  font-size: 0.76rem;
+  color: rgba(47, 42, 34, 0.84);
+}
+
 .mini-bar-stack {
   display: grid;
   gap: 6px;

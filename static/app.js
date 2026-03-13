@@ -113,7 +113,7 @@ const welfareBankruptcyInput = document.getElementById("welfareBankruptcyInput")
 const taxPolicyNoteInput = document.getElementById("taxPolicyNoteInput");
 const taxPolicySubmitBtn = document.getElementById("taxPolicySubmitBtn");
 const taxPolicyStatus = document.getElementById("taxPolicyStatus");
-const ASSET_VERSION = "20260313v";
+const ASSET_VERSION = "20260313w";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -280,6 +280,48 @@ function playerEstimatedTotalAssets() {
     .reduce((sum, asset) => sum + (asset.estimated_value || 0), 0);
   const bankDebt = activeBankLoansFor("player", state.player.id).reduce((sum, loan) => sum + (loan.amount_due || 0), 0);
   return Math.max(0, (state.player.cash || 0) + (state.player.deposit_balance || 0) + stockValue + propertyValue - bankDebt);
+}
+
+function estimatedActorFinancialSnapshot(actorId, actorType = "agent") {
+  if (!state) {
+    return {
+      totalAssets: 0,
+      deposits: 0,
+      propertyCount: 0,
+      propertyValue: 0,
+      stockValue: 0,
+      debt: 0,
+    };
+  }
+  const ownerType = actorType === "player" ? "player" : "agent";
+  const subject = actorType === "player" ? state.player : state.agents.find((agent) => agent.id === actorId);
+  if (!subject) {
+    return {
+      totalAssets: 0,
+      deposits: 0,
+      propertyCount: 0,
+      propertyValue: 0,
+      stockValue: 0,
+      debt: 0,
+    };
+  }
+  const properties = (state.properties || []).filter((asset) => asset.owner_type === ownerType && asset.owner_id === actorId && asset.status === "owned");
+  const propertyValue = properties.reduce((sum, asset) => sum + (asset.estimated_value || 0), 0);
+  const stockValue = Object.entries(subject.portfolio || {}).reduce((sum, [symbol, shares]) => {
+    const quote = state.market?.stocks?.find((item) => item.symbol === symbol);
+    return sum + ((quote?.price || 0) * (shares || 0));
+  }, 0);
+  const debt = activeBankLoansFor(ownerType, actorId).reduce((sum, loan) => sum + (loan.amount_due || 0), 0);
+  const deposits = subject.deposit_balance || 0;
+  const totalAssets = Math.max(0, (subject.cash || 0) + deposits + stockValue + propertyValue - debt);
+  return {
+    totalAssets,
+    deposits,
+    propertyCount: properties.length,
+    propertyValue,
+    stockValue,
+    debt,
+  };
 }
 
 function estimateBankCreditLine(creditScore) {
@@ -1775,6 +1817,7 @@ function renderAnalysisPanel() {
       stress: 100 - Math.min(100, state.player.life_satisfaction || 0),
       satisfaction: state.player.life_satisfaction || 0,
       detail: `玩家 · 日开销 $${state.player.daily_cost_baseline || 0} · 信誉 ${state.player.reputation_score || 0}`,
+      finance: estimatedActorFinancialSnapshot(state.player.id, "player"),
     },
     ...state.agents.map((agent) => ({
       id: agent.id,
@@ -1784,6 +1827,7 @@ function renderAnalysisPanel() {
       stress: agent.state?.stress || 0,
       satisfaction: agent.life_satisfaction || 0,
       detail: `${agent.current_activity || "外出活动"} · 日开销 $${agent.daily_cost_baseline || 0}`,
+      finance: estimatedActorFinancialSnapshot(agent.id, "agent"),
     })),
   ];
   const maxCash = Math.max(1, ...actors.map((actor) => actor.cash || 0));
@@ -1798,6 +1842,14 @@ function renderAnalysisPanel() {
               <span class="panel-tag">${actor.id === "player" ? "玩家" : "智能体"}</span>
             </div>
             <div class="metric-meta">${escapeHtml(actor.detail)}</div>
+            <div class="analysis-person-finance">
+              <span class="analysis-finance-chip">总资产 ${formatCompactCurrency(actor.finance.totalAssets)}</span>
+              <span class="analysis-finance-chip">存款 ${formatCompactCurrency(actor.finance.deposits)}</span>
+              <span class="analysis-finance-chip">房产 ${actor.finance.propertyCount} 处</span>
+              <span class="analysis-finance-chip">房估 ${formatCompactCurrency(actor.finance.propertyValue)}</span>
+              <span class="analysis-finance-chip">持仓 ${formatCompactCurrency(actor.finance.stockValue)}</span>
+              <span class="analysis-finance-chip">待还 ${formatCompactCurrency(actor.finance.debt)}</span>
+            </div>
             <div class="mini-bar-stack">
               <div class="mini-bar-row"><span class="mini-bar-label">现金</span>${renderHeatStrip("cash", actor.cash || 0, maxCash)}<span class="mini-bar-value">$${actor.cash}</span></div>
               <div class="mini-bar-row"><span class="mini-bar-label">信用</span>${renderHeatStrip("credit", actor.credit || 0, 100)}<span class="mini-bar-value">${actor.credit}</span></div>
