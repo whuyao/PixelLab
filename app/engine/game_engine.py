@@ -22,7 +22,7 @@ from app.engine.social_engine import SocialEngine
 from app.engine.task_system import apply_task_progress
 from app.engine.time_system import advance_time
 from app.engine.world_state import build_initial_world
-from app.models import AnalysisPoint, Agent, BankLoanRecord, ConsumableItem, DailyBriefItem, DailyBriefing, DialogueOutcome, DialogueRecord, FinanceRecord, GrayCase, IndexCandle, LabEvent, LoanRecord, MemoryEntry, NewsTimelineItem, Point, PropertyAsset, SocialThread, StateDiffResponse, StoryBeat, Task, TimeSlot, TouristAgent, TourismState, WorldState
+from app.models import AnalysisPoint, Agent, BankLoanRecord, ConsumableItem, DailyBankPoint, DailyBriefItem, DailyBriefing, DailyEconomyPoint, DialogueOutcome, DialogueRecord, FinanceRecord, GrayCase, IndexCandle, LabEvent, LoanRecord, MemoryEntry, NewsTimelineItem, Point, PropertyAsset, SocialThread, StateDiffResponse, StoryBeat, Task, TimeSlot, TouristAgent, TourismState, WorldState
 from app.services.activity_logger import ActivityLogger
 
 
@@ -210,7 +210,7 @@ class GameEngine:
         )
 
     def _refresh_state_signatures(self) -> None:
-        self.state.version = max(self.state.version, 41)
+        self.state.version = max(self.state.version, 47)
         self.state.section_signatures = self._sign_sections(self._build_state_sections())
 
     def _sign_sections(self, sections: dict[str, object]) -> dict[str, str]:
@@ -245,6 +245,8 @@ class GameEngine:
             },
             "analysis": {
                 "analysis_history": dump(state.analysis_history[-40:]),
+                "daily_economy_history": dump(state.daily_economy_history[-40:]),
+                "daily_bank_history": dump(state.daily_bank_history[-40:]),
                 "agents": dump(state.agents),
                 "player": dump(state.player),
                 "tourists": dump(state.tourists),
@@ -2549,16 +2551,35 @@ class GameEngine:
             )
         self._refresh_bank_state()
 
-    def _bank_credit_line(self, credit_score: int) -> int:
+    def _bank_credit_line(self, borrower_type: str, borrower_id: str, credit_score: int) -> int:
+        if borrower_type == "player":
+            total_assets = self._player_total_assets()
+            deposit_balance = self.state.player.deposit_balance
+        else:
+            borrower = self._find_agent(borrower_id)
+            total_assets = self._agent_total_assets(borrower)
+            deposit_balance = borrower.deposit_balance
+        outstanding = self._bank_liability_for(borrower_type, borrower_id)
         if credit_score >= 85:
-            return 96
-        if credit_score >= 70:
-            return 72
-        if credit_score >= 55:
-            return 52
-        if credit_score >= 40:
-            return 32
-        return 14
+            base_limit = 10000
+            asset_ratio = 0.18
+        elif credit_score >= 70:
+            base_limit = 7000
+            asset_ratio = 0.14
+        elif credit_score >= 55:
+            base_limit = 4500
+            asset_ratio = 0.10
+        elif credit_score >= 40:
+            base_limit = 2500
+            asset_ratio = 0.07
+        else:
+            base_limit = 1200
+            asset_ratio = 0.04
+        asset_boost = int(max(0, total_assets) * asset_ratio)
+        deposit_boost = int(max(0, deposit_balance) * 0.35)
+        liquidity_cap = max(1800, min(24000, int(self.state.bank.liquidity * 0.16)))
+        limit = max(600, base_limit + asset_boost + deposit_boost - outstanding)
+        return max(600, min(24000, min(limit, liquidity_cap)))
 
     def _borrower_bank_loans(self, borrower_type: str, borrower_id: str) -> list[BankLoanRecord]:
         return [
@@ -2600,7 +2621,7 @@ class GameEngine:
             raise ValueError("你当前有逾期银行贷款，银行不会继续放款。")
         if len(active) >= 2:
             raise ValueError("当前银行只允许你同时持有最多 2 笔未结清贷款。")
-        limit = self._bank_credit_line(credit_score)
+        limit = self._bank_credit_line(borrower_type, borrower_id, credit_score)
         if amount > limit:
             raise ValueError(f"按当前信用，这次最多只能向银行借 ${limit}。")
         if amount > self.state.bank.liquidity:
@@ -2865,7 +2886,14 @@ class GameEngine:
                 continue
             if self.random.random() > 0.28:
                 continue
-            amount = min(self._bank_credit_line(agent.credit_score), max(10, min(54, 12 + agent.money_urgency // 3)))
+            suggested_amount = max(
+                180,
+                min(
+                    3600,
+                    220 + max(0, self.state.company.low_cash_threshold - agent.cash) * 12 + agent.money_urgency * 18,
+                ),
+            )
+            amount = min(self._bank_credit_line("agent", agent.id, agent.credit_score), suggested_amount)
             term_days = 1 if agent.credit_score >= 70 else 2 if agent.credit_score >= 50 else 3
             try:
                 self._bank_borrow("agent", agent.id, amount, term_days, "现金和体力都偏紧，先从银行周转。")
@@ -4671,6 +4699,13 @@ class GameEngine:
         self._sync_market_clock()
         self.trigger_scheduled_news()
         if slot == "morning":
+            self._record_daily_economy_point(
+                previous_day,
+                tourism_private_income=self.state.tourism.daily_private_income,
+                tourism_government_income=self.state.tourism.daily_government_income,
+                tourism_public_income=self.state.tourism.daily_public_operator_income,
+            )
+            self._record_daily_bank_point(previous_day)
             self._refresh_tourism_cycle()
             self.state.tourism.daily_revenue = 0
             self.state.tourism.daily_private_income = 0
@@ -5180,6 +5215,7 @@ class GameEngine:
     def _refresh_government_agent_state(self) -> None:
         government = self.state.government
         assets = self._government_owned_assets()
+        facility_counts = self._government_facility_counts()
         daily_revenue = sum(max(0, asset.daily_income) for asset in assets)
         daily_maintenance = sum(max(0, asset.daily_maintenance) for asset in assets)
         government.daily_asset_revenue = daily_revenue
@@ -5202,6 +5238,17 @@ class GameEngine:
             signals.append(f"当前有 {listed_assets} 项财政设施已挂牌，等待私人接手")
         if self.state.market.regime == "risk":
             signals.append("市场处于风险市，政府会更偏向稳就业和稳住房")
+        if (
+            facility_counts["public_housing"] >= self._government_facility_cap("public_housing")
+            and facility_counts["night_market_stall"] > 0
+            and facility_counts["visitor_service_station"] > 0
+            and (
+                not government.current_agenda
+                or "旅馆和集市" in government.current_agenda
+                or "补住房" in government.current_agenda
+            )
+        ):
+            government.current_agenda = "控制住房密度，把财政预算优先投向夜市和游客服务。"
         government.known_signals = signals[:4]
 
     def _government_sale_candidate(self) -> PropertyAsset | None:
@@ -5219,18 +5266,103 @@ class GameEngine:
             return asset
         return assets[0]
 
+    def _government_facility_cap(self, facility_kind: str) -> int:
+        return {
+            "public_housing": 2,
+            "night_market_stall": 2,
+            "visitor_service_station": 2,
+        }.get(facility_kind, 2)
+
+    def _government_facility_counts(self) -> dict[str, int]:
+        counts = {
+            "public_housing": 0,
+            "night_market_stall": 0,
+            "visitor_service_station": 0,
+        }
+        for asset in self._government_owned_assets():
+            if asset.facility_kind in counts:
+                counts[asset.facility_kind] += 1
+        return counts
+
+    def _government_demolish_asset(self, asset: PropertyAsset, reason: str, salvage_rate: float = 0.42) -> None:
+        government = self.state.government
+        salvage = max(6, int(round(asset.estimated_value * salvage_rate)))
+        government.reserve_balance += salvage
+        government.revenues["salvage"] = government.revenues.get("salvage", 0) + salvage
+        government.government_asset_ids = [asset_id for asset_id in government.government_asset_ids if asset_id != asset.id]
+        self.state.properties = [item for item in self.state.properties if item.id != asset.id]
+        government.last_agent_action_day = self.state.day
+        government.last_agent_action = f"拆除 {asset.name}"
+        government.last_agent_reason = reason
+        self._append_finance_record(
+            actor_id="government",
+            actor_name=government.name,
+            category="government",
+            action="demolish",
+            summary=f"{government.name} 决定拆除 {asset.name}，回收部分建材与维护成本。",
+            amount=salvage,
+            asset_name=asset.name,
+            counterparty="公共拆改",
+        )
+        self.state.events.insert(
+            0,
+            build_internal_event(
+                title=self._government_event_title("拆除一处低效设施"),
+                summary=f"{asset.name} 被拆除，原因是密度过高或维护压力过重。财政回收约 ${salvage}。",
+                slot=self.state.time_slot,
+                category="market",
+            ),
+        )
+        self.state.events = self.state.events[:8]
+
+    def _trim_government_facility_inventory(self) -> None:
+        counts = self._government_facility_counts()
+        if counts["public_housing"] <= self._government_facility_cap("public_housing"):
+            return
+        self.state.government.current_agenda = "收缩过密公共住房，改把预算留给夜市和游客服务。"
+        public_housing_assets = sorted(
+            [
+                asset
+                for asset in self._government_owned_assets()
+                if asset.facility_kind == "public_housing"
+            ],
+            key=lambda asset: ((asset.daily_income - asset.daily_maintenance), asset.estimated_value),
+            reverse=True,
+        )
+        keep_count = self._government_facility_cap("public_housing")
+        for asset in public_housing_assets[keep_count:]:
+            self._government_demolish_asset(asset, "公共住房密度过高，先收缩库存，避免维护费继续堆高。", salvage_rate=0.36)
+
     def _run_government_agent(self) -> None:
         government = self.state.government
         self._refresh_government_agent_state()
-        if self.state.day - government.last_agent_action_day < 3:
+        if self.state.day - government.last_agent_action_day < 7:
             return
         assets = self._government_owned_assets()
+        facility_counts = self._government_facility_counts()
         tourist_ratio = len(self.state.tourists) / max(1, self.state.tourism.active_visitor_cap)
         average_satisfaction = (
             sum(agent.life_satisfaction for agent in self.state.agents) + self.state.player.life_satisfaction
         ) / max(1, len(self.state.agents) + 1)
         listed_market_assets = self._government_investment_targets()
         maintenance_burden = government.daily_asset_maintenance
+        if facility_counts["public_housing"] > self._government_facility_cap("public_housing"):
+            excess_housing = sorted(
+                [
+                    asset for asset in assets
+                    if asset.facility_kind == "public_housing"
+                ],
+                key=lambda asset: ((asset.daily_income - asset.daily_maintenance), asset.estimated_value),
+            )
+            if excess_housing:
+                government.current_agenda = "收缩过密公共住房，降低维护成本。"
+                self._government_demolish_asset(
+                    excess_housing[0],
+                    "公共住房数量过多，政府决定先拆除一处低效住房，避免财政继续被维护费拖累。",
+                    salvage_rate=0.4,
+                )
+                self._refresh_government_agent_state()
+                return
         if government.reserve_balance < 120 and assets:
             government.current_agenda = "回笼资金，准备把低效设施挂牌给私人。"
             candidate = self._government_sale_candidate()
@@ -5263,14 +5395,52 @@ class GameEngine:
                 self.state.events = self.state.events[:8]
                 self._refresh_government_agent_state()
             return
+        if (
+            maintenance_burden > max(12, government.daily_asset_revenue + 8)
+            and facility_counts["public_housing"] >= 2
+            and tourist_ratio < 0.9
+        ):
+            housing_assets = sorted(
+                [
+                    asset for asset in assets
+                    if asset.facility_kind == "public_housing"
+                ],
+                key=lambda asset: ((asset.daily_income - asset.daily_maintenance), asset.estimated_value),
+            )
+            if housing_assets:
+                government.current_agenda = "降低公共住房维护负担，把资源留给更活跃的设施。"
+                self._government_demolish_asset(
+                    housing_assets[0],
+                    f"公共住房维护费已到 ${maintenance_burden}，政府决定先拆掉一处低效公房，把预算留给夜市和服务站。",
+                    salvage_rate=0.45,
+                )
+                self._refresh_government_agent_state()
+                return
         if tourist_ratio >= 0.8 and government.reserve_balance >= 80:
-            government.current_agenda = "扩建旅馆和集市，承接游客与本地消费。"
-            preferred = "rental_house" if self.state.tourism.buyer_leads_total > 0 or tourist_ratio >= 0.95 else "shop"
-            preferred_kind = "public_housing" if preferred == "rental_house" else ("visitor_service_station" if self.state.tourism.daily_messages_count >= 2 else "night_market_stall")
+            government.current_agenda = "优先补夜市和游客服务，住房只保留基础供给。"
+            if facility_counts["night_market_stall"] < self._government_facility_cap("night_market_stall"):
+                preferred = "shop"
+                preferred_kind = "night_market_stall"
+            elif self.state.tourism.daily_messages_count >= 2 and facility_counts["visitor_service_station"] < self._government_facility_cap("visitor_service_station"):
+                preferred = "greenhouse"
+                preferred_kind = "visitor_service_station"
+            elif self.state.tourism.buyer_leads_total > 0 and tourist_ratio >= 0.95 and facility_counts["public_housing"] < self._government_facility_cap("public_housing"):
+                preferred = "rental_house"
+                preferred_kind = "public_housing"
+            else:
+                preferred = "greenhouse" if facility_counts["visitor_service_station"] < self._government_facility_cap("visitor_service_station") else "shop"
+                preferred_kind = "visitor_service_station" if preferred == "greenhouse" else "night_market_stall"
         elif average_satisfaction < 78 and government.reserve_balance >= 90:
-            government.current_agenda = "补住房和公共配套，优先稳住生活满意度。"
-            preferred = "rental_house"
-            preferred_kind = "public_housing"
+            government.current_agenda = "补生活配套，优先稳住满意度而不是继续堆住房。"
+            if facility_counts["visitor_service_station"] < self._government_facility_cap("visitor_service_station"):
+                preferred = "greenhouse"
+                preferred_kind = "visitor_service_station"
+            elif facility_counts["public_housing"] < self._government_facility_cap("public_housing"):
+                preferred = "rental_house"
+                preferred_kind = "public_housing"
+            else:
+                preferred = "shop"
+                preferred_kind = "night_market_stall"
         elif maintenance_burden > max(8, government.daily_asset_revenue + 4) and assets:
             government.current_agenda = "压缩财政维护负担，准备逐步出让部分资产。"
             candidate = self._government_sale_candidate()
@@ -5304,7 +5474,18 @@ class GameEngine:
             return
         elif listed_market_assets and government.reserve_balance >= 130 and self.state.market.regime != "risk":
             government.current_agenda = "择机买入能承接游客和住房需求的挂牌资产。"
-            preferred = listed_market_assets[0].property_type
+            preferred_asset = next(
+                (
+                    asset for asset in listed_market_assets
+                    if (
+                        (asset.property_type == "shop" and facility_counts["night_market_stall"] < self._government_facility_cap("night_market_stall"))
+                        or (asset.property_type == "greenhouse" and facility_counts["visitor_service_station"] < self._government_facility_cap("visitor_service_station"))
+                        or (asset.property_type == "rental_house" and facility_counts["public_housing"] < self._government_facility_cap("public_housing"))
+                    )
+                ),
+                listed_market_assets[0],
+            )
+            preferred = preferred_asset.property_type
             preferred_kind = ""
         else:
             government.current_agenda = "观察游客、住房和财政储备，暂时维持运营。"
@@ -5359,7 +5540,7 @@ class GameEngine:
         budget = min(government.reserve_balance, 150 if preferred == "rental_house" else 120)
         built_asset = self._government_build_public_asset(budget, preferred_type=preferred, preferred_kind=preferred_kind)
         if built_asset is None:
-            government.last_agent_reason = "想建新设施，但当前储备还不够。"
+            government.last_agent_reason = "想建新设施，但当前储备不足，或者该类设施已经达到密度上限。"
             self._refresh_government_agent_state()
             return
         self.state.properties.append(built_asset)
@@ -5448,6 +5629,11 @@ class GameEngine:
             preferred = [option for option in affordable if option["facility_kind"] == preferred_kind]
             if preferred:
                 affordable = preferred
+        affordable = [
+            option
+            for option in affordable
+            if self._government_facility_counts().get(str(option["facility_kind"]), 0) < self._government_facility_cap(str(option["facility_kind"]))
+        ]
         if not affordable:
             return None
         option = affordable[-1]
@@ -5847,6 +6033,106 @@ class GameEngine:
                 return
         self.state.analysis_history.append(point)
         self.state.analysis_history = self.state.analysis_history[-72:]
+
+    def _record_daily_economy_point(
+        self,
+        day: int,
+        *,
+        tourism_private_income: int = 0,
+        tourism_government_income: int = 0,
+        tourism_public_income: int = 0,
+    ) -> None:
+        if self.state.daily_economy_history is None:
+            self.state.daily_economy_history = []
+        resident_consumption = sum(
+            abs(int(record.amount or 0))
+            for record in self.state.finance_history
+            if record.day == day and record.category == "consume"
+        )
+        tourist_consumption = sum(
+            abs(int(record.amount or 0))
+            for record in self.state.finance_history
+            if record.day == day and record.category == "tourism"
+        )
+        government_asset_income = sum(
+            int(record.amount or 0)
+            for record in self.state.finance_history
+            if record.day == day and record.category == "government" and record.action in {"operate", "income"}
+        )
+        point = DailyEconomyPoint(
+            day=day,
+            resident_consumption=resident_consumption,
+            tourist_consumption=tourist_consumption,
+            tourism_private_income=tourism_private_income,
+            tourism_government_income=tourism_government_income,
+            tourism_public_income=tourism_public_income,
+            government_asset_income=government_asset_income,
+        )
+        if self.state.daily_economy_history and self.state.daily_economy_history[-1].day == day:
+            self.state.daily_economy_history[-1] = point
+        else:
+            self.state.daily_economy_history.append(point)
+            self.state.daily_economy_history = self.state.daily_economy_history[-90:]
+
+    def _record_daily_bank_point(self, day: int) -> None:
+        if self.state.daily_bank_history is None:
+            self.state.daily_bank_history = []
+        loans_issued = sum(
+            int(record.amount or 0)
+            for record in self.state.finance_history
+            if record.day == day and record.category == "bank" and record.action == "borrow"
+        )
+        loans_repaid = sum(
+            abs(int(record.amount or 0))
+            for record in self.state.finance_history
+            if record.day == day and record.category == "bank" and record.action == "repay"
+        )
+        deposits_in = sum(
+            int(record.amount or 0)
+            for record in self.state.finance_history
+            if record.day == day and record.category == "bank" and record.action == "deposit"
+        )
+        deposits_out = sum(
+            abs(int(record.amount or 0))
+            for record in self.state.finance_history
+            if record.day == day and record.category == "bank" and record.action == "withdraw"
+        )
+        previous_outstanding = self.state.daily_bank_history[-1].outstanding_balance if self.state.daily_bank_history else 0
+        previous_deposits = self.state.daily_bank_history[-1].total_deposits if self.state.daily_bank_history else 0
+        point = DailyBankPoint(
+            day=day,
+            loans_issued=loans_issued,
+            loans_repaid=loans_repaid,
+            deposits_in=deposits_in,
+            deposits_out=deposits_out,
+            outstanding_balance=max(0, previous_outstanding + loans_issued - loans_repaid),
+            total_deposits=max(0, previous_deposits + deposits_in - deposits_out),
+        )
+        if self.state.daily_bank_history and self.state.daily_bank_history[-1].day == day:
+            self.state.daily_bank_history[-1] = point
+        else:
+            self.state.daily_bank_history.append(point)
+            self.state.daily_bank_history = self.state.daily_bank_history[-90:]
+
+    def _backfill_daily_economy_history_from_finance(self) -> None:
+        if self.state.daily_economy_history:
+            return
+        available_days = sorted({record.day for record in self.state.finance_history if record.day is not None})
+        for day in available_days[-30:]:
+            self._record_daily_economy_point(day)
+
+    def _backfill_daily_bank_history_from_finance(self) -> None:
+        if self.state.daily_bank_history:
+            return
+        available_days = sorted(
+            {
+                record.day
+                for record in self.state.finance_history
+                if record.day is not None and record.category == "bank"
+            }
+        )
+        for day in available_days[-30:]:
+            self._record_daily_bank_point(day)
 
     def _player_desire_label(self, text: str) -> str:
         normalized = text.strip()
@@ -7293,7 +7579,7 @@ class GameEngine:
 
     def _ensure_agent_runtime_fields(self) -> None:
         previous_version = self.state.version or 0
-        self.state.version = max(self.state.version, 44)
+        self.state.version = max(self.state.version, 47)
         if self.state.loans is None:
             self.state.loans = []
         if self.state.archived_tasks is None:
@@ -7346,6 +7632,8 @@ class GameEngine:
                     asset.facility_kind = "visitor_service_station"
                     if not asset.name:
                         asset.name = "游客服务站"
+        if previous_version < 45:
+            self._trim_government_facility_inventory()
         self._rebalance_government_facilities()
         if self.state.finance_history is None:
             self.state.finance_history = []
@@ -7703,6 +7991,23 @@ class GameEngine:
             record.key_point = self._localized_text(record.key_point)
         if self.state.analysis_history is None:
             self.state.analysis_history = []
+        if self.state.daily_economy_history is None:
+            self.state.daily_economy_history = []
+        if self.state.daily_bank_history is None:
+            self.state.daily_bank_history = []
+        if not self.state.daily_economy_history:
+            self._backfill_daily_economy_history_from_finance()
+        if not self.state.daily_bank_history:
+            self._backfill_daily_bank_history_from_finance()
+        if not self.state.daily_economy_history:
+            self._record_daily_economy_point(
+                self.state.day,
+                tourism_private_income=self.state.tourism.daily_private_income,
+                tourism_government_income=self.state.tourism.daily_government_income,
+                tourism_public_income=self.state.tourism.daily_public_operator_income,
+            )
+        if not self.state.daily_bank_history:
+            self._record_daily_bank_point(self.state.day)
         if not self.state.analysis_history:
             self._record_analysis_point()
             record.transcript = [self._localized_text(line) for line in record.transcript or []]

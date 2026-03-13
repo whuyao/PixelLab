@@ -44,6 +44,7 @@ const bankWithdrawBtn = document.getElementById("bankWithdrawBtn");
 const bankBorrowHint = document.getElementById("bankBorrowHint");
 const bankStatusBox = document.getElementById("bankStatusBox");
 const bankLoanList = document.getElementById("bankLoanList");
+const bankInsightBox = document.getElementById("bankInsightBox");
 const lifestyleSummary = document.getElementById("lifestyleSummary");
 const consumeCatalog = document.getElementById("consumeCatalog");
 const propertyList = document.getElementById("propertyList");
@@ -100,7 +101,7 @@ const welfareBankruptcyInput = document.getElementById("welfareBankruptcyInput")
 const taxPolicyNoteInput = document.getElementById("taxPolicyNoteInput");
 const taxPolicySubmitBtn = document.getElementById("taxPolicySubmitBtn");
 const taxPolicyStatus = document.getElementById("taxPolicyStatus");
-const ASSET_VERSION = "20260313f";
+const ASSET_VERSION = "20260313k";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -202,12 +203,57 @@ function moneyUrgencyLabel(value) {
   return "轻松";
 }
 
+function playerEstimatedTotalAssets() {
+  if (!state?.player) return 0;
+  const stockValue = Object.entries(state.player.portfolio || {}).reduce((sum, [symbol, shares]) => {
+    const quote = state.market?.stocks?.find((item) => item.symbol === symbol);
+    return sum + ((quote?.price || 0) * (shares || 0));
+  }, 0);
+  const propertyValue = (state.properties || [])
+    .filter((asset) => asset.owner_type === "player" && asset.owner_id === state.player.id && asset.status === "owned")
+    .reduce((sum, asset) => sum + (asset.estimated_value || 0), 0);
+  const bankDebt = activeBankLoansFor("player", state.player.id).reduce((sum, loan) => sum + (loan.amount_due || 0), 0);
+  return Math.max(0, (state.player.cash || 0) + (state.player.deposit_balance || 0) + stockValue + propertyValue - bankDebt);
+}
+
 function estimateBankCreditLine(creditScore) {
-  if (creditScore >= 85) return 96;
-  if (creditScore >= 70) return 72;
-  if (creditScore >= 55) return 52;
-  if (creditScore >= 40) return 32;
-  return 14;
+  const assets = playerEstimatedTotalAssets();
+  const deposits = state?.player?.deposit_balance || 0;
+  const existingDebt = activeBankLoansFor("player", state?.player?.id).reduce((sum, loan) => sum + (loan.amount_due || 0), 0);
+  const liquidity = state?.bank?.liquidity || 0;
+  let baseLimit = 1200;
+  let assetRatio = 0.04;
+  if (creditScore >= 85) {
+    baseLimit = 10000;
+    assetRatio = 0.18;
+  } else if (creditScore >= 70) {
+    baseLimit = 7000;
+    assetRatio = 0.14;
+  } else if (creditScore >= 55) {
+    baseLimit = 4500;
+    assetRatio = 0.10;
+  } else if (creditScore >= 40) {
+    baseLimit = 2500;
+    assetRatio = 0.07;
+  }
+  const assetBoost = Math.max(0, Math.floor(assets * assetRatio));
+  const depositBoost = Math.max(0, Math.floor(deposits * 0.35));
+  const liquidityCap = Math.max(1800, Math.min(24000, Math.floor(liquidity * 0.16)));
+  const limit = Math.max(600, baseLimit + assetBoost + depositBoost - existingDebt);
+  return Math.max(600, Math.min(24000, Math.min(limit, liquidityCap)));
+}
+
+function estimateSuggestedBorrowAmount(limit) {
+  const lowCashThreshold = state?.company?.low_cash_threshold || 50;
+  const cash = state?.player?.cash || 0;
+  const activeDebt = activeBankLoansFor("player", state?.player?.id).reduce((sum, loan) => sum + (loan.amount_due || 0), 0);
+  let ratio = 0.22;
+  if (cash < lowCashThreshold) ratio = 0.55;
+  else if (cash < lowCashThreshold * 3) ratio = 0.4;
+  else if (cash < lowCashThreshold * 6) ratio = 0.3;
+  if (activeDebt > 0) ratio *= 0.65;
+  const raw = Math.round(limit * ratio);
+  return Math.max(600, Math.min(limit, raw || 0));
 }
 
 function estimateBankOffer(creditScore, termDays) {
@@ -374,7 +420,26 @@ function sumFinanceRecords(predicate) {
   return (state.finance_history || []).filter(predicate).reduce((sum, record) => sum + Number(record.amount || 0), 0);
 }
 
+function recentActiveEconomyDays(limit = 10) {
+  const history = (state.daily_economy_history || []).filter((point) => {
+    const total =
+      Number(point.resident_consumption || 0)
+      + Number(point.tourist_consumption || 0)
+      + Number(point.tourism_private_income || 0)
+      + Number(point.tourism_government_income || 0)
+      + Number(point.tourism_public_income || 0)
+      + Number(point.government_asset_income || 0);
+    return total > 0;
+  });
+  return history.slice(-limit);
+}
+
 function recentGovernmentRevenueSeries(days = 10) {
+  const activeDays = recentActiveEconomyDays(days);
+  if (activeDays.length) {
+    return activeDays
+      .map((point) => Number((point.government_asset_income || 0) + (point.tourism_government_income || 0) + (point.tourism_public_income || 0)));
+  }
   const values = [];
   const startDay = Math.max(1, (state.day || 1) - days + 1);
   for (let day = startDay; day <= (state.day || 1); day += 1) {
@@ -386,7 +451,26 @@ function recentGovernmentRevenueSeries(days = 10) {
   return values;
 }
 
+function recentActiveBankDays(limit = 10) {
+  const history = (state.daily_bank_history || []).filter((point) => {
+    const total =
+      Number(point.loans_issued || 0)
+      + Number(point.loans_repaid || 0)
+      + Number(point.deposits_in || 0)
+      + Number(point.deposits_out || 0)
+      + Number(point.outstanding_balance || 0)
+      + Number(point.total_deposits || 0);
+    return total > 0;
+  });
+  return history.slice(-limit);
+}
+
 function recentConsumptionSeries(days = 10) {
+  const activeDays = recentActiveEconomyDays(days);
+  if (activeDays.length) {
+    return activeDays
+      .map((point) => Number((point.resident_consumption || 0) + (point.tourist_consumption || 0)));
+  }
   const values = [];
   const startDay = Math.max(1, (state.day || 1) - days + 1);
   for (let day = startDay; day <= (state.day || 1); day += 1) {
@@ -925,7 +1009,7 @@ function renderPanels() {
   );
   renderIfChanged(
     "bank-module",
-    serverSignature("bank", [state.bank, state.bank_loans, state.player.cash, state.player.credit_score, state.agents], [bankBorrowAmount?.value, bankBorrowTerm?.value, busy]),
+    serverSignature("bank", [state.bank, state.bank_loans, state.daily_bank_history, state.player.cash, state.player.credit_score, state.agents], [bankBorrowAmount?.value, bankBorrowTerm?.value, busy]),
     () => renderBankModule(),
   );
   renderIfChanged(
@@ -1591,6 +1675,8 @@ function renderMarketModule() {
     const todayTouristConsumption = Math.abs(sumFinanceRecords((record) => record.day === state.day && record.category === "tourism"));
     const trailingConsumption = recentConsumptionSeries(10);
     const trailingGovernmentRevenue = recentGovernmentRevenueSeries(10);
+    const consumptionWindowLabel = `近 ${Math.max(1, trailingConsumption.length)} 个工作日消费流`;
+    const governmentWindowLabel = `近 ${Math.max(1, trailingGovernmentRevenue.length)} 个工作日财政资产曲线`;
     const popularItems = topConsumptionItems(3);
     const governmentDailyRevenue = trailingGovernmentRevenue[trailingGovernmentRevenue.length - 1] || 0;
     const latestGovernmentFinance = (state.finance_history || []).find((record) => record.category === "government");
@@ -1604,7 +1690,7 @@ function renderMarketModule() {
         <div class="metric-meta">累计私人 ${formatCompactCurrency(state.tourism?.total_private_income || 0)} · 累计财政资产 ${formatCompactCurrency(state.tourism?.total_government_income || 0)} · 累计公共运营 ${formatCompactCurrency(state.tourism?.total_public_operator_income || 0)}</div>
         <div class="metric-meta">热销方向 ${escapeHtml(popularItems.join(" · ") || "手冲咖啡 · 夜市小吃 · 集市小店")}</div>
         <div class="mini-trend-block">
-          <div class="mini-trend-head"><span>近 10 天消费流</span><strong>${formatCompactCurrency(trailingConsumption.reduce((sum, value) => sum + value, 0))}</strong></div>
+          <div class="mini-trend-head"><span>${consumptionWindowLabel}</span><strong>${formatCompactCurrency(trailingConsumption.reduce((sum, value) => sum + value, 0))}</strong></div>
           ${buildMiniTrendSvg(trailingConsumption, "#cf8850", "rgba(207, 136, 80, 0.28)", "bars-sqrt")}
         </div>
         <div class="metric-meta">${escapeHtml(tourismMessage)}</div>
@@ -1618,7 +1704,7 @@ function renderMarketModule() {
         <div class="metric-meta">当前议程：${escapeHtml(state.government?.current_agenda || "观察游客、住房和财政储备。")}</div>
         <div class="metric-meta">最近动作：${escapeHtml(state.government?.last_agent_action || "还没有新的建设动作。")}</div>
         <div class="mini-trend-block">
-          <div class="mini-trend-head"><span>近 10 天财政资产曲线</span><strong>${formatCompactCurrency(trailingGovernmentRevenue.reduce((sum, value) => sum + value, 0))}</strong></div>
+          <div class="mini-trend-head"><span>${governmentWindowLabel}</span><strong>${formatCompactCurrency(trailingGovernmentRevenue.reduce((sum, value) => sum + value, 0))}</strong></div>
           ${buildMiniTrendSvg(trailingGovernmentRevenue, "#4f9d92", "rgba(79, 157, 146, 0.28)", "bars-sqrt")}
         </div>
         <div class="metric-meta">${governmentAssets.length ? escapeHtml(governmentAssets.slice(0, 3).map((asset) => `${asset.name}${facilityKindLabel(asset.facility_kind) ? `（${facilityKindLabel(asset.facility_kind)}）` : ""}`).join(" · ")) : "财政暂未持有园区资产。"}</div>
@@ -1673,10 +1759,17 @@ function renderBankModule() {
   const bank = state.bank || {};
   const playerLoans = activeBankLoansFor("player", state.player.id);
   const activeAgentLoans = (state.bank_loans || []).filter((loan) => loan.borrower_type === "agent" && ["active", "overdue"].includes(loan.status));
-  const termDays = Number(bankBorrowTerm?.value || 1);
-  const amount = Number(bankBorrowAmount?.value || 0);
-  const depositAmount = Number(bankDepositAmount?.value || 0);
   const limit = estimateBankCreditLine(state.player.credit_score || 0);
+  const suggestedBorrowAmount = estimateSuggestedBorrowAmount(limit);
+  if (bankBorrowAmount) {
+    bankBorrowAmount.max = String(limit);
+    if (document.activeElement !== bankBorrowAmount) {
+      bankBorrowAmount.value = String(suggestedBorrowAmount);
+    }
+  }
+  const termDays = Number(bankBorrowTerm?.value || 1);
+  const amount = Number(bankBorrowAmount?.value || suggestedBorrowAmount || 0);
+  const depositAmount = Number(bankDepositAmount?.value || 0);
   const offer = estimateBankOffer(state.player.credit_score || 0, termDays);
   const projectedRepayment = amount > 0 ? amount + Math.max(1, Math.round((amount * offer.totalRate) / 100)) : 0;
   const totalFunds = (state.player.cash || 0) + (state.player.deposit_balance || 0);
@@ -1691,6 +1784,7 @@ function renderBankModule() {
       <article class="position-card">
         <strong>你的授信</strong>
         <div class="metric-meta">信用 ${state.player.credit_score} · 当前上限 $${limit}</div>
+        <div class="metric-meta">当前建议申请 $${suggestedBorrowAmount} · 会随现金压力和已有负债自动调整</div>
         <div class="metric-meta">${termDays} 天期估算：日利率 ${offer.dailyRate.toFixed(2)}% · 总利率 ${offer.totalRate.toFixed(2)}%</div>
         <div class="metric-meta">${amount > 0 ? `若借 $${amount}，预计应还 $${projectedRepayment}` : "输入金额后会显示预计应还。"} </div>
       </article>
@@ -1706,7 +1800,7 @@ function renderBankModule() {
     bankBorrowHint.textContent =
       amount > limit
         ? `按当前信用，这次最多建议申请 $${limit}。`
-        : `银行会结合信用、市场阶段和实验室口碑动态定价；${termDays} 天期总利率约 ${offer.totalRate.toFixed(2)}%，存款日利率约 ${(bank.deposit_daily_rate_pct ?? 0).toFixed(2)}%。`;
+        : `银行会结合信用、总资产、存款、现有负债和市场阶段动态给额度；当前默认建议 $${suggestedBorrowAmount}，${termDays} 天期总利率约 ${offer.totalRate.toFixed(2)}%，存款日利率约 ${(bank.deposit_daily_rate_pct ?? 0).toFixed(2)}%。`;
   }
   if (bankLoanList) {
     const playerLoanMarkup = playerLoans.length
@@ -1741,6 +1835,90 @@ function renderBankModule() {
           .join("")
       : '<article class="position-card"><strong>智能体银行借贷</strong><div class="metric-meta">目前还没有人挂着银行贷款。</div></article>';
     bankLoanList.innerHTML = `${playerLoanMarkup}${agentLoanMarkup}`;
+  }
+  if (bankInsightBox) {
+    const allActiveLoans = [...playerLoans, ...activeAgentLoans];
+    const outstandingTotal = allActiveLoans.reduce((sum, loan) => sum + (loan.amount_due || 0), 0);
+    const loanToDeposit = (bank.total_deposits || 0) > 0 ? ((outstandingTotal / Math.max(1, bank.total_deposits || 0)) * 100).toFixed(1) : "0.0";
+    const avgRate = allActiveLoans.length
+      ? (allActiveLoans.reduce((sum, loan) => sum + Number(loan.daily_rate_pct || 0), 0) / allActiveLoans.length).toFixed(2)
+      : "0.00";
+    const highestRateLoan = allActiveLoans.length
+      ? [...allActiveLoans].sort((a, b) => Number(b.daily_rate_pct || 0) - Number(a.daily_rate_pct || 0))[0]
+      : null;
+    const highestDebtLoan = allActiveLoans.length
+      ? [...allActiveLoans].sort((a, b) => Number(b.amount_due || 0) - Number(a.amount_due || 0))[0]
+      : null;
+    const reusableCredit = Math.max(0, limit - playerLoans.reduce((sum, loan) => sum + (loan.amount_due || 0), 0));
+    const overdueCount = allActiveLoans.filter((loan) => loan.status === "overdue").length;
+    const bankDays = recentActiveBankDays(10);
+    const bankWindowLabel = `近 ${bankDays.length || 0} 个工作日`;
+    const loanSeries = bankDays.map((point) => Number(point.loans_issued || 0));
+    const repaySeries = bankDays.map((point) => Number(point.loans_repaid || 0));
+    const ratioSeries = bankDays.map((point) => {
+      const deposits = Math.max(1, Number(point.total_deposits || 0));
+      return ((Number(point.outstanding_balance || 0) / deposits) * 100);
+    });
+    const leverageRanking = [...allActiveLoans]
+      .sort((a, b) => Number(b.amount_due || 0) - Number(a.amount_due || 0))
+      .slice(0, 5)
+      .map((loan, index) => `
+        <div class="metric-meta">${index + 1}. ${escapeHtml(loan.borrower_name)} · ${formatCompactCurrency(loan.amount_due || 0)} · ${Number(loan.daily_rate_pct || 0).toFixed(2)}%</div>
+      `)
+      .join("");
+    bankInsightBox.innerHTML = `
+      <div class="position-grid bank-insight-grid">
+        <article class="position-card">
+          <strong>银行整体杠杆</strong>
+          <div class="metric-meta">未偿银行贷款 ${formatCompactCurrency(outstandingTotal)}</div>
+          <div class="metric-meta">总存款 ${formatCompactCurrency(bank.total_deposits || 0)} · 存贷比 ${loanToDeposit}%</div>
+          <div class="metric-meta">银行流动性 ${formatCompactCurrency(bank.liquidity || 0)} · 违约 ${bank.defaults_count || 0}</div>
+        </article>
+        <article class="position-card">
+          <strong>你的融资空间</strong>
+          <div class="metric-meta">当前上限 ${formatCompactCurrency(limit)} · 已用 ${formatCompactCurrency(playerLoans.reduce((sum, loan) => sum + (loan.amount_due || 0), 0))}</div>
+          <div class="metric-meta">仍可再借 ${formatCompactCurrency(reusableCredit)} · 信用 ${state.player.credit_score}</div>
+          <div class="metric-meta">总资产 ${formatCompactCurrency(playerEstimatedTotalAssets())}</div>
+        </article>
+        <article class="position-card">
+          <strong>利率与风险</strong>
+          <div class="metric-meta">活跃贷款 ${allActiveLoans.length} 笔 · 平均日利率 ${avgRate}%</div>
+          <div class="metric-meta">逾期 ${overdueCount} 笔 · 风险溢价 ${(bank.risk_spread_pct ?? 0).toFixed(2)}%</div>
+          <div class="metric-meta">${highestRateLoan ? `最高利率：${highestRateLoan.borrower_name} ${Number(highestRateLoan.daily_rate_pct || 0).toFixed(2)}%` : "当前没有高利率借款人。"}</div>
+        </article>
+        <article class="position-card">
+          <strong>当前最大负债</strong>
+          <div class="metric-meta">${highestDebtLoan ? `${highestDebtLoan.borrower_name} 剩余应还 ${formatCompactCurrency(highestDebtLoan.amount_due || 0)}` : "当前没有未结清贷款。"}</div>
+          <div class="metric-meta">${highestDebtLoan ? `到期：第 ${highestDebtLoan.due_day} 天 · ${highestDebtLoan.term_days} 天期` : "银行负债目前很轻。"}</div>
+          <div class="metric-meta">${highestDebtLoan ? `用途：${escapeHtml(highestDebtLoan.reason || "资金周转")}` : "这块会显示当前的高杠杆借款人。"}</div>
+        </article>
+        <article class="position-card">
+          <strong>存贷比小趋势</strong>
+          <div class="metric-meta">${bankWindowLabel} · 当前 ${loanToDeposit}%</div>
+          <div class="mini-trend-block">
+            <div class="mini-trend-head"><span>${bankWindowLabel}</span><strong>${loanToDeposit}%</strong></div>
+            ${buildMiniTrendSvg(ratioSeries, "#5a8d6f", "rgba(90, 141, 111, 0.16)", "linear")}
+          </div>
+        </article>
+        <article class="position-card">
+          <strong>放贷 / 还款曲线</strong>
+          <div class="metric-meta">${bankWindowLabel} · 放贷 ${formatCompactCurrency(loanSeries.reduce((sum, value) => sum + value, 0))} · 还款 ${formatCompactCurrency(repaySeries.reduce((sum, value) => sum + value, 0))}</div>
+          <div class="mini-trend-block">
+            <div class="mini-trend-head"><span>放贷</span><strong>${formatCompactCurrency(loanSeries.reduce((sum, value) => sum + value, 0))}</strong></div>
+            ${buildMiniTrendSvg(loanSeries, "#d4844b", "rgba(212, 132, 75, 0.18)", "bars-sqrt")}
+          </div>
+          <div class="mini-trend-block">
+            <div class="mini-trend-head"><span>还款</span><strong>${formatCompactCurrency(repaySeries.reduce((sum, value) => sum + value, 0))}</strong></div>
+            ${buildMiniTrendSvg(repaySeries, "#6784b9", "rgba(103, 132, 185, 0.18)", "bars-sqrt")}
+          </div>
+        </article>
+        <article class="position-card">
+          <strong>最高杠杆成员</strong>
+          <div class="metric-meta">按当前剩余应还排序，优先暴露资金最紧的一批。</div>
+          ${leverageRanking || '<div class="metric-meta">当前没有活跃银行借款人。</div>'}
+        </article>
+      </div>
+    `;
   }
   if (bankBorrowBtn) {
     bankBorrowBtn.disabled = bankActionPending;

@@ -565,8 +565,28 @@ class AnalysisPoint(BaseModel):
     government_reserve: int = 0
 
 
+class DailyEconomyPoint(BaseModel):
+    day: int
+    resident_consumption: int = 0
+    tourist_consumption: int = 0
+    tourism_private_income: int = 0
+    tourism_government_income: int = 0
+    tourism_public_income: int = 0
+    government_asset_income: int = 0
+
+
+class DailyBankPoint(BaseModel):
+    day: int
+    loans_issued: int = 0
+    loans_repaid: int = 0
+    deposits_in: int = 0
+    deposits_out: int = 0
+    outstanding_balance: int = 0
+    total_deposits: int = 0
+
+
 class WorldState(BaseModel):
-    version: int = 44
+    version: int = 47
     world_width: int = 44
     world_height: int = 26
     day: int
@@ -601,6 +621,8 @@ class WorldState(BaseModel):
     properties: list[PropertyAsset] = Field(default_factory=list)
     finance_history: list[FinanceRecord] = Field(default_factory=list)
     analysis_history: list[AnalysisPoint] = Field(default_factory=list)
+    daily_economy_history: list[DailyEconomyPoint] = Field(default_factory=list)
+    daily_bank_history: list[DailyBankPoint] = Field(default_factory=list)
     section_signatures: dict[str, str] = Field(default_factory=dict)
 
 
