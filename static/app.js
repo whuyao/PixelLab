@@ -122,7 +122,15 @@ const welfareBankruptcyInput = document.getElementById("welfareBankruptcyInput")
 const taxPolicyNoteInput = document.getElementById("taxPolicyNoteInput");
 const taxPolicySubmitBtn = document.getElementById("taxPolicySubmitBtn");
 const taxPolicyStatus = document.getElementById("taxPolicyStatus");
-const ASSET_VERSION = "20260313aj";
+const llmToggleBtn = document.getElementById("llmToggleBtn");
+const llmPanel = document.getElementById("llmPanel");
+const llmProviderSelect = document.getElementById("llmProviderSelect");
+const llmModelInput = document.getElementById("llmModelInput");
+const llmApplyBtn = document.getElementById("llmApplyBtn");
+const llmStatusMeta = document.getElementById("llmStatusMeta");
+const llmSwitchStatus = document.getElementById("llmSwitchStatus");
+const llmSwitcherShell = llmToggleBtn?.closest(".llm-switcher-shell") || null;
+const ASSET_VERSION = "20260313am";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -201,6 +209,43 @@ function closeActorModal() {
   actorModalVisible = false;
   actorModal.hidden = true;
   document.body.classList.remove("modal-open");
+}
+
+function setLlmPanelOpen(open) {
+  llmPanelOpen = Boolean(open);
+  llmPanel?.classList.toggle("is-hidden", !llmPanelOpen);
+  llmSwitcherShell?.classList.toggle("is-open", llmPanelOpen);
+}
+
+function llmDefaultModel(provider) {
+  return provider === "qwen" ? "qwen3.5-flash" : "gpt-5-mini";
+}
+
+function renderLlmPanel() {
+  if (!llmPanel) return;
+  const provider = llmStatus?.provider || "openai";
+  const model = llmStatus?.model || llmDefaultModel(provider);
+  if (llmProviderSelect && document.activeElement !== llmProviderSelect) {
+    llmProviderSelect.value = provider;
+  }
+  if (llmModelInput && document.activeElement !== llmModelInput) {
+    llmModelInput.value = model;
+  }
+  if (llmStatusMeta) {
+    llmStatusMeta.textContent = `${provider === "qwen" ? "Qwen" : "OpenAI"} · ${model}`;
+  }
+  if (llmToggleBtn) {
+    llmToggleBtn.textContent = provider === "qwen" ? "Qwen" : "OpenAI";
+    llmToggleBtn.title = `当前对话模型：${provider === "qwen" ? "Qwen" : "OpenAI"}`;
+  }
+  if (llmApplyBtn) {
+    llmApplyBtn.disabled = llmSwitchPending;
+  }
+  if (!llmSwitchPending && llmSwitchStatus && !llmSwitchStatus.textContent.trim()) {
+    llmSwitchStatus.textContent = "按住 Alt 再点这里，只切换运行中的对话模型。";
+  }
+  document.body.classList.toggle("llm-dev-visible", llmRevealHeld);
+  setLlmPanelOpen(llmPanelOpen);
 }
 
 const categoryLabels = {
@@ -883,6 +928,10 @@ let currentView = "home";
 let actorModalVisible = false;
 let currentMarketTab = "overview";
 let stableFeedCluster = null;
+let llmStatus = null;
+let llmPanelOpen = false;
+let llmSwitchPending = false;
+let llmRevealHeld = false;
 const cameraState = {
   zoom: 1,
   manual: false,
@@ -1181,6 +1230,7 @@ function renderPanels() {
   setCurrentView(currentView, { updateHash: false });
   setCurrentMarketTab(currentMarketTab);
   setCurrentFeedSideTab(currentFeedSideTab);
+  renderLlmPanel();
   dayLabel.textContent = `第 ${state.day} 天`;
   timeLabel.textContent = timeLabels[state.time_slot];
   weatherLabel.textContent = weatherLabels[state.weather] || state.weather || "晴朗";
@@ -1445,6 +1495,9 @@ function renderGrayCaseActions() {
 
 function renderMetrics() {
   const milestoneCount = (state.geoai_milestones || []).length;
+  const currentGeoai = Number(state.lab?.geoai_progress || 0);
+  const nextGeoaiMilestone = (state.geoai_milestones || []).find((threshold) => threshold > currentGeoai) || (milestoneCount ? (state.geoai_milestones[milestoneCount - 1] + 350) : 50);
+  const geoaiGap = Math.max(0, nextGeoaiMilestone - currentGeoai);
   const inflationIndex = Number(state.market?.inflation_index || 100).toFixed(1);
   const inflationPct = Number(state.market?.daily_inflation_pct || 0).toFixed(2);
   const teamCash = state.agents.reduce((sum, agent) => sum + (agent.cash || 0), 0);
@@ -1476,12 +1529,12 @@ function renderMetrics() {
     <section class="metric-group">
       <h3 class="metric-group-title">研究与运营</h3>
       <div class="metric-compact-grid">
-        ${compactCard("GeoAI 累计", state.lab.geoai_progress, `已触发 ${milestoneCount} 个里程碑`)}
+        ${compactCard("GeoAI 累计", state.lab.geoai_progress, `已触发 ${milestoneCount} 个里程碑 · 下一个 ${nextGeoaiMilestone}`)}
         ${compactCard("研究推进", state.lab.research_progress, "主线与协作推进")}
         ${compactCard("集体推理", state.lab.collective_reasoning, "团队共同判断")}
         ${compactCard("知识库", state.lab.knowledge_base, "沉淀下来的经验")}
         ${compactCard("外部敏感度", state.lab.external_sensitivity, "对新闻与风向的反应")}
-        ${compactCard("平均满意度", avgSatisfaction, "生活面带来的稳态")}
+        ${compactCard("下个里程碑差值", geoaiGap, `再推进 ${geoaiGap} 点`)}
       </div>
     </section>
     <section class="metric-group">
@@ -1520,6 +1573,10 @@ function renderHomeCockpit() {
   const activeEvents = (state.event_history || state.events || []).length;
   const marketIndex = Number(state.market?.index_value || 0).toFixed(1);
   const inflationIndex = Number(state.market?.inflation_index || 100).toFixed(1);
+  const currentGeoai = Number(state.lab?.geoai_progress || 0);
+  const sortedMilestones = Array.from(state.geoai_milestones || []).sort((a, b) => a - b);
+  const nextGeoaiMilestone = sortedMilestones.find((threshold) => threshold > currentGeoai) || ((sortedMilestones[sortedMilestones.length - 1] || 0) + 350 || 50);
+  const geoaiGap = Math.max(0, nextGeoaiMilestone - currentGeoai);
   const trendLabel = (delta) => (delta > 0 ? `↑ ${delta.toFixed(1)}` : delta < 0 ? `↓ ${Math.abs(delta).toFixed(1)}` : "→ 0.0");
   const cardTone = (kind) => {
     if (kind === "alert") return "cockpit-alert";
@@ -1538,8 +1595,8 @@ function renderHomeCockpit() {
     {
       label: "GeoAI 累计",
       value: String(state.lab?.geoai_progress || 0),
-      meta: `里程碑 ${(state.geoai_milestones || []).length}`,
-      trend: `↑ ${(state.lab?.geoai_milestones || []).length}`,
+      meta: `里程碑 ${(state.geoai_milestones || []).length} · 下一个 ${nextGeoaiMilestone}`,
+      trend: geoaiGap > 0 ? `还差 ${geoaiGap}` : "已跨线",
       tone: "cool",
     },
     {
@@ -6334,6 +6391,22 @@ async function api(path, options = {}) {
   return response.json();
 }
 
+async function loadLlmStatus() {
+  try {
+    llmStatus = await api("/api/llm/status");
+    if (llmSwitchStatus && !llmSwitchPending) {
+      llmSwitchStatus.textContent = `当前正在使用 ${llmStatus.provider === "qwen" ? "Qwen" : "OpenAI"} · ${llmStatus.model}`;
+    }
+  } catch (error) {
+    if (llmStatusMeta) llmStatusMeta.textContent = "读取失败";
+    if (llmSwitchStatus && !llmSwitchPending) {
+      llmSwitchStatus.textContent = normalizeError(error.message);
+    }
+  } finally {
+    renderLlmPanel();
+  }
+}
+
 function applyStateSections(sections = {}, signatures = null) {
   if (!state) return;
   Object.values(sections).forEach((payload) => {
@@ -7087,6 +7160,76 @@ journalNavBtns.forEach((button) => {
     jumpToJournalSection(target);
   });
 });
+llmToggleBtn?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  setLlmPanelOpen(!llmPanelOpen);
+  renderLlmPanel();
+});
+llmProviderSelect?.addEventListener("change", () => {
+  const provider = llmProviderSelect.value || "openai";
+  if (llmModelInput && document.activeElement !== llmModelInput) {
+    llmModelInput.value = llmDefaultModel(provider);
+  }
+  if (llmSwitchStatus && !llmSwitchPending) {
+    llmSwitchStatus.textContent = `准备切到 ${provider === "qwen" ? "Qwen" : "OpenAI"}。`;
+  }
+});
+llmApplyBtn?.addEventListener("click", async () => {
+  if (llmSwitchPending) return;
+  const provider = llmProviderSelect?.value || "openai";
+  const model = llmModelInput?.value.trim() || llmDefaultModel(provider);
+  llmSwitchPending = true;
+  renderLlmPanel();
+  if (llmSwitchStatus) {
+    llmSwitchStatus.textContent = `正在切到 ${provider === "qwen" ? "Qwen" : "OpenAI"} · ${model}…`;
+  }
+  try {
+    llmStatus = await api("/api/llm/provider", {
+      method: "POST",
+      body: JSON.stringify({ provider, model }),
+    });
+    if (llmSwitchStatus) {
+      llmSwitchStatus.textContent = `已切到 ${provider === "qwen" ? "Qwen" : "OpenAI"} · ${llmStatus.model}`;
+    }
+  } catch (error) {
+    if (llmSwitchStatus) {
+      llmSwitchStatus.textContent = normalizeError(error.message);
+    }
+  } finally {
+    llmSwitchPending = false;
+    renderLlmPanel();
+  }
+});
+document.addEventListener("click", (event) => {
+  if (!llmPanelOpen || !llmPanel) return;
+  const target = event.target;
+  if (!(target instanceof Node)) return;
+  if (llmPanel.contains(target) || llmToggleBtn?.contains(target)) return;
+  setLlmPanelOpen(false);
+  renderLlmPanel();
+});
+document.addEventListener("keydown", (event) => {
+  const active = document.activeElement;
+  const typing =
+    active instanceof HTMLInputElement ||
+    active instanceof HTMLTextAreaElement ||
+    active?.getAttribute?.("contenteditable") === "true";
+  if (typing) return;
+  if (event.key === "Alt") {
+    llmRevealHeld = true;
+    renderLlmPanel();
+  }
+});
+document.addEventListener("keyup", (event) => {
+  if (event.key === "Alt") {
+    llmRevealHeld = false;
+    renderLlmPanel();
+  }
+});
+window.addEventListener("blur", () => {
+  llmRevealHeld = false;
+  renderLlmPanel();
+});
 window.addEventListener("hashchange", () => {
   syncViewFromHash();
   renderPanels();
@@ -7456,7 +7599,7 @@ zoomOutBtn?.addEventListener("click", () => {
   signalStatus.textContent = `地图已缩小到 ${cameraState.zoom.toFixed(2)}x。`;
 });
 
-Promise.all([loadAssets(), loadState()])
+Promise.all([loadAssets(), loadState(), loadLlmStatus()])
   .then(() => {
     syncViewFromHash();
     renderPanels();

@@ -4,12 +4,32 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GeoAI Pixel Lab Test (UrbanComp Lab)</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260313aj" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260313am" />
   </head>
   <body>
     <div class="project-banner">
       <span>项目仓库：<a href="https://github.com/whuyao/PixelLab" target="_blank" rel="noreferrer">github.com/whuyao/PixelLab</a></span>
-      <span>由 <a href="https://urbancomp.net" target="_blank" rel="noreferrer">UrbanComp Lab</a> 开发</span>
+      <div class="project-banner-tools">
+        <span>由 <a href="https://urbancomp.net" target="_blank" rel="noreferrer">UrbanComp Lab</a> 开发</span>
+        <div class="llm-switcher-shell">
+          <button id="llmToggleBtn" type="button" class="llm-toggle-btn" title="切换对话模型">模型</button>
+          <div id="llmPanel" class="llm-panel is-hidden">
+            <div class="llm-panel-head">
+              <strong>对话模型</strong>
+              <span id="llmStatusMeta">读取中…</span>
+            </div>
+            <div class="llm-panel-form">
+              <select id="llmProviderSelect">
+                <option value="openai">OpenAI</option>
+                <option value="qwen">Qwen</option>
+              </select>
+              <input id="llmModelInput" type="text" placeholder="模型名" />
+              <button id="llmApplyBtn" type="button">切换</button>
+            </div>
+            <p id="llmSwitchStatus" class="llm-switch-status">这里是隐藏控件，只切换运行中的对话模型。</p>
+          </div>
+        </div>
+      </div>
     </div>
     <main class="workspace">
       <nav class="view-nav">
@@ -775,6 +795,6 @@
       <span>UrbanComp Lab (<a href="https://urbancomp.net" target="_blank" rel="noreferrer">https://urbancomp.net</a>) 开发</span>
       <span>GitHub：<a href="https://github.com/whuyao/PixelLab" target="_blank" rel="noreferrer">https://github.com/whuyao/PixelLab</a></span>
     </footer>
-    <script src="/static/app.js?v=20260313aj" type="module"></script>
+    <script src="/static/app.js?v=20260313am" type="module"></script>
   </body>
 </html>

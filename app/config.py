@@ -39,7 +39,7 @@ def load_settings() -> Settings:
 
     if provider == "qwen":
         llm_api_key = os.environ.get("QWEN_API_KEY") or os.environ.get("OPENAI_API_KEY")
-        llm_model = os.environ.get("QWEN_MODEL", os.environ.get("OPENAI_MODEL", "qwen-plus"))
+        llm_model = os.environ.get("QWEN_MODEL", os.environ.get("OPENAI_MODEL", "qwen3.5-flash"))
         llm_base_url = os.environ.get("LLM_BASE_URL", qwen_base_url)
     else:
         provider = "openai"

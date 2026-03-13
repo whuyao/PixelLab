@@ -169,7 +169,7 @@ flowchart LR
 - [app/services/openai_dialogue_service.py](/Volumes/Yaoy/project/LocalFarmer/app/services/openai_dialogue_service.py)
   - 通过 OpenAI-compatible 协议接 OpenAI 或 Qwen
   - OpenAI 默认模型是 `gpt-5-mini`
-  - Qwen 默认示例模型是 `qwen-plus`
+  - Qwen 默认示例模型是 `qwen3.5-flash`
   - 观察模式下自动发言也优先走同一条链路
   - Prompt 注入角色记忆、主欲望、局部视角、财务压力和关系语境
 
@@ -437,6 +437,7 @@ flowchart LR
   - `总览 / 热榜 / 传播` 三页签
   - 最近 `1000` 条公开时间线
   - 热帖传播链、围观人数和高热作者
+  - 自动发帖与自动回帖支持 LLM 精修
 
 - `日志与观察`
   - 实时分析
@@ -472,6 +473,23 @@ flowchart LR
 - `FeedPost.watchers`
 - `FeedPost.credibility`
 - `FeedPost.impacts`
+- `FeedPost.llm_refined`
+
+微博内容生成当前采用“两段式”：
+
+1. 世界引擎先根据作者身份、当前欲望、近期事件和目标帖子生成结构化草稿
+2. `OpenAIDialogueService.build_feed_post()` 再按当前 provider 对草稿做中文精修
+
+这样做的原因是：
+
+- 先保住系统规则和角色逻辑
+- 再利用 LLM 修正中文自然度
+- 避免整条微博链完全交给模型，导致系统因随机文风而失控
+
+当前微博和私聊对话使用的是两套不同的提示词：
+
+- 私聊对话：更强调当下情境、关系与接话自然度
+- 公开微博：更强调公开表达、情绪可见性、传播性和角色公开人格
 
 当前主要影响链路在后端表现为：
 
@@ -480,6 +498,12 @@ flowchart LR
 - `policy` 类帖子进入政府已知信号
 - `research` 类帖子推动研究叙事和 GeoAI 主线可见性
 - `mood / gossip` 类帖子改变团队氛围和关系张力
+
+同时，热帖传播还会继续向三类状态回流：
+
+- 地图局部编队：围观、驻足、政府回应、集市讨论
+- 角色记忆：高热帖子进入短期记忆与 `Lab Daily`
+- 制度侧判断：政策帖与监管帖进入政府已知信号，后续影响建设和监管节奏
 
 因此它不是 UI 层附属件，而是一个连接社会系统、开放系统、制度系统和市场系统的传播中介。
 
@@ -1252,7 +1276,7 @@ GeoAI / 空间智能进度不再封顶，而是持续累加。
 - `.env.example` 只保留空占位
 - 支持 `LLM_PROVIDER=openai|qwen`
 - OpenAI 默认模型为 `gpt-5-mini`
-- Qwen 默认示例模型为 `qwen-plus`
+- Qwen 默认示例模型为 `qwen3.5-flash`
 
 这是本地开发友好的 secrets 策略，但不是生产环境方案。
 

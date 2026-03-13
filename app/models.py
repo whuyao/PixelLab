@@ -211,6 +211,7 @@ class FeedPost(BaseModel):
     credibility: int = 50
     summary: str = ""
     impacts: list[str] = Field(default_factory=list)
+    llm_refined: bool = False
 
 
 class SocialThread(BaseModel):
@@ -682,6 +683,12 @@ class AdvanceRequest(BaseModel):
 
 class SpeakRequest(BaseModel):
     text: str
+
+
+class LLMProviderRequest(BaseModel):
+    provider: Literal["openai", "qwen"]
+    model: str | None = None
+    base_url: str | None = None
 
 
 class FeedPostRequest(BaseModel):

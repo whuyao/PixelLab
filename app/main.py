@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import hashlib
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -10,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import Settings, load_settings
 from app.engine.game_engine import GameEngine
-from app.models import AdvanceRequest, BankBorrowRequest, BankDepositRequest, BankRepayRequest, BankWithdrawRequest, ConsumeRequest, FeedPostRequest, FeedReactionRequest, GrayCaseActionRequest, LabEvent, MacroNewsRequest, MoveRequest, NewsRequest, NewsTimelinePolicyRequest, NewsTimelineRequest, PropertyFinanceRequest, SpeakRequest, StateDiffRequest, StateDiffResponse, TaxPolicyRequest, TimeSlot, TradeRequest, WorldState
+from app.models import AdvanceRequest, BankBorrowRequest, BankDepositRequest, BankRepayRequest, BankWithdrawRequest, ConsumeRequest, FeedPostRequest, FeedReactionRequest, GrayCaseActionRequest, LLMProviderRequest, LabEvent, MacroNewsRequest, MoveRequest, NewsRequest, NewsTimelinePolicyRequest, NewsTimelineRequest, PropertyFinanceRequest, SpeakRequest, StateDiffRequest, StateDiffResponse, TaxPolicyRequest, TimeSlot, TradeRequest, WorldState
 from app.services.activity_logger import ActivityLogger
 from app.services.openai_dialogue_service import OpenAIDialogueError, OpenAIDialogueService
 from app.services.brave_service import BraveSearchError, BraveService
@@ -58,6 +59,122 @@ def _persist_and_return_state() -> WorldState:
     state = context.engine.get_state()
     context.repository.save(state)
     return state
+
+
+def _upsert_secret_file(path: Path, updates: dict[str, str]) -> None:
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    kept: list[str] = []
+    seen: set[str] = set()
+    for raw in lines:
+        if "=" not in raw:
+            kept.append(raw)
+            continue
+        key = raw.split("=", 1)[0].strip()
+        if key in updates:
+            if key not in seen:
+                kept.append(f"{key}={updates[key]}")
+                seen.add(key)
+            continue
+        kept.append(raw)
+    for key, value in updates.items():
+        if key not in seen:
+            kept.append(f"{key}={value}")
+    path.write_text("\n".join(kept).rstrip() + "\n", encoding="utf-8")
+
+
+def _reload_dialogue_from_settings(settings_obj: Settings) -> None:
+    context.settings = settings_obj
+    context.dialogue = OpenAIDialogueService(
+        settings_obj.llm_api_key,
+        settings_obj.llm_model,
+        settings_obj.llm_base_url,
+        provider=settings_obj.llm_provider,
+    )
+
+
+def _dialogue_status() -> dict[str, object]:
+    return {
+        "provider": context.settings.llm_provider,
+        "model": context.settings.llm_model,
+        "base_url": context.settings.llm_base_url,
+        "enabled": context.dialogue.enabled,
+        "secret_file": str(context.settings.secret_file),
+    }
+
+
+def _feed_author_profile(post) -> str:
+    world = context.engine.get_state()
+    if post.author_type == "agent":
+        agent = context.engine.get_agent(post.author_id)
+        persona_map = {
+            "lin": "林澈：说话冷静、爱追证据、讨厌口号先跑在事实前面。",
+            "mika": "米遥：情绪灵、跳、敏感，容易被一句话刺到，也会突然被某个细节打动。",
+            "jo": "周铖：直、硬、落地，先问谁掏钱、谁干活、谁背锅。",
+            "rae": "芮宁：会接住人的情绪，关心谁会先被压垮，不爱空安慰。",
+            "kai": "凯川：风向感强，爱盯信号、趋势和谁会被卷进去。",
+        }
+        return (
+            persona_map.get(agent.id, f"{agent.name}：公开发言有自己的脾气。")
+            + f" 角色：{agent.role}；专长：{agent.specialty}；当前地点：{agent.current_location}；当前计划：{agent.current_plan or '暂无'}。"
+        )
+    if post.author_type == "tourist":
+        tourist = next((item for item in world.tourists if item.id == post.author_id), None)
+        if tourist is None:
+            return "游客：路过、体验、会把直观感受说出来。"
+        tier_map = {
+            "normal": "普通游客：更在意舒不舒服、值不值得留下。",
+            "repeat": "回头客：会拿这次和上次比较，容易看出这里是不是只剩套路。",
+            "vip": "高消费客户：花钱挑剔，讨厌被当提款机。",
+            "buyer": "潜在购房者：对住房、租住和生活成本很敏感。",
+        }
+        return f"{tier_map.get(tourist.visitor_tier, '游客：说话直接。')} 当前地点：{tourist.current_location}；最近兴趣：{tourist.favorite_topic or '逛逛看'}。"
+    if post.author_type == "government":
+        gov = world.government
+        return (
+            "园区财政与监管局：公开表达偏短句公告风，但也会直接回应质疑。"
+            f" 当前议程：{gov.current_agenda or '暂无'}；最近动作：{gov.last_agent_action or '暂无'}；监管强度：{gov.enforcement_level}。"
+        )
+    return "系统账号：负责播报和提醒。"
+
+
+async def _refine_recent_feed_posts(limit: int = 4) -> None:
+    if not context.dialogue.enabled:
+        return
+    world = context.engine.get_state()
+    candidates = []
+    for post in world.feed_timeline[:20]:
+        if post.llm_refined:
+            continue
+        if post.author_type not in {"agent", "tourist", "government"}:
+            continue
+        if post.day < world.day - 1:
+            continue
+        candidates.append(post)
+    for post in reversed(candidates[:limit]):
+        target_post = None
+        if post.reply_to_post_id:
+            target_post = next((item for item in world.feed_timeline if item.id == post.reply_to_post_id), None)
+        elif post.quote_post_id:
+            target_post = next((item for item in world.feed_timeline if item.id == post.quote_post_id), None)
+        try:
+            rewritten = await context.dialogue.build_feed_post(
+                world,
+                author_name=post.author_name,
+                author_profile=_feed_author_profile(post),
+                category=post.category,
+                draft_content=post.content,
+                target_author=target_post.author_name if target_post else "",
+                target_content=target_post.content if target_post else "",
+                is_reply=bool(target_post),
+            )
+        except OpenAIDialogueError:
+            post.llm_refined = True
+            continue
+        post.content = context.engine._clean_feed_text(rewritten["content"])
+        post.summary = rewritten["summary"] or post.summary
+        post.credibility = context.engine._feed_credibility_for_post(post)
+        post.heat = context.engine._compute_feed_heat(post)
+        post.llm_refined = True
 
 
 def _pick_preferred_brave_result(results: list[dict[str, str]]) -> dict[str, str]:
@@ -316,12 +433,39 @@ async def auto_speak(agent_id: str, payload: SpeakRequest) -> WorldState:
     return _persist_and_return_state()
 
 
+@app.get("/api/llm/status")
+async def llm_status() -> dict[str, object]:
+    return _dialogue_status()
+
+
+@app.post("/api/llm/provider")
+async def switch_llm_provider(payload: LLMProviderRequest) -> dict[str, object]:
+    updates = {"LLM_PROVIDER": payload.provider}
+    if payload.provider == "qwen":
+        if payload.model:
+            updates["QWEN_MODEL"] = payload.model
+        if payload.base_url:
+            updates["QWEN_BASE_URL"] = payload.base_url
+    else:
+        if payload.model:
+            updates["OPENAI_MODEL"] = payload.model
+        if payload.base_url:
+            updates["OPENAI_BASE_URL"] = payload.base_url
+    _upsert_secret_file(context.settings.secret_file, updates)
+    for key, value in updates.items():
+        os.environ[key] = value
+    new_settings = load_settings()
+    _reload_dialogue_from_settings(new_settings)
+    return _dialogue_status()
+
+
 @app.post("/api/feed/post", response_model=WorldState)
 async def create_feed_post(payload: FeedPostRequest) -> WorldState:
     try:
         context.engine.create_player_feed_post(payload.content, payload.category, payload.reply_to_post_id, payload.quote_post_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await _refine_recent_feed_posts(limit=2)
     return _persist_and_return_state()
 
 
@@ -345,6 +489,7 @@ async def advance(payload: AdvanceRequest) -> WorldState:
 @app.post("/api/simulate", response_model=WorldState)
 async def simulate() -> WorldState:
     context.engine.simulate_world()
+    await _refine_recent_feed_posts(limit=4)
     return _persist_and_return_state()
 
 

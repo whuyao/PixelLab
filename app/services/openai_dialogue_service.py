@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import httpx
 
@@ -23,37 +24,39 @@ class OpenAIDialogueService:
     def enabled(self) -> bool:
         return bool(self.api_key)
 
-    async def build_player_dialogue(self, world: WorldState, agent: Agent, player_text: str) -> DialogueOutcome:
+    async def _request_json(self, schema_name: str, developer_prompt: str, user_prompt: str, required: list[str]) -> dict[str, Any]:
         if not self.api_key:
             if self.provider == "qwen":
                 raise OpenAIDialogueError("尚未配置 QWEN_API_KEY。")
             raise OpenAIDialogueError("尚未配置 OPENAI_API_KEY。")
 
-        developer_prompt = self._build_developer_prompt(world, agent)
-        user_prompt = self._build_user_prompt(world, agent, player_text)
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "developer", "content": developer_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "response_format": {
+        system_role = "system" if self.provider == "qwen" else "developer"
+        response_format = (
+            {"type": "json_object"}
+            if self.provider == "qwen"
+            else {
                 "type": "json_schema",
                 "json_schema": {
-                    "name": "npc_reply",
+                    "name": schema_name,
                     "schema": {
                         "type": "object",
                         "additionalProperties": False,
-                        "properties": {
-                            "topic": {"type": "string"},
-                            "reply": {"type": "string"},
-                            "bubble": {"type": "string"},
-                        },
-                        "required": ["topic", "reply", "bubble"],
+                        "properties": {key: {"type": "string"} for key in required},
+                        "required": required,
                     },
                 },
-            },
+            }
+        )
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": system_role, "content": developer_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "response_format": response_format,
         }
+        if self.provider == "qwen":
+            payload["enable_thinking"] = False
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -91,6 +94,12 @@ class OpenAIDialogueService:
             parsed = json.loads(content)
         except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
             raise OpenAIDialogueError(f"{self.provider_label} 返回内容无法解析。") from exc
+        return parsed
+
+    async def build_player_dialogue(self, world: WorldState, agent: Agent, player_text: str) -> DialogueOutcome:
+        developer_prompt = self._build_developer_prompt(world, agent)
+        user_prompt = self._build_user_prompt(world, agent, player_text)
+        parsed = await self._request_json("npc_reply", developer_prompt, user_prompt, ["topic", "reply", "bubble"])
 
         reply = str(parsed.get("reply", "")).strip()
         topic = str(parsed.get("topic", "")).strip() or player_text[:36]
@@ -110,6 +119,16 @@ class OpenAIDialogueService:
             bubble_text=bubble,
             effects=[],
         )
+
+    async def build_feed_post(self, world: WorldState, *, author_name: str, author_profile: str, category: str, draft_content: str, target_author: str = "", target_content: str = "", is_reply: bool = False) -> dict[str, str]:
+        developer_prompt = self._build_feed_developer_prompt(world, author_name, author_profile, category, is_reply)
+        user_prompt = self._build_feed_user_prompt(world, category, draft_content, target_author=target_author, target_content=target_content, is_reply=is_reply)
+        parsed = await self._request_json("feed_post", developer_prompt, user_prompt, ["content", "summary"])
+        content = str(parsed.get("content", "")).strip()
+        summary = str(parsed.get("summary", "")).strip()
+        if not content:
+            raise OpenAIDialogueError(f"{self.provider_label} 没有返回有效微博内容。")
+        return {"content": content[:180], "summary": summary[:72]}
 
     @property
     def provider_label(self) -> str:
@@ -141,7 +160,7 @@ class OpenAIDialogueService:
         market_board = "；".join(
             f"{quote.symbol}:{quote.price:.2f}({quote.day_change_pct:+.2f}%)" for quote in world.market.stocks
         ) or "暂无"
-        return (
+        base_prompt = (
             "你在扮演一个中文像素田园研究站里的 NPC，同事之间会自然聊天。"
             "请把自己当成一个 agent-based model 里的局部智能体：你只能基于自己的目标、记忆流和眼前情境说话，不能像上帝视角那样全知全能。"
             "你的输出必须是 JSON，字段只有 topic、reply、bubble。"
@@ -170,9 +189,20 @@ class OpenAIDialogueService:
             f"memory stream：{memory_stream}。"
             f"关系参考：{relation_text}。最近上下文：{recent_context}。"
         )
+        if self.provider == "qwen":
+            base_prompt += (
+                " 你现在用中文和熟人说话，不要像做平衡分析，也不要先铺垫一大段再落结论。"
+                " 优先给出第一反应，可以有点情绪、犟劲、别扭、吐槽、心软、好奇。"
+                " 不要反复使用‘先别急’‘先看看’‘再想想’这种同一套谨慎句式。"
+                " 也不要总把话题收束到休息、补觉、观察一下，除非这件事眼下真的最重要。"
+                " 允许短句、半句、插话、反问，像熟人面对面顺嘴接一句。"
+                " 如果不同意，就直接说不同意的点；如果在意谁受委屈，就直接点出来；如果闻到机会，就直接说机会在哪。"
+                " 你不是客服，也不是评论员，不要端着。"
+            )
+        return base_prompt
 
     def _build_user_prompt(self, world: WorldState, agent: Agent, player_text: str) -> str:
-        return (
+        prompt = (
             f"玩家刚刚对 {agent.name} 说：{player_text}\n"
             f"请以 {agent.name} 的身份直接回复。"
             f" 当前实验室团队氛围 {world.lab.team_atmosphere}，GeoAI 进度 {world.lab.geoai_progress}，天气 {weather_label(world.weather)}。"
@@ -183,3 +213,60 @@ class OpenAIDialogueService:
             " 即使聊到钱，也不要默认已经成交；只有在措辞明确时，才把它说成真的借到、给到或请到。"
             " 只使用这个角色自己会知道的内容，不要代替全体团队发言。"
         )
+        if self.provider == "qwen":
+            prompt += (
+                " 先像真人一样接一句，再补半句原因；别上来就全面分析。"
+                " 可以带一点个人情绪和口头语，但不要油腻，不要故作深沉。"
+                " 如果这句话听着刺耳、好笑、离谱或让人心软，就把那种感觉顺手说出来。"
+                " 回答里尽量少用抽象词，多用生活里的说法。"
+            )
+        return prompt
+
+    def _build_feed_developer_prompt(self, world: WorldState, author_name: str, author_profile: str, category: str, is_reply: bool) -> str:
+        base = (
+            "你在写一个中文像素小镇里的公开短帖，平台叫“小镇微博”。"
+            " 这不是正式说明，也不是分析报告，而是像人真的会发在公开平台上的短帖。"
+            " 输出必须是 JSON，字段只有 content 和 summary。"
+            " content 要像中文互联网帖子，短、直接、有人味，可以带情绪、吐槽、犟劲、阴阳怪气、心软、担心或好奇。"
+            " 不要写成概念堆砌，不要写成评论员口吻，不要说空话，不要端着。"
+            " 尽量具体，能说生活代价、谁难、谁赚钱、谁受气、谁心里不舒服，就别只说宏观词。"
+            " 如果是回帖，可以不同意、补刀、接情绪、拆台、支持，但要像人在回人，不要像自动摘要。"
+            " summary 用一句很短的话概括这条帖子的公开姿态。"
+            f" 作者：{author_name}。作者公开人格：{author_profile}。分类：{category}。当前天气：{weather_label(world.weather)}。"
+            f" 当前团队气氛 {world.lab.team_atmosphere}，游客信号：{world.tourism.latest_signal or '暂无明显游客风向'}。"
+        )
+        if self.provider == "qwen":
+            base += (
+                " 你现在写的是中文互联网短帖，不要像公文，也不要像平衡分析。"
+                " 可以像熟人看见一件事后忍不住发一句，允许带一点火气、委屈、烦、嘴硬、心虚。"
+                " 少用“结构、逻辑、层面、问题意识”这类抽象词，多用人会真的说出口的话。"
+            )
+        else:
+            base += (
+                " 像一个真实的人在发中文短帖，不要用模板腔，不要泛泛而谈。"
+                " 同样一条事，不同作者会有完全不同的公开表达方式。"
+            )
+        if is_reply:
+            base += " 这是一条回复帖，重点是接住对方原话再表达自己的立场。"
+        return base
+
+    def _build_feed_user_prompt(self, world: WorldState, category: str, draft_content: str, *, target_author: str = "", target_content: str = "", is_reply: bool = False) -> str:
+        prompt = (
+            f"当前这条微博的草稿意思是：{draft_content}\n"
+            f"分类：{category}。\n"
+            " 请把它改写成一条更像真人会发出来的中文短帖。"
+            " 允许短句、停顿、反问、吐槽，但别写得像段子生成器。"
+            " 别重复作者名字，直接发帖。"
+        )
+        if is_reply:
+            prompt += (
+                f"\n这是在回复 @{target_author}。对方原帖大意是：{target_content}"
+                "\n回复要接得住原帖，不要自说自话。"
+            )
+        else:
+            prompt += "\n这是一条原发帖，不是回复。"
+        prompt += (
+            f"\n当前时段：{world.time_slot}；市场阶段：{world.market.regime}；GeoAI 进度：{world.lab.geoai_progress}。"
+            "\n如果是政策、市场、住房、游客这些话题，尽量落到具体生活感受，不要空讲抽象结构。"
+        )
+        return prompt

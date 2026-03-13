@@ -47,6 +47,87 @@ body.modal-open {
   font-size: 0.88rem;
 }
 
+.project-banner-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.llm-switcher-shell {
+  position: relative;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-2px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+body.llm-dev-visible .llm-switcher-shell,
+.llm-switcher-shell.is-open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.llm-toggle-btn {
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: 0.74rem;
+  line-height: 1;
+  opacity: 0.62;
+  background: rgba(255, 249, 234, 0.72);
+  color: var(--line);
+}
+
+.llm-toggle-btn:hover {
+  opacity: 1;
+}
+
+.llm-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 290px;
+  padding: 10px;
+  border: 3px solid rgba(74, 62, 47, 0.78);
+  background: linear-gradient(180deg, rgba(255, 249, 236, 0.98), rgba(243, 235, 214, 0.98));
+  box-shadow: 0 18px 36px rgba(45, 40, 31, 0.24);
+  z-index: 40;
+  display: grid;
+  gap: 10px;
+  color: var(--ink);
+}
+
+.llm-panel.is-hidden {
+  display: none;
+}
+
+.llm-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.82rem;
+}
+
+.llm-panel-form {
+  display: grid;
+  grid-template-columns: 96px 1fr auto;
+  gap: 8px;
+}
+
+.llm-panel-form input,
+.llm-panel-form select,
+.llm-panel-form button {
+  min-width: 0;
+}
+
+.llm-switch-status {
+  margin: 0;
+  font-size: 0.78rem;
+  color: rgba(47, 42, 34, 0.82);
+}
+
 .project-banner {
   padding-top: 14px;
 }

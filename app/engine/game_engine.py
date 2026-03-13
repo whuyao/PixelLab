@@ -132,7 +132,17 @@ MARKET_SYMBOL_PREFERENCE = {
     "opportunist": "SIG",
 }
 LIMIT_MOVE_PCT = 10.0
-GEOAI_MILESTONES = [50, 100, 180, 260, 360, 500, 700, 950]
+GEOAI_BASE_MILESTONES = [50, 100, 180, 260, 360, 500, 700, 950]
+GEOAI_MILESTONE_STEP = 350
+
+
+def geoai_milestones_up_to(current: int) -> list[int]:
+    milestones = list(GEOAI_BASE_MILESTONES)
+    next_threshold = GEOAI_BASE_MILESTONES[-1] + GEOAI_MILESTONE_STEP
+    while next_threshold <= current:
+        milestones.append(next_threshold)
+        next_threshold += GEOAI_MILESTONE_STEP
+    return milestones
 BASE_PRICES = {"GEO": 24.0, "AGR": 18.0, "SIG": 31.0}
 INDEX_WEIGHTS = {"GEO": 0.42, "AGR": 0.33, "SIG": 0.25}
 SECTOR_BETA = {"GEO": 1.14, "AGR": 0.82, "SIG": 1.28}
@@ -630,6 +640,7 @@ class GameEngine:
                 continue
             event = self.build_timeline_event(item)
             self._ingest_event(event, player_injected=False)
+            self._seed_feed_from_external_event(event, item.theme)
             item.status = "triggered"
             item.triggered_day = self.state.day
             item.triggered_time_slot = self.state.time_slot
@@ -686,13 +697,26 @@ class GameEngine:
             self.state.feed_timeline = []
         current_slot_posts = [post for post in self.state.feed_timeline if post.day == self.state.day and post.time_slot == self.state.time_slot]
         latest_event = self.state.events[0] if self.state.events else None
+        scheduled_social = next(
+            (
+                item
+                for item in self.state.news_timeline
+                if item.status == "scheduled" and item.theme == "社会热点"
+            ),
+            None,
+        )
         recent_hot_gossip = any(post.category == "gossip" and post.heat >= 16 for post in self.state.feed_timeline[:10])
         topic_buzz = bool(
             latest_event
             and latest_event.category in {"general", "market"}
             and (latest_event.source in {"Brave Search", "系统新闻台"} or "热点" in latest_event.title)
         )
-        social_buzz = topic_buzz or recent_hot_gossip or bool(self.state.tourism.latest_signal and "微博热议" in self.state.tourism.latest_signal)
+        social_buzz = (
+            topic_buzz
+            or recent_hot_gossip
+            or bool(self.state.tourism.latest_signal and "微博热议" in self.state.tourism.latest_signal)
+            or scheduled_social is not None
+        )
         slot_cap = 5 if social_buzz else 3
         if len(current_slot_posts) >= slot_cap:
             return
@@ -701,17 +725,22 @@ class GameEngine:
         recent_feed = self.state.feed_timeline[:8]
         recent_agent_posts = sum(1 for post in recent_feed if post.author_type == "agent")
         recent_government_posts = sum(1 for post in recent_feed if post.author_type == "government")
-        if hot_post is not None and self.random.random() < 0.42:
+        if scheduled_social is not None and not any(
+            post.author_type == "system" and "社会热点" in (post.topic_tags or []) for post in recent_feed
+        ):
+            candidates.append(self._build_scheduled_social_preview_post(scheduled_social))
+        if hot_post is not None and self.random.random() < 0.28 and self._feed_thread_depth(hot_post.id) < 3:
             agent_pool = [agent for agent in self.state.agents if agent.id != hot_post.author_id] or self.state.agents
             agent = self.random.choice(agent_pool)
-            candidates.append(self._build_agent_feed_reply(agent, hot_post))
-        elif self.random.random() < 0.68 or recent_agent_posts == 0:
+            if not self._has_recent_author_reply_to_target(agent.id, hot_post.id):
+                candidates.append(self._build_agent_feed_reply(agent, hot_post))
+        elif self.random.random() < 0.76 or recent_agent_posts == 0:
             agent = self.random.choice(self.state.agents)
             candidates.append(self._build_agent_feed_post(agent, latest_event))
         if self.state.tourists and self.random.random() < 0.32:
             tourist_pool = [tourist for tourist in self.state.tourists if tourist.id != (hot_post.author_id if hot_post else "")] or self.state.tourists
             tourist = self.random.choice(tourist_pool)
-            if hot_post is not None and self.random.random() < 0.42:
+            if hot_post is not None and self.random.random() < 0.22 and self._feed_thread_depth(hot_post.id) < 3:
                 candidates.append(self._build_tourist_feed_reply(tourist, hot_post))
             else:
                 candidates.append(self._build_tourist_feed_post(tourist, latest_event))
@@ -720,12 +749,16 @@ class GameEngine:
             candidates.append(self._build_agent_feed_post(self.random.choice(buzz_pool), latest_event))
             if self.state.tourists and self.random.random() < 0.55:
                 candidates.append(self._build_tourist_feed_post(self.random.choice(self.state.tourists), latest_event))
-            if hot_post is not None and self.random.random() < 0.45:
+            if hot_post is not None and self.random.random() < 0.24 and self._feed_thread_depth(hot_post.id) < 3:
                 reactive_pool = [agent for agent in self.state.agents if agent.id != hot_post.author_id] or self.state.agents
-                candidates.append(self._build_agent_feed_reply(self.random.choice(reactive_pool), hot_post))
-            if hot_post is not None and self.random.random() < 0.3:
+                reactive_agent = self.random.choice(reactive_pool)
+                if not self._has_recent_author_reply_to_target(reactive_agent.id, hot_post.id):
+                    candidates.append(self._build_agent_feed_reply(reactive_agent, hot_post))
+            if hot_post is not None and self.random.random() < 0.14 and self._feed_thread_depth(hot_post.id) < 2:
                 second_wave_pool = [agent for agent in self.state.agents if agent.id not in {hot_post.author_id}] or self.state.agents
-                candidates.append(self._build_agent_feed_reply(self.random.choice(second_wave_pool), hot_post))
+                second_agent = self.random.choice(second_wave_pool)
+                if not self._has_recent_author_reply_to_target(second_agent.id, hot_post.id):
+                    candidates.append(self._build_agent_feed_reply(second_agent, hot_post))
         if self.random.random() < 0.2 or (self.state.time_slot in {"morning", "evening"} and recent_government_posts == 0):
             if hot_post is not None and hot_post.author_type != "government" and self.random.random() < 0.48:
                 candidates.append(self._build_government_feed_reply(hot_post))
@@ -747,7 +780,7 @@ class GameEngine:
             day=self.state.day,
             time_slot=self.state.time_slot,
             category=category,
-            content=content,
+            content=self._clean_feed_text(content),
             topic_tags=tags,
             desire_tags=[DESIRE_LABELS.get(desire_code, desire_code)],
             likes=max(0, min(24, 3 + max(0, agent.relations.get("player", 0)) // 12 + self.random.randint(0, 4))),
@@ -760,8 +793,10 @@ class GameEngine:
         return post
 
     def _build_agent_feed_reply(self, agent: Agent, target_post: FeedPost) -> FeedPost:
+        if target_post.author_id == agent.id:
+            return self._build_agent_feed_post(agent, self.state.events[0] if self.state.events else None)
         desire_code, _ = dominant_desire_for_agent(self.state, agent)
-        topic = self._feed_title_topic(target_post.content, target_post.category)
+        topic = self._feed_discussion_topic(target_post)
         style_seed = int(hashlib.sha1(f"{agent.id}-{target_post.id}-{self.state.day}".encode("utf-8")).hexdigest()[:6], 16)
         softener = (agent.speech_habits or [""])[0] if agent.speech_habits else ""
         content = self._agent_feed_reply_content(agent, target_post.author_name, topic, desire_code, style_seed, softener)
@@ -773,7 +808,7 @@ class GameEngine:
             day=self.state.day,
             time_slot=self.state.time_slot,
             category=target_post.category if target_post.category in {"research", "market", "property", "tourism", "policy", "gossip", "mood"} else "daily",
-            content=content[:160],
+            content=self._clean_feed_text(content),
             topic_tags=list(dict.fromkeys((target_post.topic_tags or [])[:3] + [agent.current_location])),
             desire_tags=[DESIRE_LABELS.get(desire_code, desire_code)],
             reply_to_post_id=target_post.id,
@@ -806,30 +841,30 @@ class GameEngine:
             content = options[angle]
         elif tourist.visitor_tier == "vip":
             options = [
-                f"今天在{tourist.current_location}转了一圈，我本来挺挑的，结果还真被这里留住了。不是因为它多贵，而是它居然有点真生活。{base_text[:28]}",
-                f"我花钱向来认感觉。这里最难得的是，不会让人觉得自己只是被当成一笔消费。{base_text[:24]}",
-                f"说实话，很多地方只会端着热闹给你看，这里倒是有点松弛，像能真的住人。{base_text[:24]}",
+                f"今天在{tourist.current_location}转了一圈，我本来挺挑的，结果还真被这里留住了。不是因为它多贵，而是它居然有点真生活。",
+                "我花钱向来认感觉。这里最难得的是，不会让人觉得自己只是被当成一笔消费。",
+                "说实话，很多地方只会端着热闹给你看，这里倒是有点松弛，像能真的住人。",
             ]
             content = options[angle]
         elif tourist.visitor_tier == "buyer":
             options = [
-                f"今天看房时心里有点打鼓。价格当然重要，但我现在更在意的是，住进来以后会不会天天都觉得累。{base_text[:26]}",
-                f"我对这里开始认真了，所以反而更谨慎。一个地方如果只适合投资，不适合生活，最后会把自己掏空。{base_text[:20]}",
-                f"现在最想比较的不是挂牌数字，而是这里能不能让我把日子过顺。房子要是只会涨，不会让人想留下，其实也没劲。{base_text[:22]}",
+                "今天看房时心里有点打鼓。价格当然重要，但我现在更在意的是，住进来以后会不会天天都觉得累。",
+                "我对这里开始认真了，所以反而更谨慎。一个地方如果只适合投资，不适合生活，最后会把自己掏空。",
+                "现在最想比较的不是挂牌数字，而是这里能不能让我把日子过顺。房子要是只会涨，不会让人想留下，其实也没劲。",
             ]
             content = options[angle]
         elif tourist.visitor_tier == "repeat":
             options = [
-                f"第二次来还是觉得这里有劲儿，这就不容易了。回头客最怕第一次像惊喜，第二次只剩套路。{base_text[:24]}",
-                f"能让我再回来一次，通常不是因为更热闹，而是因为第一次没看清的层次第二次开始冒出来了。{base_text[:22]}",
-                f"回访最大的好处，就是能分清这地方是真的有生活，还是只会第一次哄你开心。{base_text[:20]}",
+                "第二次来还是觉得这里有劲儿，这就不容易了。回头客最怕第一次像惊喜，第二次只剩套路。",
+                "能让我再回来一次，通常不是因为更热闹，而是因为第一次没看清的层次第二次开始冒出来了。",
+                "回访最大的好处，就是能分清这地方是真的有生活，还是只会第一次哄你开心。",
             ]
             content = options[angle]
         else:
             options = [
                 f"随手记一下：这里比我想的更像有人在过日子，不只是摆给游客看。今天最有意思的是{(tourist.favorite_topic or '集市和旅馆周边')[:14]}。",
-                f"第一次来，本来只想看热闹，结果反而记住了人怎么停下来聊天、干活、互相看一眼。{base_text[:20]}",
-                f"游客其实很容易被漂亮景观哄住，但这里偶尔会冒出一点真的生活感，这点挺戳人的。{base_text[:20]}",
+                "第一次来，本来只想看热闹，结果反而记住了人怎么停下来聊天、干活、互相看一眼。",
+                "游客其实很容易被漂亮景观哄住，但这里偶尔会冒出一点真的生活感，这点挺戳人的。",
             ]
             content = options[angle]
         tags = [tourist.current_location, self._tourist_tier_label(tourist.visitor_tier)]
@@ -845,7 +880,7 @@ class GameEngine:
             day=self.state.day,
             time_slot=self.state.time_slot,
             category=category,
-            content=content[:160],
+            content=self._clean_feed_text(content),
             topic_tags=tags,
             desire_tags=[tourist.favorite_topic or "到处看看"],
             likes=max(0, min(18, 1 + tourist.message_influence * 3 + self.random.randint(0, 4))),
@@ -858,18 +893,20 @@ class GameEngine:
         return post
 
     def _build_tourist_feed_reply(self, tourist: TouristAgent, target_post: FeedPost) -> FeedPost:
+        if target_post.author_id == tourist.id:
+            return self._build_tourist_feed_post(tourist, self.state.events[0] if self.state.events else None)
         style_seed = int(hashlib.sha1(f"{tourist.id}-{target_post.id}-{self.state.day}".encode("utf-8")).hexdigest()[:6], 16)
         if target_post.category == "gossip":
             options = [
-                f"{tourist.name} 回复 {target_post.author_name}：这类传闻一旦热起来，游客其实最先感到的不是结论，而是这里到底会更有意思，还是更让人发紧。",
-                f"{tourist.name} 回复 {target_post.author_name}：外面的人听这种热点，先想的是体验会不会变味。大家没空做复杂分析，但会立刻决定还想不想来。",
-                f"{tourist.name} 回复 {target_post.author_name}：我认同一半。传闻最厉害的地方，不是它真不真，而是它会让很多人提前改行为。",
+                f"{tourist.name} 回复 {target_post.author_name}：我先不管真假，反正这种传闻一多，游客会先犹豫，还会不会来、还愿不愿意花钱。",
+                f"{tourist.name} 回复 {target_post.author_name}：这类话一热起来，外面的人第一反应不是分析，是先觉得这里到底还舒不舒服。",
+                f"{tourist.name} 回复 {target_post.author_name}：我只说游客视角，这种风声会直接改大家的脚步，很多人会先观望。",
             ]
         else:
             options = [
-                f"{tourist.name} 回复 {target_post.author_name}：你说的我也有感觉，不过游客最先记住的不是结论，而是这里值不值得多待一会儿、再多花一点钱。",
-                f"{tourist.name} 回复 {target_post.author_name}：外面的人看这里，先吃到的是气氛，不是逻辑。你这条判断要是落到现场，体验感接不接得住很关键。",
-                f"{tourist.name} 回复 {target_post.author_name}：我同意一部分，但游客不会替你做复杂分析。大家最后记住的，往往就是这里让人舒服还是让人发紧。",
+                f"{tourist.name} 回复 {target_post.author_name}：你这话我能懂。游客最后不是记逻辑，是记这里值不值得多待半天、多花一点钱。",
+                f"{tourist.name} 回复 {target_post.author_name}：外面的人看这里，先看气氛顺不顺。感觉一拧巴，消费和停留都会往下掉。",
+                f"{tourist.name} 回复 {target_post.author_name}：我同意一部分。游客很现实，舒服就留下，不舒服就走。",
             ]
         content = options[style_seed % len(options)]
         post = FeedPost(
@@ -880,7 +917,7 @@ class GameEngine:
             day=self.state.day,
             time_slot=self.state.time_slot,
             category="gossip" if target_post.category == "gossip" else ("tourism" if target_post.category != "property" else "property"),
-            content=content[:160],
+            content=self._clean_feed_text(content),
             topic_tags=list(dict.fromkeys((target_post.topic_tags or [])[:3] + [tourist.current_location])),
             desire_tags=[tourist.favorite_topic or "体验感"],
             reply_to_post_id=target_post.id,
@@ -898,9 +935,9 @@ class GameEngine:
         action = self.state.government.last_agent_action or "继续观察游客、税收和市场反馈"
         note = self.state.government.last_policy_note or "暂无新的额外说明"
         options = [
-            f"【政府运营说明】这轮我们盯得最紧的是“{agenda}”。最近动作：{action}。政策备注：{note[:28]}。",
-            f"【政府运营说明】眼下不会只追着短期热度跑。当前议程是“{agenda}”，最近动作是：{action}。",
-            f"【政府运营说明】财政、游客和住房是拴在一起的。我们现在的议程是“{agenda}”，最近已经做了：{action}。",
+            f"【政府运营说明】这轮先办“{agenda}”。最近刚做的是：{action}。别的先不乱加码。",
+            f"【政府运营说明】眼下先顾“{agenda}”，最近动作是：{action}。钱和维护都得一起算。",
+            f"【政府运营说明】现在重点还是“{agenda}”。最近已经处理：{action}。备注：{note[:20]}。",
         ]
         style_seed = int(hashlib.sha1(f"{self.state.day}-{self.state.time_slot}-government".encode('utf-8')).hexdigest()[:6], 16)
         content = options[style_seed % len(options)]
@@ -915,7 +952,7 @@ class GameEngine:
             day=self.state.day,
             time_slot=self.state.time_slot,
             category="policy",
-            content=content[:160],
+            content=self._clean_feed_text(content),
             topic_tags=tags,
             desire_tags=["稳定运行"],
             likes=2 + max(0, self.state.government.enforcement_level // 18),
@@ -928,11 +965,13 @@ class GameEngine:
         return post
 
     def _build_government_feed_reply(self, target_post: FeedPost) -> FeedPost:
+        if target_post.author_type == "government":
+            return self._build_government_feed_post(self.state.events[0] if self.state.events else None)
         style_seed = int(hashlib.sha1(f"gov-reply-{target_post.id}-{self.state.day}".encode("utf-8")).hexdigest()[:6], 16)
         options = [
-            f"【政府回应】关于 {target_post.author_name} 提到的情况，我们不会只盯一时情绪。财政压力、设施使用、游客反馈和市场后果都会一起看。",
-            f"【政府回应】这类讨论我们已经看到了。政策不会只跟着热度跑，还要看维护成本、公共服务缺口和后面会不会有人扛不住。",
-            f"【政府回应】公开讨论有价值，但我们更关心它后面那层结构问题：住房、游客、消费和财政之间会不会被重新拉扯。",
+            f"【政府回应】{target_post.author_name} 这条我们看到了。先别把话说满，这事最后还是要落到钱、维护和谁来扛。",
+            f"【政府回应】这类讨论不会装没看见，但也不会因为热度高就立刻改。先把账和后果摊开看。",
+            f"【政府回应】骂可以，吵也可以。我们更关心一件事：这事往下走，谁先吃亏，谁最后买单。",
         ]
         content = options[style_seed % len(options)]
         post = FeedPost(
@@ -943,7 +982,7 @@ class GameEngine:
             day=self.state.day,
             time_slot=self.state.time_slot,
             category="policy",
-            content=content[:160],
+            content=self._clean_feed_text(content),
             topic_tags=list(dict.fromkeys((target_post.topic_tags or [])[:3] + ["财政", "监管"])),
             desire_tags=["稳定运行"],
             reply_to_post_id=target_post.id,
@@ -1227,65 +1266,39 @@ class GameEngine:
         style_seed: int,
         softener: str,
     ) -> str:
-        desire_label = DESIRE_LABELS.get(desire_code, desire_code)
         angle = style_seed % 3
         lead = f"{softener}，" if softener else ""
         if agent.id == "lin":
             options = [
-                f"{lead}我不是不认你这句，我只是觉得“{topic}”还没到能让人完全放心的程度。再往前走，先掉下去的人是谁，我得先看清。",
-                f"{lead}这话我听进去了，但我还是会追一句：证据够不够？要是后面要靠别人补洞，那现在的热度就不值钱。",
-                f"{lead}{target_author}，我同意一半。问题不在“{topic}”听起来顺不顺，而在它落地以后，是谁先开始扛代价。",
-            ]
-            tails = [
-                f"我现在最怕的，就是“{desire_label}”这根线还没看清就先被大家当成结论。",
-                "证据没站稳之前，我不会让自己把话说满。",
-                "所以我会先盯代价，不会先被热度劝服。",
+                f"{lead}{target_author}，这话我听进去了，但我还是要追一句：证据在哪儿？别最后又靠猜。",
+                f"{lead}我不急着站队。先把“{topic}”里最虚的那层剥掉，再看值不值得往前顶。",
+                f"{lead}你这句不算错，但我最怕的是大家先被说服，后面才发现代价比想的重。",
             ]
         elif agent.id == "mika":
             options = [
-                f"{lead}{target_author}，你这句我一下就接住了，但我脑子里同时冒出另一个画面：要是“{topic}”真往前滚，会不会先把最脆的地方扯开？",
-                f"{lead}我不是要唱反调，我只是老觉得“{topic}”背后还藏着一层没说出来的东西，不把那层翻出来我会一直别扭。",
-                f"{lead}你说得让我心里动了一下，可我还是忍不住想问：这到底会把人从哪儿托起来，又会把谁先往下拽？",
-            ]
-            tails = [
-                f"我现在最怕的不是输，是被“{desire_label}”这股劲推着跑太快。",
-                "如果后面那层情绪不翻出来，我会一直惦记着它。",
-                "我想先把那个别扭感说出来，不然我会一直卡着。",
+                f"{lead}你这句一下戳到我了。我也觉得“{topic}”有点不对劲，就是说不上来哪儿别扭。",
+                f"{lead}我不是抬杠，我只是老觉得这里面还藏了一层。现在就往前冲，我心里发毛。",
+                f"{lead}你这么一说我更纠结了。它听起来是顺的，可我总觉得后面会有人被扯痛。",
             ]
         elif agent.id == "jo":
             options = [
-                f"{lead}{target_author}，话能这么说，事不一定能这么做。真往“{topic}”上走，钱谁掏、活谁干、锅谁背，你先说清。",
-                f"{lead}别先顺着热度跑。我不是反对“{topic}”，我是反对一堆人靠它壮胆，最后让别人去擦地。",
-                f"{lead}我认你有道理，但别只讲方向。落下来以后谁能扛、谁扛不住，这才是我现在最在意的。",
-            ]
-            tails = [
-                "说白了，账要先算清，别靠气氛往前冲。",
-                "热闹我不接，能落地我才接。",
-                "所以别跟我谈抽象，我只看谁最后真去扛。",
+                f"{lead}{target_author}，少绕。真上“{topic}”，钱谁掏，活谁干，锅谁背？先说清。",
+                f"{lead}我不吃热度这一套。说得再漂亮，落地还是看谁先累死、谁先赔钱。",
+                f"{lead}方向可以聊，但别空聊。你先把账摆出来，我再决定接不接这事。",
             ]
         elif agent.id == "rae":
             options = [
-                f"{lead}{target_author}，我能接住你这口气，但“{topic}”如果真推进，最先被压到的人是谁，我还是想替他们多问一句。",
-                f"{lead}我不是想把讨论变慢，只是很多决定一快起来，最难受的人往往没来得及说话。",
-                f"{lead}这句话我不反对，我只是想把那层感受补上：事情走下去以后，大家会不会更稳一点，还是更绷一点？",
-            ]
-            tails = [
-                f"我会一直盯着“{desire_label}”这根线，因为它最容易先断在沉默的人身上。",
-                "我更想先把人接住，再往下谈方案。",
-                "所以我会多问一句感受，不想让人被节奏直接冲过去。",
+                f"{lead}我知道你在急，但“{topic}”真往下走，最先被压住的人是谁，我还是得问一句。",
+                f"{lead}这话我不是不同意，我只是怕节奏一快，又有人没来得及开口就被推着走了。",
+                f"{lead}你这句后劲挺大。我现在更想看的是，事情过去之后，大家会不会更累。",
             ]
         else:
             options = [
-                f"{lead}{target_author}，你这句一出来，风向已经有点变了。我更在意的是“{topic}”会把谁吸过去，又会把谁吓退。",
-                f"{lead}我听见你这句的时候，脑子里第一反应不是对错，是后面哪股人会先跟上，哪股钱会先动。",
-                f"{lead}这话不是没道理，但我闻到的是另一层味道：只要“{topic}”继续发酵，后面连不想表态的人都会被卷进去。",
+                f"{lead}你这句一出来，风向已经变了。后面谁会跟、谁会躲，我现在就想看这个。",
+                f"{lead}这事不只是在吵，它已经像信号一样散开了。再热一点，游客和钱都会跟着动。",
+                f"{lead}我先不说对错，我只说感觉：这话继续发酵，后面肯定有人要顺着它带节奏。",
             ]
-            tails = [
-                f"我现在盯着的，就是“{desire_label}”这股风会先把谁卷进去。",
-                "这事只要发酵下去，后面就不只是嘴上的讨论了。",
-                "所以我会先看信号怎么扩，再决定往哪边站。",
-            ]
-        return f"{options[angle]} {tails[angle]}"[:160]
+        return options[angle][:160]
 
     def _feed_topic_tags(self, content: str, category: str) -> list[str]:
         tags = [category]
@@ -1330,6 +1343,50 @@ class GameEngine:
         if category == "gossip":
             return "社会热点"
         return content[:10] or "日常动态"
+
+    def _feed_discussion_topic(self, post: FeedPost) -> str:
+        raw_tags = [tag for tag in (post.topic_tags or []) if tag and tag not in {"daily", "mood", "research", "market", "property", "tourism", "policy", "gossip"}]
+        for tag in raw_tags:
+            if len(tag) <= 18 and not any(token in tag for token in ["foyer", "office", "compute", "data_wall", "meeting", "lounge"]):
+                return tag
+        if post.category == "gossip":
+            return "这波社会热点"
+        if post.category == "policy":
+            return "政策变化"
+        if post.category == "market":
+            return "市场风向"
+        if post.category == "tourism":
+            return "游客体验"
+        if post.category == "property":
+            return "住房和房产"
+        if post.category == "research":
+            return "研究推进"
+        if post.category == "mood":
+            return "现在这股情绪"
+        return "眼下这件事"
+
+    def _feed_thread_depth(self, post_id: str) -> int:
+        return sum(1 for post in self.state.feed_timeline[:40] if post.reply_to_post_id == post_id or post.quote_post_id == post_id)
+
+    def _has_recent_author_reply_to_target(self, author_id: str, post_id: str) -> bool:
+        return any(
+            post.author_id == author_id and (post.reply_to_post_id == post_id or post.quote_post_id == post_id)
+            for post in self.state.feed_timeline[:40]
+        )
+
+    def _clean_feed_text(self, content: str, limit: int = 160) -> str:
+        text = " ".join((content or "").split()).strip()
+        if len(text) <= limit:
+            return text
+        clipped = text[: limit - 1].rstrip(" ，,、：:")
+        sentence_cut = max(clipped.rfind(mark) for mark in ["。", "！", "？", "；"])
+        if sentence_cut >= 24:
+            clipped = clipped[: sentence_cut + 1]
+        else:
+            space_cut = clipped.rfind(" ")
+            if space_cut >= 24:
+                clipped = clipped[:space_cut]
+        return clipped.rstrip("，,、：:") + "。"
 
     def _compute_feed_heat(self, post: FeedPost) -> int:
         return max(1, min(100, int(post.likes * 1.5 + post.reposts * 3.2 + post.views / 11 + len(post.topic_tags) * 2 + post.credibility / 12)))
@@ -1475,6 +1532,65 @@ class GameEngine:
             for agent in self.state.agents[:2]:
                 self._remember(agent, f"热帖挂在脑子里：{post.author_name}提到“{post.content[:20]}”", 1)
             self.state.tourism.latest_signal = f"微博热帖：{post.content[:24]}"
+
+    def _build_scheduled_social_preview_post(self, item: NewsTimelineItem) -> FeedPost:
+        post = FeedPost(
+            id=f"feed-{uuid4().hex[:8]}",
+            author_type="system",
+            author_id="system-feed",
+            author_name="系统新闻台",
+            day=self.state.day,
+            time_slot=self.state.time_slot,
+            category="gossip",
+            content=self._clean_feed_text(
+                f"系统新闻台预告：外面已经开始热议“{item.title}”。这条社会热点还没真正落到园区，但游客、住房、消费和谁先被卷进去，八成很快就会有人吵起来。"
+            ),
+            topic_tags=["社会热点", item.source or "系统新闻台", "公开讨论"],
+            desire_tags=["公开讨论"],
+            likes=5 + self.random.randint(0, 5),
+            reposts=1 + self.random.randint(0, 3),
+            views=48 + self.random.randint(0, 32),
+            summary=f"外部社会热点 {item.title} 先被投进了小镇微博。",
+            impacts=self._feed_impacts_for_category("gossip"),
+        )
+        post.credibility = self._feed_credibility_for_post(post)
+        post.heat = self._compute_feed_heat(post)
+        return post
+
+    def _seed_feed_from_external_event(self, event: LabEvent, theme: str = "") -> None:
+        category = "gossip" if theme == "社会热点" or event.category == "general" else ("market" if event.category == "market" else ("research" if event.category == "geoai" else "policy"))
+        if category == "gossip":
+            content = f"系统新闻台刚抛来一条社会热点：{event.title}。现在大家开始把它往住房、消费、工作节奏和谁更难这几条线上吵。"
+            tags = ["社会热点", event.source or "系统新闻台", "公开讨论"]
+        elif category == "market":
+            content = f"系统新闻台：{event.title}。这条消息已经把市场预期拨动了一下，后面大盘和游客消费都可能跟着偏。"
+            tags = ["市场", event.source or "系统新闻台", "外部消息"]
+        elif category == "research":
+            content = f"系统新闻台：{event.title}。这条外部信号已经被大家往 GeoAI 和空间智能主线那边接了。"
+            tags = ["GeoAI", "空间智能", event.source or "系统新闻台"]
+        else:
+            content = f"系统新闻台：{event.title}。政策和公共服务这边已经有人开始重新盘算这件事会把谁先推紧。"
+            tags = ["政策", "监管", event.source or "系统新闻台"]
+        post = FeedPost(
+            id=f"feed-{uuid4().hex[:8]}",
+            author_type="system",
+            author_id="system-feed",
+            author_name="系统新闻台",
+            day=self.state.day,
+            time_slot=self.state.time_slot,
+            category=category,
+            content=self._clean_feed_text(content),
+            topic_tags=tags[:4],
+            desire_tags=["公开讨论"],
+            likes=4 + self.random.randint(0, 4),
+            reposts=1 + self.random.randint(0, 2),
+            views=36 + self.random.randint(0, 24),
+            summary=f"{event.title} 被投进了小镇微博。",
+            impacts=self._feed_impacts_for_category(category),
+        )
+        post.credibility = self._feed_credibility_for_post(post)
+        post.heat = self._compute_feed_heat(post)
+        self._append_feed_post(post, remember=True, apply_impacts=True)
 
     def _move_agents_autonomously(self) -> None:
         moved_agents: list[dict[str, object]] = []
@@ -7058,7 +7174,8 @@ class GameEngine:
     def _emit_geoai_milestones(self, previous: int, current: int, reason: str) -> None:
         if self.state.geoai_milestones is None:
             self.state.geoai_milestones = []
-        crossed = [threshold for threshold in GEOAI_MILESTONES if previous < threshold <= current and threshold not in self.state.geoai_milestones]
+        candidate_milestones = geoai_milestones_up_to(current)
+        crossed = [threshold for threshold in candidate_milestones if previous < threshold <= current and threshold not in self.state.geoai_milestones]
         if not crossed:
             return
         for threshold in crossed:
@@ -8469,6 +8586,9 @@ class GameEngine:
             self.state.feed_timeline = []
         if self.state.geoai_milestones is None:
             self.state.geoai_milestones = []
+        expected_milestones = geoai_milestones_up_to(self.state.lab.geoai_progress)
+        if len(self.state.geoai_milestones) < len(expected_milestones):
+            self.state.geoai_milestones = sorted(set(self.state.geoai_milestones + expected_milestones))
         if self.state.daily_briefings is None:
             self.state.daily_briefings = []
         if getattr(self.state, "news_timeline", None) is None:
