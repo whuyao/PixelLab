@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GeoAI Pixel Lab Test (UrbanComp Lab)</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260313u" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260313v" />
   </head>
   <body>
     <div class="project-banner">
@@ -18,6 +18,7 @@
         <button type="button" class="view-tab" data-view="life">生活与地产</button>
         <button type="button" class="view-tab" data-view="government">财政与政府</button>
         <button type="button" class="view-tab" data-view="journal">日志与观察</button>
+        <button type="button" class="view-tab" data-view="teaching">智能体教学</button>
       </nav>
 
       <section class="view view-home is-active" data-view="home">
@@ -508,6 +509,176 @@
         </div>
       </section>
 
+      <section class="view" data-view="teaching">
+        <div class="teaching-layout">
+          <section class="panel teaching-hero-panel">
+            <div class="panel-head">
+              <h2>智能体教学</h2>
+              <span class="panel-tag">本科生 / 研究生学习入口</span>
+            </div>
+            <div class="teaching-hero-copy">
+              <p>这个页面不是操作台，而是一份面向课堂讲解的系统说明。它解释这套像素 GeoAI 实验室里，什么是智能体、什么是 GeoAI、为什么经济约束是底层驱动，以及多个子系统怎样共同长出复杂行为。</p>
+              <div class="teaching-chip-row">
+                <span class="memory-chip">多智能体</span>
+                <span class="memory-chip">GeoAI</span>
+                <span class="memory-chip">行为涌现</span>
+                <span class="memory-chip">经济底层机制</span>
+                <span class="memory-chip">制度与公共服务</span>
+              </div>
+            </div>
+          </section>
+
+          <div class="teaching-grid">
+            <section class="panel teaching-panel">
+              <div class="panel-head">
+                <h2>1. 什么是智能体</h2>
+                <span class="panel-tag">从 NPC 到决策者</span>
+              </div>
+              <div class="teaching-block">
+                <p>在这个系统里，智能体不是一段固定台词，而是一个有状态、有记忆、有目标、能感知环境并作出行动的计算实体。</p>
+                <ul class="teaching-list">
+                  <li>身份层：名字、角色、专长、说话风格</li>
+                  <li>状态层：心情、压力、体力、专注、满意度</li>
+                  <li>社会层：关系、盟友、对手、最近互动</li>
+                  <li>经济层：现金、存款、信用、股票、借贷、房产</li>
+                  <li>记忆层：短期记忆、长期记忆、memory stream、即时意图</li>
+                </ul>
+              </div>
+            </section>
+
+            <section class="panel teaching-panel">
+              <div class="panel-head">
+                <h2>2. 什么是 GeoAI</h2>
+                <span class="panel-tag">空间智能主线</span>
+              </div>
+              <div class="teaching-block">
+                <p>GeoAI 是地理空间人工智能。它强调问题和数据带有空间位置、区域结构、流动关系和地图语境。</p>
+                <p>在这个项目里，GeoAI 既是研究主题，也是一个会影响任务、口碑、新闻、市场和角色行为的主线变量。</p>
+                <div class="teaching-mini-formula">
+                  <code>GeoAI Progress -> Research Milestone -> News / Reputation / Market Impact</code>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel teaching-panel">
+              <div class="panel-head">
+                <h2>3. 系统为什么会涌现</h2>
+                <span class="panel-tag">局部规则 -> 整体现象</span>
+              </div>
+              <div class="teaching-block">
+                <p>系统并没有直接写死“谁会变富”“谁会结盟”“谁会走向灰产”，而是通过很多局部规则相互作用，自然形成长期结果。</p>
+                <ul class="teaching-list">
+                  <li>现金低于阈值会去打工</li>
+                  <li>信用差会提高借贷成本</li>
+                  <li>游客会带来外部消息和消费</li>
+                  <li>监管和税率会改变行为成本</li>
+                  <li>市场涨跌会反过来影响情绪和风险偏好</li>
+                </ul>
+                <p>这些局部规则叠加后，就会长出资产分化、关系极化、联盟、冲突和制度反应。</p>
+              </div>
+            </section>
+
+            <section class="panel teaching-panel">
+              <div class="panel-head">
+                <h2>4. 为什么经济规律是底层机制</h2>
+                <span class="panel-tag">稀缺性驱动系统</span>
+              </div>
+              <div class="teaching-block">
+                <p>表面上这个世界里最显眼的是地图、对话和关系，但真正持续驱动行为的是经济约束。</p>
+                <ul class="teaching-list">
+                  <li>没钱要打工</li>
+                  <li>有存款会缓解风险</li>
+                  <li>高负债会改变聊天和决策</li>
+                  <li>房产和股票会改变财富轨迹</li>
+                  <li>税收和保障会改变制度反馈</li>
+                </ul>
+                <div class="teaching-mini-formula">
+                  <code>行为 = f(欲望, 关系, 记忆, 现金压力, 市场信号, 制度成本)</code>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel teaching-panel teaching-wide-panel">
+              <div class="panel-head">
+                <h2>5. 系统之间怎么运行</h2>
+                <span class="panel-tag">世界循环</span>
+              </div>
+              <div class="teaching-system-grid">
+                <article class="event-card">
+                  <strong>空间系统</strong>
+                  <div>地图、房屋、公司、市场、旅馆、政府设施决定相遇概率和行为发生地点。</div>
+                </article>
+                <article class="event-card">
+                  <strong>时间系统</strong>
+                  <div>日夜、天气和工作日推进决定打工、休息、游客到访和每日结算。</div>
+                </article>
+                <article class="event-card">
+                  <strong>社会系统</strong>
+                  <div>对话、记忆、关系、联盟、冲突和和解链决定谁愿意合作、借钱或对抗。</div>
+                </article>
+                <article class="event-card">
+                  <strong>经济系统</strong>
+                  <div>股票、银行借贷、存款、消费、房产、工资和通胀形成持续压力。</div>
+                </article>
+                <article class="event-card">
+                  <strong>制度系统</strong>
+                  <div>税率、监管、保障、财政结算、公共服务和政府投资提供制度性反馈。</div>
+                </article>
+                <article class="event-card">
+                  <strong>开放系统</strong>
+                  <div>游客、Brave 新闻或系统新闻、节庆活动和随机事件把外部冲击带进园区。</div>
+                </article>
+              </div>
+            </section>
+
+            <section class="panel teaching-panel">
+              <div class="panel-head">
+                <h2>6. 一个简化数学模型</h2>
+                <span class="panel-tag">面向课堂</span>
+              </div>
+              <div class="teaching-block">
+                <div class="teaching-mini-formula">
+                  <code>Desire_i(t) = w1·stress + w2·money_urgency + w3·relationship_need + w4·opportunity_signal</code>
+                </div>
+                <div class="teaching-mini-formula">
+                  <code>Action_i(t) = argmax_a U(a | state_i, memory_i, relation_i, market_t, policy_t)</code>
+                </div>
+                <div class="teaching-mini-formula">
+                  <code>Wealth_i(t+1) = cash + deposit + equity_value + property_value - debt_due</code>
+                </div>
+                <div class="teaching-mini-formula">
+                  <code>Emergence = Σ local interactions + delayed feedback + institutional constraints</code>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel teaching-panel">
+              <div class="panel-head">
+                <h2>7. 本项目适合怎么学</h2>
+                <span class="panel-tag">课堂路径</span>
+              </div>
+              <div class="teaching-block">
+                <ol class="teaching-list ordered">
+                  <li>先在首页观察地图和驾驶舱，理解世界里有哪些主体。</li>
+                  <li>再去市场页看价格、借贷、游客消费和信贷监控。</li>
+                  <li>去财政页看税率、保障、政府投资和制度反馈。</li>
+                  <li>最后到日志页，把实时对话、事件流和新闻时间线串起来。</li>
+                </ol>
+              </div>
+            </section>
+          </div>
+
+          <section class="panel teaching-credit-panel">
+            <div class="panel-head">
+              <h2>项目署名</h2>
+              <span class="panel-tag">开源教学用途</span>
+            </div>
+            <p><strong>UrbanComp Lab @ CUG</strong> 团队构建的开源像素 GeoAI 实验室项目。</p>
+            <p class="memory-meta">页面目标是帮助本科生快速理解多智能体、空间智能、制度约束和行为涌现之间的关系。</p>
+          </section>
+        </div>
+      </section>
+
       <div id="actorModal" class="actor-modal" hidden>
         <div id="actorModalBackdrop" class="actor-modal-backdrop"></div>
         <div class="actor-modal-panel">
@@ -523,6 +694,6 @@
       <span>UrbanComp Lab (<a href="https://urbancomp.net" target="_blank" rel="noreferrer">https://urbancomp.net</a>) 开发</span>
       <span>GitHub：<a href="https://github.com/whuyao/PixelLab" target="_blank" rel="noreferrer">https://github.com/whuyao/PixelLab</a></span>
     </footer>
-    <script src="/static/app.js?v=20260313u" type="module"></script>
+    <script src="/static/app.js?v=20260313v" type="module"></script>
   </body>
 </html>

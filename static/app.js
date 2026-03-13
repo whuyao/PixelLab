@@ -113,7 +113,7 @@ const welfareBankruptcyInput = document.getElementById("welfareBankruptcyInput")
 const taxPolicyNoteInput = document.getElementById("taxPolicyNoteInput");
 const taxPolicySubmitBtn = document.getElementById("taxPolicySubmitBtn");
 const taxPolicyStatus = document.getElementById("taxPolicyStatus");
-const ASSET_VERSION = "20260313u";
+const ASSET_VERSION = "20260313v";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -131,7 +131,7 @@ const weatherLabels = {
   drizzle: "小雨",
 };
 
-const availableViews = new Set(["home", "market", "life", "government", "journal"]);
+const availableViews = new Set(["home", "market", "life", "government", "journal", "teaching"]);
 
 function routeForTargetKind(targetKind) {
   if (["market", "stock"].includes(targetKind)) return "market";
