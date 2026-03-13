@@ -1236,7 +1236,6 @@ class GameEngine:
             self.state.market.daily_index_history.append(
                 IndexCandle(day=self.state.day, open=value, high=value, low=value, close=value, limit_state=limit_state)
             )
-            self.state.market.daily_index_history = self.state.market.daily_index_history[-30:]
             return
         candle.close = value
         candle.high = max(candle.high, value)

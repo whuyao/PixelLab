@@ -113,7 +113,7 @@ const welfareBankruptcyInput = document.getElementById("welfareBankruptcyInput")
 const taxPolicyNoteInput = document.getElementById("taxPolicyNoteInput");
 const taxPolicySubmitBtn = document.getElementById("taxPolicySubmitBtn");
 const taxPolicyStatus = document.getElementById("taxPolicyStatus");
-const ASSET_VERSION = "20260313w";
+const ASSET_VERSION = "20260313aa";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -845,6 +845,8 @@ let highlightedStoryId = "";
 let highlightedDialogueId = "";
 let highlightedGrayCaseId = "";
 let taxPolicyPending = false;
+let taxPolicyDraft = null;
+let taxPolicyDraftDirty = false;
 let newsPolicyPending = false;
 let bankActionPending = false;
 let tradePending = false;
@@ -885,6 +887,106 @@ const artAssets = {
   wheatSheet: null,
   cratesRow: null,
   hayProps: null,
+  beachTiles: null,
+  forestTiles: null,
+  treesSheet: null,
+  npcSheet: null,
+  bgTiles: null,
+};
+
+const spriteSheetMeta = {
+  frameWidth: 32,
+  frameHeight: 48,
+  groups: {
+    scientist_a: 0,
+    scientist_b: 1,
+    tourist: 2,
+  },
+  rows: {
+    front: 0,
+    right: 1,
+    left: 2,
+    back: 3,
+  },
+};
+
+const animatedWaterTiles = 8;
+
+const scenicTreeAnchors = [
+  { x: 6.5, y: 4.8, variant: 0, scale: 0.9 },
+  { x: 5.7, y: 7.1, variant: 1, scale: 0.88 },
+  { x: 4.7, y: 18.4, variant: 3, scale: 0.94 },
+  { x: 5.6, y: 21.1, variant: 0, scale: 0.86 },
+  { x: 33.5, y: 3.5, variant: 1, scale: 0.82 },
+  { x: 36.2, y: 4.7, variant: 0, scale: 0.84 },
+  { x: 40.7, y: 6.1, variant: 2, scale: 0.9 },
+  { x: 40.9, y: 20.3, variant: 0, scale: 0.96 },
+  { x: 42.1, y: 22.2, variant: 1, scale: 0.9 },
+  { x: 27.2, y: 22.5, variant: 0, scale: 0.82 },
+  { x: 29.3, y: 22.4, variant: 1, scale: 0.88 },
+  { x: 31.8, y: 22.7, variant: 0, scale: 0.84 },
+];
+
+let foregroundNature = [];
+let displayEntityOverrides = new Map();
+
+const coreAgentIds = ["lin", "mika", "jo", "rae", "kai"];
+const dedicatedCoreSpriteDefs = {
+  lin: {
+    skin: "#efc4a1",
+    hair: "#6a3f31",
+    coat: "#5e789a",
+    coatDark: "#465f80",
+    accent: "#dce7f6",
+    trousers: "#30415d",
+    shoes: "#1d2431",
+    prop: "#efe3cc",
+    vibe: "clipboard",
+  },
+  mika: {
+    skin: "#f1c8aa",
+    hair: "#b8634c",
+    coat: "#d77a66",
+    coatDark: "#b55f4b",
+    accent: "#ffe2d6",
+    trousers: "#5d506b",
+    shoes: "#2e2432",
+    prop: "#f8c6b8",
+    vibe: "scarf",
+  },
+  jo: {
+    skin: "#e7bb94",
+    hair: "#2f3448",
+    coat: "#769567",
+    coatDark: "#58714f",
+    accent: "#dfe9d7",
+    trousers: "#41503f",
+    shoes: "#23291f",
+    prop: "#c9a15b",
+    vibe: "tool",
+  },
+  rae: {
+    skin: "#f0c4a5",
+    hair: "#5c4070",
+    coat: "#9b698e",
+    coatDark: "#7d5272",
+    accent: "#f2ddef",
+    trousers: "#5b5067",
+    shoes: "#2f2434",
+    prop: "#f0dfb8",
+    vibe: "tea",
+  },
+  kai: {
+    skin: "#efbf9a",
+    hair: "#c46d49",
+    coat: "#bf9538",
+    coatDark: "#9c772c",
+    accent: "#fee4a8",
+    trousers: "#544936",
+    shoes: "#2f261c",
+    prop: "#6d8ca7",
+    vibe: "tablet",
+  },
 };
 
 const cottageOffsets = {
@@ -941,12 +1043,24 @@ function loadAssets() {
     loadImageAsset(`/static/assets/tilesets/oga_wheatfields_tileset_cc0.png?v=${ASSET_VERSION}`),
     loadImageAsset(`/static/assets/props/oga_crates_and_sacks_cc0.png?v=${ASSET_VERSION}`),
     loadImageAsset(`/static/assets/props/oga_hay_props_cc0.png?v=${ASSET_VERSION}`),
+    loadImageAsset(`/static/assets/tilesets/oga_beach_tileset_ccby4.png?v=${ASSET_VERSION}`, { transparentBlack: true }),
+    loadImageAsset(`/static/assets/tilesets/oga_forest_tileset_ccby4.png?v=${ASSET_VERSION}`, { transparentBlack: true }),
+    loadImageAsset(`/static/assets/tilesets/oga_trees_ccby4.png?v=${ASSET_VERSION}`, { transparentBlack: true }),
+    loadImageAsset(`/static/assets/tilesets/oga_water_frames_ccby4.png?v=${ASSET_VERSION}`, { transparentBlack: true }),
+    loadImageAsset(`/static/assets/labnpcs.png?v=${ASSET_VERSION}`, { transparentBlack: true }),
+    loadImageAsset(`/static/assets/bgtiles.png?v=${ASSET_VERSION}`, { transparentBlack: true }),
   ])
-    .then(([farmTiles, wheatSheet, cratesRow, hayProps]) => {
+    .then(([farmTiles, wheatSheet, cratesRow, hayProps, beachTiles, forestTiles, treesSheet, waterFrames, npcSheet, bgTiles]) => {
       artAssets.farmTiles = farmTiles;
       artAssets.wheatSheet = wheatSheet;
       artAssets.cratesRow = cratesRow;
       artAssets.hayProps = hayProps;
+      artAssets.beachTiles = beachTiles;
+      artAssets.forestTiles = forestTiles;
+      artAssets.treesSheet = treesSheet;
+      artAssets.waterFrames = waterFrames;
+      artAssets.npcSheet = npcSheet;
+      artAssets.bgTiles = bgTiles;
       assetsReady = true;
     })
     .catch((error) => {
@@ -1470,6 +1584,7 @@ function renderHomeCockpit() {
 function renderFiscalPanel() {
   if (!state || !fiscalSummary) return;
   const government = state.government || {};
+  ensureTaxPolicyDraft(government);
   const governmentAssets = (state.properties || []).filter((asset) => asset.owner_type === "government" && asset.status === "owned");
   const todayTaxes = (state.finance_history || [])
     .filter((record) => record.category === "tax" && record.day === state.day)
@@ -1576,17 +1691,79 @@ function renderFiscalPanel() {
     </section>
     </div>
   `;
-  if (wageTaxInput && document.activeElement !== wageTaxInput) wageTaxInput.value = Number(government.wage_tax_rate_pct || 0).toFixed(1);
-  if (securitiesTaxInput && document.activeElement !== securitiesTaxInput) securitiesTaxInput.value = Number(government.securities_tax_rate_pct || 0).toFixed(1);
-  if (propertyTransferTaxInput && document.activeElement !== propertyTransferTaxInput) propertyTransferTaxInput.value = Number(government.property_transfer_tax_rate_pct || 0).toFixed(1);
-  if (propertyHoldingTaxInput && document.activeElement !== propertyHoldingTaxInput) propertyHoldingTaxInput.value = Number(government.property_holding_tax_rate_pct || 0).toFixed(1);
-  if (consumptionTaxInput && document.activeElement !== consumptionTaxInput) consumptionTaxInput.value = Number(government.consumption_tax_rate_pct || 0).toFixed(1);
-  if (luxuryTaxInput && document.activeElement !== luxuryTaxInput) luxuryTaxInput.value = Number(government.luxury_tax_rate_pct || 0).toFixed(1);
-  if (enforcementLevelInput && document.activeElement !== enforcementLevelInput) enforcementLevelInput.value = String(government.enforcement_level || 0);
-  if (welfareThresholdInput && document.activeElement !== welfareThresholdInput) welfareThresholdInput.value = String(government.welfare_low_cash_threshold || 0);
-  if (welfareBaseInput && document.activeElement !== welfareBaseInput) welfareBaseInput.value = String(government.welfare_base_support || 0);
-  if (welfareBankruptcyInput && document.activeElement !== welfareBankruptcyInput) welfareBankruptcyInput.value = String(government.welfare_bankruptcy_support || 0);
-  if (taxPolicyNoteInput && document.activeElement !== taxPolicyNoteInput) taxPolicyNoteInput.value = government.last_policy_note || "";
+  syncTaxPolicyFormInputs();
+}
+
+function taxPolicySnapshot(government = {}) {
+  return {
+    wage_tax_rate_pct: Number(government.wage_tax_rate_pct || 0).toFixed(1),
+    securities_tax_rate_pct: Number(government.securities_tax_rate_pct || 0).toFixed(1),
+    property_transfer_tax_rate_pct: Number(government.property_transfer_tax_rate_pct || 0).toFixed(1),
+    property_holding_tax_rate_pct: Number(government.property_holding_tax_rate_pct || 0).toFixed(1),
+    consumption_tax_rate_pct: Number(government.consumption_tax_rate_pct || 0).toFixed(1),
+    luxury_tax_rate_pct: Number(government.luxury_tax_rate_pct || 0).toFixed(1),
+    enforcement_level: String(government.enforcement_level || 0),
+    welfare_low_cash_threshold: String(government.welfare_low_cash_threshold || 0),
+    welfare_base_support: String(government.welfare_base_support || 0),
+    welfare_bankruptcy_support: String(government.welfare_bankruptcy_support || 0),
+    note: government.last_policy_note || "",
+  };
+}
+
+function ensureTaxPolicyDraft(government = {}) {
+  const snapshot = taxPolicySnapshot(government);
+  if (!taxPolicyDraft) {
+    taxPolicyDraft = { ...snapshot };
+    return;
+  }
+  if (taxPolicyDraftDirty) return;
+  taxPolicyDraft = { ...snapshot };
+}
+
+function syncTaxPolicyFormInputs() {
+  if (!taxPolicyDraft) return;
+  const fields = [
+    [wageTaxInput, taxPolicyDraft.wage_tax_rate_pct],
+    [securitiesTaxInput, taxPolicyDraft.securities_tax_rate_pct],
+    [propertyTransferTaxInput, taxPolicyDraft.property_transfer_tax_rate_pct],
+    [propertyHoldingTaxInput, taxPolicyDraft.property_holding_tax_rate_pct],
+    [consumptionTaxInput, taxPolicyDraft.consumption_tax_rate_pct],
+    [luxuryTaxInput, taxPolicyDraft.luxury_tax_rate_pct],
+    [enforcementLevelInput, taxPolicyDraft.enforcement_level],
+    [welfareThresholdInput, taxPolicyDraft.welfare_low_cash_threshold],
+    [welfareBaseInput, taxPolicyDraft.welfare_base_support],
+    [welfareBankruptcyInput, taxPolicyDraft.welfare_bankruptcy_support],
+    [taxPolicyNoteInput, taxPolicyDraft.note],
+  ];
+  fields.forEach(([input, value]) => {
+    if (!input) return;
+    if (document.activeElement === input) return;
+    input.value = value;
+  });
+}
+
+function bindTaxPolicyDraftInputs() {
+  const bindings = [
+    [wageTaxInput, "wage_tax_rate_pct"],
+    [securitiesTaxInput, "securities_tax_rate_pct"],
+    [propertyTransferTaxInput, "property_transfer_tax_rate_pct"],
+    [propertyHoldingTaxInput, "property_holding_tax_rate_pct"],
+    [consumptionTaxInput, "consumption_tax_rate_pct"],
+    [luxuryTaxInput, "luxury_tax_rate_pct"],
+    [enforcementLevelInput, "enforcement_level"],
+    [welfareThresholdInput, "welfare_low_cash_threshold"],
+    [welfareBaseInput, "welfare_base_support"],
+    [welfareBankruptcyInput, "welfare_bankruptcy_support"],
+    [taxPolicyNoteInput, "note"],
+  ];
+  bindings.forEach(([input, key]) => {
+    if (!input) return;
+    input.addEventListener("input", () => {
+      if (!taxPolicyDraft) taxPolicyDraft = taxPolicySnapshot(state?.government || {});
+      taxPolicyDraftDirty = true;
+      taxPolicyDraft[key] = input.value;
+    });
+  });
 }
 
 function drawAnalysisChart(ctx2d, canvasEl, seriesList, meta = {}) {
@@ -2492,27 +2669,29 @@ function renderTasks() {
 function renderMarketChart() {
   if (!state || !marketCtx) return;
   const dailyCandles = state.market?.daily_index_history || [];
+  const monthlyCandles = aggregateCandlesBySpan(dailyCandles, 30);
+  const yearlyCandles = aggregateCandlesBySpan(dailyCandles, 365);
   const candles =
     marketViewMode === "daily"
-      ? dailyCandles.slice(-20)
+      ? dailyCandles.slice(-31)
       : marketViewMode === "monthly"
-        ? aggregateCandlesBySpan(dailyCandles, 30).slice(-18)
+        ? monthlyCandles.slice(-12)
         : marketViewMode === "yearly"
-          ? aggregateCandlesBySpan(dailyCandles, 365).slice(-12)
-          : (state.market?.index_history || []).slice(-32);
+          ? yearlyCandles
+          : (state.market?.index_history || []).slice(-24);
   marketCtx.clearRect(0, 0, marketCanvas.width, marketCanvas.height);
   marketCtx.fillStyle = "#f7f2df";
   marketCtx.fillRect(0, 0, marketCanvas.width, marketCanvas.height);
   if (!candles.length) {
     if (marketMeta) {
       marketMeta.textContent =
-        marketViewMode === "daily"
-          ? "正在等待足够的日线数据。"
-          : marketViewMode === "monthly"
-            ? "至少累计 30 天后，月K会更有参考性。"
-            : marketViewMode === "yearly"
+      marketViewMode === "daily"
+        ? "正在等待足够的日线数据。"
+        : marketViewMode === "monthly"
+          ? "至少累计 30 天后，月K会更有参考性。"
+          : marketViewMode === "yearly"
               ? "至少累计 365 天后，年K会更有参考性。"
-              : "正在等待今天的第一笔盘中波动。";
+              : "正在等待最近 24 小时内的第一批盘中波动。";
     }
     return;
   }
@@ -2546,12 +2725,12 @@ function renderMarketChart() {
   marketCtx.font = "12px PingFang SC";
   const chartTitle =
     marketViewMode === "daily"
-      ? "Pixel Exchange 日线指数"
+      ? "Pixel Exchange 近 31 日日K"
       : marketViewMode === "monthly"
-        ? "Pixel Exchange 月线指数"
+        ? "Pixel Exchange 近 12 个月K"
         : marketViewMode === "yearly"
-          ? "Pixel Exchange 年线指数"
-          : "Pixel Exchange 盘中指数";
+          ? "Pixel Exchange 全部年份年K"
+          : "Pixel Exchange 近 24 小时时K";
   marketCtx.fillText(chartTitle, pad.left, 14);
   const candleWidth = Math.max(7, Math.min(16, width / Math.max(1, candles.length * 1.85)));
   const labelEvery = Math.max(1, Math.ceil(candles.length / 6));
@@ -2579,7 +2758,7 @@ function renderMarketChart() {
             ? `M${Math.floor((Math.max(1, candle.day) - 1) / 30) + 1}`
             : marketViewMode === "yearly"
               ? `Y${Math.floor((Math.max(1, candle.day) - 1) / 365) + 1}`
-              : `T${index + 1}`;
+              : `H${index + 1}`;
       marketCtx.fillText(bucketLabel, x - candleWidth / 2, marketCanvas.height - 10);
     }
   });
@@ -2588,11 +2767,11 @@ function renderMarketChart() {
   marketCtx.fillText(`${maxPrice.toFixed(1)}`, 8, pad.top + 6);
   const anchorLabel =
     marketViewMode === "intraday"
-      ? "昨收参考"
+      ? "24h 参考"
       : marketViewMode === "daily"
-        ? "首日参考"
+        ? "31日窗起点"
         : marketViewMode === "monthly"
-          ? "首月参考"
+          ? "12月窗起点"
           : "首年参考";
   marketCtx.fillText(`${anchorLabel} ${openAnchor.toFixed(2)}`, pad.left + 8, baselineY - 8);
   const latest = candles[candles.length - 1];
@@ -2600,12 +2779,12 @@ function renderMarketChart() {
   if (marketMeta) {
     marketMeta.textContent =
       marketViewMode === "daily"
-        ? `近 ${candles.length} 天 · ${marketRegimeLabels[state.market?.regime] || state.market?.regime || "牛市"} · 当前主线 ${state.market?.rotation_leader || "GEO"} · 已持续 ${state.market?.rotation_age ?? 1} 天 · 指数 ${latest.close.toFixed(2)} · 相对首日 ${intradayPct >= 0 ? "+" : ""}${intradayPct.toFixed(2)}% · 波动 ${Number(state.market?.realized_volatility_pct || 0).toFixed(2)}%`
+        ? `近 ${candles.length} 天（最多 31 天）· ${marketRegimeLabels[state.market?.regime] || state.market?.regime || "牛市"} · 当前主线 ${state.market?.rotation_leader || "GEO"} · 已持续 ${state.market?.rotation_age ?? 1} 天 · 指数 ${latest.close.toFixed(2)} · 相对窗口起点 ${intradayPct >= 0 ? "+" : ""}${intradayPct.toFixed(2)}% · 波动 ${Number(state.market?.realized_volatility_pct || 0).toFixed(2)}%`
         : marketViewMode === "monthly"
-          ? `近 ${candles.length} 个月 · ${marketRegimeLabels[state.market?.regime] || state.market?.regime || "牛市"} · 当前主线 ${state.market?.rotation_leader || "GEO"} · 指数 ${latest.close.toFixed(2)} · 相对首月 ${intradayPct >= 0 ? "+" : ""}${intradayPct.toFixed(2)}%`
+          ? `近 ${candles.length} 个月（最多 12 个月）· ${marketRegimeLabels[state.market?.regime] || state.market?.regime || "牛市"} · 当前主线 ${state.market?.rotation_leader || "GEO"} · 指数 ${latest.close.toFixed(2)} · 相对窗口起点 ${intradayPct >= 0 ? "+" : ""}${intradayPct.toFixed(2)}%`
           : marketViewMode === "yearly"
-            ? `近 ${candles.length} 年 · ${marketRegimeLabels[state.market?.regime] || state.market?.regime || "牛市"} · 当前主线 ${state.market?.rotation_leader || "GEO"} · 指数 ${latest.close.toFixed(2)} · 相对首年 ${intradayPct >= 0 ? "+" : ""}${intradayPct.toFixed(2)}%`
-            : `第 ${latest.day} 天盘中 · ${marketRegimeLabels[state.market?.regime] || state.market?.regime || "牛市"} · 当前主线 ${state.market?.rotation_leader || "GEO"} · ${candles.length} 个实时点位 · 指数 ${latest.close.toFixed(2)} · ${intradayPct >= 0 ? "+" : ""}${intradayPct.toFixed(2)}% · 换手 ${Number(state.market?.turnover_ratio_pct || 0).toFixed(2)}%`;
+            ? `全部 ${candles.length} 个年度桶 · ${marketRegimeLabels[state.market?.regime] || state.market?.regime || "牛市"} · 当前主线 ${state.market?.rotation_leader || "GEO"} · 指数 ${latest.close.toFixed(2)} · 相对首年 ${intradayPct >= 0 ? "+" : ""}${intradayPct.toFixed(2)}%`
+            : `近 ${candles.length} 个小时点位（最多 24）· ${marketRegimeLabels[state.market?.regime] || state.market?.regime || "牛市"} · 当前主线 ${state.market?.rotation_leader || "GEO"} · 指数 ${latest.close.toFixed(2)} · ${intradayPct >= 0 ? "+" : ""}${intradayPct.toFixed(2)}% · 换手 ${Number(state.market?.turnover_ratio_pct || 0).toFixed(2)}%`;
   }
 }
 
@@ -3360,6 +3539,7 @@ function renderRelationMatrix() {
 function drawWorld(now) {
   if (!state || !assetsReady) return;
   const camera = getCamera();
+  foregroundNature = [];
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.save();
   ctx.scale(camera.zoom, camera.zoom);
@@ -3371,7 +3551,9 @@ function drawWorld(now) {
   drawTourismFacilities(now);
   drawCottages(now);
   drawPropertyAssets(now);
+  drawSceneReactions(now);
   drawCharacters(now);
+  drawForegroundNature(now);
   drawBubbles();
   ctx.restore();
   drawMiniMap(camera);
@@ -3416,42 +3598,49 @@ function drawBackground(now) {
   ctx.fillRect(0, 0, worldWidthPx, worldHeightPx);
 
   drawSkyDetails(now, worldWidthPx);
+  drawGlobalTerrainBase(now);
 
+  flowerPatches.forEach((patch) => drawFlowerPatch(patch, now));
+  paths.forEach((path) => drawPath(path));
+}
+
+function drawGlobalTerrainBase(now) {
+  const worldWidthPx = state.world_width * tile;
+  const worldHeightPx = state.world_height * tile;
+  ctx.fillStyle = "#7ca764";
+  ctx.fillRect(0, 0, worldWidthPx, worldHeightPx);
   for (let x = 0; x < state.world_width; x += 1) {
     for (let y = 0; y < state.world_height; y += 1) {
       const px = x * tile;
       const py = y * tile;
-      const sway = Math.sin(now / 900 + x * 0.7 + y * 0.35);
-      const tint = (x * 11 + y * 7) % 3;
-      const grass = ["#7faa62", "#77a15d", "#88b168"][tint];
-      const darkGrass = ["#6e9557", "#678b53", "#769c5f"][tint];
+      const tint = (x * 13 + y * 9) % 4;
+      const grass = ["#8ab36e", "#84ad68", "#7ba261", "#91b873"][tint];
       ctx.fillStyle = grass;
       ctx.fillRect(px, py, tile, tile);
-      ctx.fillStyle = darkGrass;
-      ctx.fillRect(px + 4, py + 33, tile - 8, 3);
-      ctx.fillStyle = "rgba(255,255,255,0.05)";
-      ctx.fillRect(px + 5 + ((x + y) % 3), py + 8 + sway, 3, 10);
-      ctx.fillRect(px + 20 + sway * 0.5, py + 4 + ((x * 3 + y) % 8), 2, 8);
-      ctx.fillRect(px + 34 - sway * 0.4, py + 15 + ((x + y * 2) % 6), 2, 7);
-      if (tileNoise(x, y, 2) > 0.76) {
-        drawPixelCluster(px, py, "rgba(244, 231, 170, 0.4)", [
-          [10, 14, 2, 2],
-          [13, 11, 2, 2],
-          [16, 15, 2, 2],
+      if (artAssets.bgTiles) {
+        const tx = 128 + ((x + y) % 2) * 64;
+        const ty = 0;
+        drawTiledPatch(artAssets.bgTiles, tx, ty, 64, 64, px, py, tile, tile, 0.18);
+      }
+      if (artAssets.forestTiles) {
+        const fx = ((x + y) % 2) * 16;
+        const fy = 144 + (((x * 3 + y) % 4) * 16);
+        drawAssetSprite(artAssets.forestTiles, fx, fy, 16, 16, px, py, tile, tile, 0.16);
+      }
+      if (tileNoise(x, y, 4) > 0.82) {
+        drawPixelCluster(px, py, "rgba(234, 221, 160, 0.28)", [
+          [10, 16, 2, 2],
+          [16, 12, 2, 2],
+          [20, 19, 2, 2],
         ]);
       }
-      if (tileNoise(x, y, 5) > 0.7) {
-        drawPixelCluster(px, py, "rgba(96, 133, 67, 0.44)", [
-          [28, 28, 4, 2],
-          [30, 25, 2, 3],
-          [25, 27, 3, 2],
-        ]);
+      if (tileNoise(x, y, 7) > 0.84) {
+        ctx.fillStyle = "rgba(255,255,255,0.08)";
+        ctx.fillRect(px + 6, py + 8, 4, 10);
+        ctx.fillRect(px + 24, py + 10, 3, 8);
       }
     }
   }
-
-  flowerPatches.forEach((patch) => drawFlowerPatch(patch, now));
-  paths.forEach((path) => drawPath(path));
 }
 
 function drawRooms(now) {
@@ -3460,15 +3649,15 @@ function drawRooms(now) {
     const py = room.y * tile;
     drawTerrainZone(room, now);
 
-    ctx.strokeStyle = "rgba(69, 57, 38, 0.45)";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(px + 4, py + 4, room.w * tile - 8, room.h * tile - 8);
+    ctx.strokeStyle = "rgba(69, 57, 38, 0.16)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(px + 6, py + 6, room.w * tile - 12, room.h * tile - 12);
 
-    ctx.fillStyle = "rgba(74, 55, 34, 0.64)";
-    roundRect(px + 12, py + 10, 126, 28, 8, true);
+    ctx.fillStyle = "rgba(74, 55, 34, 0.46)";
+    roundRect(px + 14, py + 12, 118, 22, 7, true);
     ctx.fillStyle = "#fff7e2";
-    ctx.font = '16px "PingFang SC", sans-serif';
-    ctx.fillText(roomNames[room.key], px + 20, py + 29);
+    ctx.font = '14px "PingFang SC", sans-serif';
+    ctx.fillText(roomNames[room.key], px + 20, py + 27);
   });
 }
 
@@ -3480,19 +3669,50 @@ function drawAssetSprite(image, sx, sy, sw, sh, dx, dy, dw, dh, alpha = 1) {
   ctx.restore();
 }
 
+function drawTiledPatch(image, sx, sy, sw, sh, dx, dy, dw, dh, alpha = 1) {
+  if (!image) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  for (let x = dx; x < dx + dw; x += Math.max(16, sw)) {
+    for (let y = dy; y < dy + dh; y += Math.max(16, sh)) {
+      const width = Math.min(sw, dx + dw - x);
+      const height = Math.min(sh, dy + dh - y);
+      ctx.drawImage(image, sx, sy, width, height, x, y, width, height);
+    }
+  }
+  ctx.restore();
+}
+
+function drawAnimatedWaterStrip(x, y, width, height, now, alpha = 1) {
+  const frame = Math.floor(now / 180) % animatedWaterTiles;
+  if (artAssets.waterFrames) {
+    const sx = frame * 128;
+    drawAssetSprite(artAssets.waterFrames, sx, 0, 128, 176, x, y, width, height, alpha);
+    return;
+  }
+  const waterGradient = ctx.createLinearGradient(x, y, x, y + height);
+  waterGradient.addColorStop(0, "#8dd6de");
+  waterGradient.addColorStop(0.45, "#5ea9c6");
+  waterGradient.addColorStop(1, "#2f6894");
+  ctx.fillStyle = waterGradient;
+  ctx.fillRect(x, y, width, height);
+}
+
 function drawDecorations(now) {
   obstacles.forEach((obstacle) => drawObstacle(obstacle, now));
   drawDownloadedScenery(now);
   drawFenceLine(8, 2, 8, 24);
   drawFenceLine(28, 2, 28, 10);
   drawFenceLine(25, 12, 25, 24);
-  for (let x = 0; x < state.world_width * tile; x += tile) {
-    for (let y = 0; y < state.world_height * tile; y += tile) {
-      ctx.strokeStyle = "rgba(59, 47, 34, 0.05)";
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x, y, tile, tile);
-    }
-  }
+  drawScenicTreeAnchors(now);
+}
+
+function drawScenicTreeAnchors(now) {
+  scenicTreeAnchors.forEach((tree, index) => {
+    const centerX = Math.round((tree.x - 1) * tile + tile / 2);
+    const centerY = Math.round((tree.y - 1) * tile + tile / 2 + 8);
+    drawTree(centerX, centerY, now, tree.variant ?? (index % 4), tree.scale || 0.9);
+  });
 }
 
 function drawDownloadedScenery(now) {
@@ -3559,6 +3779,191 @@ function drawDownloadedScenery(now) {
   }
 }
 
+function latestWorldSignalText() {
+  const eventTitles = (state?.events || []).slice(0, 3).map((event) => `${event.title} ${event.summary}`);
+  const briefingText = ((state?.daily_briefings?.[0]?.entries || []).slice(0, 4).map((entry) => `${entry.title || ""} ${entry.summary || ""}`));
+  return [...eventTitles, ...briefingText, state?.tourism?.latest_signal || ""].join(" ");
+}
+
+function latestRecentEventText(limit = 6) {
+  return ((state?.event_history || state?.events || []).slice(0, limit).map((event) => `${event.title || ""} ${event.summary || ""}`)).join(" ");
+}
+
+function getSceneReactionState() {
+  const text = `${latestWorldSignalText()} ${latestRecentEventText(8)}`;
+  const timeSlot = state?.time_slot || "morning";
+  return {
+    researchHot: /GeoAI|研究|空间智能|推理|样本|训练|基线|里程碑|工坊/.test(text),
+    tourismHot: /游客|旅馆|集市|文旅|消费|回头客|高消费/.test(text),
+    housingInterest: /看房|购房|住房|公共住房|租住|地产/.test(text),
+    marketBusy: /市场|股票|买入|卖出|借贷|银行|财政|大盘/.test(text),
+    festivalMode: timeSlot === "evening" && /夜市|节庆|展演|活动日|热闹/.test(text),
+    regulationWave: /监管|抽查|税|财政|政府/.test(text),
+  };
+}
+
+function signalIntensity(kind) {
+  const text = latestWorldSignalText();
+  if (!text) return 0;
+  const patterns = {
+    research: /GeoAI|研究|空间智能|推理|样本|训练|突破|里程碑/,
+    tourism: /游客|旅馆|集市|夜市|消费|文旅|看房/,
+    market: /市场|股票|大盘|买入|卖出|借贷|银行|贷款|财政/,
+    government: /政府|监管|税|保障|财政|公共服务/,
+  };
+  const match = patterns[kind];
+  if (!match) return 0;
+  return match.test(text) ? 1 : 0;
+}
+
+function drawBuildingShadow(x, y, width, height, alpha = 0.18) {
+  ctx.fillStyle = `rgba(34, 25, 20, ${alpha})`;
+  ctx.beginPath();
+  ctx.ellipse(x + width / 2 + 4, y + height + 6, width * 0.52, Math.max(8, height * 0.16), 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawSignPill(x, y, width, text, fill = "#f0d39a", ink = "#4f3827") {
+  ctx.fillStyle = fill;
+  roundRect(x, y, width, 14, 5, true);
+  ctx.fillStyle = ink;
+  ctx.font = '10px "PingFang SC", sans-serif';
+  ctx.fillText(text, x + 6, y + 10);
+}
+
+function drawDetailedBuilding(x, y, width, height, options = {}) {
+  const {
+    wall = "#cdb28d",
+    wallShade = "#a88363",
+    roof = "#805840",
+    roofShade = "#684430",
+    trim = "#f5ecd8",
+    door = "#604330",
+    signText = "",
+    signFill = "#f0d39a",
+    pulseKind = "",
+    windowRows = 1,
+    windowCols = 2,
+    bodyTexture = true,
+  } = options;
+  drawBuildingShadow(x, y, width, height);
+  const pulse = pulseKind ? signalIntensity(pulseKind) : 0;
+  if (pulse) {
+    ctx.fillStyle = pulseKind === "research" ? "rgba(111, 149, 225, 0.16)"
+      : pulseKind === "tourism" ? "rgba(104, 197, 172, 0.18)"
+      : pulseKind === "market" ? "rgba(232, 173, 101, 0.14)"
+      : "rgba(197, 182, 112, 0.14)";
+    roundRect(x - 6, y - 4, width + 12, height + 10, 10, true);
+  }
+
+  ctx.fillStyle = wallShade;
+  roundRect(x, y + 14, width, height - 14, 6, true);
+  ctx.fillStyle = wall;
+  roundRect(x + 2, y + 16, width - 4, height - 16, 6, true);
+  if (bodyTexture && artAssets.bgTiles) {
+    drawTiledPatch(artAssets.bgTiles, 0, 128, 64, 64, x + 2, y + 16, width - 4, height - 16, 0.12);
+  }
+
+  ctx.fillStyle = roofShade;
+  ctx.beginPath();
+  ctx.moveTo(x - 4, y + 18);
+  ctx.lineTo(x + width / 2, y);
+  ctx.lineTo(x + width + 4, y + 18);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = roof;
+  ctx.beginPath();
+  ctx.moveTo(x - 1, y + 18);
+  ctx.lineTo(x + width / 2, y + 4);
+  ctx.lineTo(x + width + 1, y + 18);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.14)";
+  ctx.fillRect(x + 8, y + 12, width - 16, 3);
+
+  const windowWidth = 7;
+  const windowHeight = 8;
+  const usableWidth = width - 18;
+  const gapX = windowCols > 1 ? usableWidth / (windowCols - 1) : 0;
+  for (let row = 0; row < windowRows; row += 1) {
+    for (let col = 0; col < windowCols; col += 1) {
+      const wx = Math.round(x + 9 + gapX * col - windowWidth / 2);
+      const wy = y + 22 + row * 12;
+      ctx.fillStyle = trim;
+      ctx.fillRect(wx - 1, wy - 1, windowWidth + 2, windowHeight + 2);
+      ctx.fillStyle = pulse ? "#ffeab8" : "#dce8f0";
+      ctx.fillRect(wx, wy, windowWidth, windowHeight);
+    }
+  }
+
+  ctx.fillStyle = door;
+  ctx.fillRect(Math.round(x + width / 2 - 5), y + height - 13, 10, 13);
+  ctx.fillStyle = "rgba(255,255,255,0.16)";
+  ctx.fillRect(Math.round(x + width / 2 - 4), y + height - 12, 3, 4);
+  ctx.fillStyle = wallShade;
+  ctx.fillRect(x + 4, y + height - 4, width - 8, 3);
+
+  if (signText) {
+    const signWidth = Math.max(34, Math.min(76, ctx.measureText(signText).width + 12));
+    drawSignPill(Math.round(x + width / 2 - signWidth / 2), y - 12, signWidth, signText, signFill);
+  }
+}
+
+function drawLanternString(x, y, count, spacing = 20) {
+  ctx.strokeStyle = "rgba(98, 70, 51, 0.64)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.quadraticCurveTo(x + (count * spacing) / 2, y + 8, x + count * spacing, y);
+  ctx.stroke();
+  for (let index = 0; index <= count; index += 1) {
+    const lx = x + index * spacing;
+    const ly = y + Math.sin(index * 0.7) * 3;
+    ctx.fillStyle = "#f6cf7a";
+    roundRect(lx - 4, ly + 1, 8, 10, 3, true);
+    ctx.fillStyle = "rgba(255, 230, 160, 0.22)";
+    ctx.beginPath();
+    ctx.ellipse(lx, ly + 8, 9, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawCrowdCluster(x, y, count, palette = ["#6d7bb3", "#b97f4e", "#7ba467"]) {
+  for (let index = 0; index < count; index += 1) {
+    const dx = (index % 4) * 8 + (index % 2 ? 2 : -2);
+    const dy = Math.floor(index / 4) * 9;
+    const color = palette[index % palette.length];
+    ctx.fillStyle = "rgba(39, 29, 24, 0.18)";
+    ctx.beginPath();
+    ctx.ellipse(x + dx, y + dy + 9, 5, 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = color;
+    ctx.fillRect(x + dx - 3, y + dy + 2, 6, 8);
+    ctx.fillStyle = "#efc8a4";
+    ctx.fillRect(x + dx - 2, y + dy - 1, 4, 4);
+  }
+}
+
+function drawFootprintTrail(x, y, steps, direction = 1) {
+  for (let index = 0; index < steps; index += 1) {
+    const dx = index * 10 * direction;
+    const dy = Math.sin(index) * 2;
+    ctx.fillStyle = "rgba(117, 102, 82, 0.22)";
+    ctx.fillRect(x + dx, y + dy, 3, 5);
+    ctx.fillRect(x + dx + 4, y + dy + 2, 3, 5);
+  }
+}
+
+function drawSparkPulse(x, y, radius, fill) {
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.34)";
+  ctx.fillRect(x - 1, y - radius + 1, 2, radius * 2 - 2);
+  ctx.fillRect(x - radius + 1, y - 1, radius * 2 - 2, 2);
+}
+
 function drawCottages(now) {
   state.agents.forEach((agent) => {
     if (!agent.home_position) return;
@@ -3572,28 +3977,19 @@ function drawCottage(x, y, agent, now) {
   const visual = agentVisuals[agent.id] || agentVisuals.player;
   const glow = agent.is_resting ? 0.1 + (Math.sin(now / 420) + 1) * 0.06 : 0;
   ctx.fillStyle = `rgba(255, 235, 180, ${glow})`;
-  ctx.fillRect(x - 4, y - 3, 44, 40);
-  ctx.fillStyle = "#8f6545";
-  ctx.fillRect(x, y + 12, 34, 20);
-  ctx.fillStyle = "#c79b73";
-  ctx.fillRect(x + 2, y + 14, 30, 17);
-  ctx.fillStyle = "rgba(255,255,255,0.16)";
-  ctx.fillRect(x + 4, y + 15, 24, 3);
-  ctx.fillStyle = "#6f4f35";
-  ctx.beginPath();
-  ctx.moveTo(x - 2, y + 13);
-  ctx.lineTo(x + 17, y - 1);
-  ctx.lineTo(x + 36, y + 13);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = "#8d5b3f";
-  ctx.fillRect(x + 3, y + 10, 28, 3);
-  ctx.fillStyle = "#f7ead2";
-  ctx.fillRect(x + 6, y + 18, 6, 6);
-  ctx.fillRect(x + 22, y + 18, 6, 6);
-  ctx.fillStyle = shadeColor(visual.coat, -14);
-  ctx.fillRect(x + 13, y + 20, 8, 11);
-  ctx.fillRect(x + 15, y + 7, 5, 5);
+  roundRect(x - 6, y - 4, 46, 40, 10, true);
+  drawDetailedBuilding(x, y + 2, 34, 28, {
+    wall: "#d1b28e",
+    wallShade: "#9f7959",
+    roof: shadeColor(visual.coat, -22),
+    roofShade: shadeColor(visual.coat, -38),
+    trim: "#f6ead2",
+    door: "#6a4d35",
+    signText: agent.name.slice(0, 2),
+    signFill: shadeColor(visual.accent, 16),
+    pulseKind: agent.is_resting ? "" : "social",
+    windowCols: 2,
+  });
   ctx.fillStyle = "#5d8745";
   ctx.fillRect(x + 4, y + 31, 27, 2);
   ctx.fillRect(x + 5, y + 29, 4, 2);
@@ -3609,41 +4005,45 @@ function drawCottage(x, y, agent, now) {
 function drawCompanyHub(now) {
   if (!state?.company?.position) return;
   const point = gridToPixels(state.company.position);
-  const sway = Math.sin(now / 480) * 1.2;
   const x = point.x - 24;
-  const y = point.y - 30;
-  ctx.fillStyle = "rgba(255, 227, 168, 0.18)";
-  ctx.beginPath();
-  ctx.ellipse(point.x, point.y + 14, 34, 14, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#74665a";
-  ctx.fillRect(x + 2, y + 14, 44, 24);
-  ctx.fillStyle = "#918173";
-  ctx.fillRect(x + 4, y + 16, 40, 20);
-  ctx.fillStyle = "#56483b";
-  ctx.beginPath();
-  ctx.moveTo(x - 2, y + 16);
-  ctx.lineTo(x + 24, y + 1 + sway);
-  ctx.lineTo(x + 50, y + 16);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = "#eadfca";
-  ctx.fillRect(x + 10, y + 21, 7, 7);
-  ctx.fillRect(x + 31, y + 21, 7, 7);
-  ctx.fillStyle = "#3f342c";
-  ctx.fillRect(x + 22, y + 23, 6, 13);
+  const y = point.y - 34;
+  drawDetailedBuilding(x, y, 48, 36, {
+    wall: "#9d9589",
+    wallShade: "#6b6258",
+    roof: "#4d4037",
+    roofShade: "#39302a",
+    trim: "#ebe3d0",
+    door: "#3f342c",
+    signText: "石径工坊",
+    signFill: "#d8b96f",
+    pulseKind: "research",
+    windowRows: 1,
+    windowCols: 2,
+  });
+  ctx.fillStyle = "#4e4137";
+  ctx.fillRect(x + 38, y + 8, 6, 12);
+  ctx.fillStyle = "rgba(236, 232, 224, 0.35)";
+  ctx.fillRect(x + 39, y + 5, 4, 4);
+  for (let index = 0; index < 3; index += 1) {
+    const puffY = y + 2 - index * 7 + Math.sin(now / 300 + index) * 1.5;
+    ctx.fillStyle = `rgba(226, 230, 232, ${0.2 - index * 0.04})`;
+    ctx.beginPath();
+    ctx.arc(x + 42 + index * 2, puffY, 5 + index, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = "#7b6f63";
+  ctx.fillRect(x + 6, y + 31, 10, 4);
+  ctx.fillRect(x + 18, y + 31, 10, 4);
   ctx.fillStyle = "#d8b96f";
-  roundRect(x + 6, y - 12, 54, 14, 5, true);
-  ctx.fillStyle = "#4f3d2a";
-  ctx.font = '10px "PingFang SC", sans-serif';
-  ctx.fillText("青松数据服务", x + 10, y - 2);
+  ctx.fillRect(x + 8, y + 29, 6, 2);
+  ctx.fillRect(x + 20, y + 29, 6, 2);
   ctx.fillStyle = "#e0c26a";
-  ctx.fillRect(point.x + 20, y + 8, 4, 18);
+  ctx.fillRect(point.x + 20, y + 12, 4, 18);
   ctx.fillStyle = "#f7efcf";
   ctx.beginPath();
-  ctx.moveTo(point.x + 24, y + 8);
-  ctx.lineTo(point.x + 38, y + 13);
-  ctx.lineTo(point.x + 24, y + 18);
+  ctx.moveTo(point.x + 24, y + 12);
+  ctx.lineTo(point.x + 38, y + 17);
+  ctx.lineTo(point.x + 24, y + 22);
   ctx.closePath();
   ctx.fill();
 }
@@ -3659,32 +4059,37 @@ function drawTourismFacilities(now) {
 function drawTouristInn(x, y, now) {
   const warm = 0.12 + (Math.sin(now / 380) + 1) * 0.05;
   ctx.fillStyle = `rgba(255, 231, 170, ${warm})`;
-  ctx.fillRect(x - 5, y + 10, 58, 38);
-  ctx.fillStyle = "#8e6b4b";
-  ctx.fillRect(x, y + 16, 48, 28);
-  ctx.fillStyle = "#ccb08a";
-  ctx.fillRect(x + 3, y + 18, 42, 24);
-  ctx.fillStyle = "#714a35";
-  ctx.beginPath();
-  ctx.moveTo(x - 3, y + 18);
-  ctx.lineTo(x + 24, y + 1);
-  ctx.lineTo(x + 51, y + 18);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = "#f8edd5";
-  ctx.fillRect(x + 8, y + 24, 7, 8);
-  ctx.fillRect(x + 34, y + 24, 7, 8);
-  ctx.fillStyle = "#5a4230";
-  ctx.fillRect(x + 21, y + 28, 8, 14);
-  ctx.fillStyle = "#e5c77e";
-  roundRect(x + 4, y - 10, 54, 14, 5, true);
-  ctx.fillStyle = "#4c3826";
-  ctx.font = '10px "PingFang SC", sans-serif';
-  ctx.fillText("湖畔旅馆", x + 10, y);
+  roundRect(x - 7, y + 8, 62, 42, 12, true);
+  drawDetailedBuilding(x, y + 4, 50, 36, {
+    wall: "#d5b68e",
+    wallShade: "#9d7754",
+    roof: "#8d6042",
+    roofShade: "#6d4731",
+    trim: "#f8edd5",
+    door: "#604330",
+    signText: "湖畔旅馆",
+    signFill: "#f2d8a0",
+    pulseKind: "tourism",
+    windowRows: 1,
+    windowCols: 3,
+  });
+  ctx.fillStyle = "#8f6541";
+  ctx.fillRect(x + 8, y + 16, 34, 3);
+  ctx.fillStyle = "rgba(255,255,255,0.22)";
+  ctx.fillRect(x + 10, y + 17, 12, 1);
+  ctx.fillStyle = "#d7c4a3";
+  ctx.fillRect(x + 12, y + 27, 26, 2);
+  ctx.fillStyle = "#6f5844";
+  ctx.fillRect(x + 12, y + 28, 2, 6);
+  ctx.fillRect(x + 36, y + 28, 2, 6);
+  ctx.fillStyle = "#5d8745";
+  ctx.fillRect(x + 4, y + 37, 8, 4);
+  ctx.fillRect(x + 42, y + 36, 9, 4);
 }
 
 function drawTouristMarket(x, y, now) {
   const sway = Math.sin(now / 320) * 2;
+  drawBuildingShadow(x + 4, y + 16, 50, 24, 0.14);
   ctx.fillStyle = "#76523b";
   ctx.fillRect(x + 4, y + 20, 50, 24);
   ctx.fillStyle = "#d0b98c";
@@ -3708,11 +4113,20 @@ function drawTouristMarket(x, y, now) {
   ctx.fillRect(x + 24, y + 29, 9, 6);
   ctx.fillStyle = "#85a75d";
   ctx.fillRect(x + 36, y + 27, 9, 7);
-  ctx.fillStyle = "#f7e8c8";
-  roundRect(x + 2, y - 10, 58, 14, 5, true);
-  ctx.fillStyle = "#4c3826";
-  ctx.font = '10px "PingFang SC", sans-serif';
-  ctx.fillText("林间集市", x + 8, y);
+  drawSignPill(x + 2, y - 10, 58, "林间集市", "#f7e8c8");
+  if (signalIntensity("tourism")) {
+    ctx.fillStyle = "rgba(108, 194, 166, 0.18)";
+    roundRect(x - 4, y + 14, 62, 34, 8, true);
+  }
+  ctx.fillStyle = "#715138";
+  ctx.fillRect(x + 8, y + 42, 3, 9);
+  ctx.fillRect(x + 44, y + 42, 3, 9);
+  ctx.fillStyle = "#d2b180";
+  ctx.fillRect(x + 12, y + 31, 8, 5);
+  ctx.fillStyle = "#9f6749";
+  ctx.fillRect(x + 24, y + 31, 8, 5);
+  ctx.fillStyle = "#84a76b";
+  ctx.fillRect(x + 36, y + 31, 8, 5);
 }
 
 function propertyOwnerColor(asset) {
@@ -3751,35 +4165,31 @@ function drawPropertyAssets(now) {
         ctx.setLineDash([]);
       }
     } else {
-      const bodyWidth = Math.max(24, Math.round(width * 0.5));
-      const bodyHeight = Math.max(18, Math.round(height * 0.38));
+      const bodyWidth = Math.max(28, Math.round(width * 0.54));
+      const bodyHeight = Math.max(22, Math.round(height * 0.42));
       const bodyX = Math.round(px + (width - bodyWidth) / 2);
       const bodyY = Math.round(py + height - bodyHeight - 16);
-      const roofY = bodyY - 10;
-      ctx.fillStyle = shadeColor(ownerColor, -18);
-      ctx.fillRect(bodyX, bodyY, bodyWidth, bodyHeight);
-      ctx.fillStyle = ownerColor;
-      ctx.fillRect(bodyX + 2, bodyY + 2, bodyWidth - 4, bodyHeight - 4);
-      ctx.fillStyle = "#74533a";
-      ctx.beginPath();
-      ctx.moveTo(bodyX - 3, bodyY + 2);
-      ctx.lineTo(bodyX + bodyWidth / 2, roofY);
-      ctx.lineTo(bodyX + bodyWidth + 3, bodyY + 2);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = "#f6ebd6";
-      ctx.fillRect(bodyX + 5, bodyY + 6, 5, 6);
-      ctx.fillRect(bodyX + bodyWidth - 10, bodyY + 6, 5, 6);
+      const facilityKindLabel = ({
+        public_housing: "公住",
+        night_market_stall: "夜市",
+        visitor_service_station: "服务",
+      })[asset.facility_kind] || "";
+      drawDetailedBuilding(bodyX, bodyY - 4, bodyWidth, bodyHeight + 4, {
+        wall: asset.owner_type === "government" ? "#8fc3b8" : shadeColor(ownerColor, 28),
+        wallShade: asset.owner_type === "government" ? "#5e8f87" : shadeColor(ownerColor, -10),
+        roof: asset.owner_type === "government" ? "#538c83" : shadeColor(ownerColor, -18),
+        roofShade: asset.owner_type === "government" ? "#3e6e66" : shadeColor(ownerColor, -34),
+        trim: "#f6ebd6",
+        door: "#6b4b34",
+        signText: asset.owner_type === "government" ? (facilityKindLabel || "公产") : asset.name.slice(0, 4),
+        signFill: asset.owner_type === "government" ? "#dff5ee" : "#f2e1bf",
+        pulseKind: asset.owner_type === "government" ? "government" : asset.property_type === "shop" ? "tourism" : "market",
+        windowRows: 1,
+        windowCols: bodyWidth >= 44 ? 3 : 2,
+      });
       if (asset.property_type === "shop") {
         ctx.fillStyle = "#f4d48a";
-        ctx.fillRect(bodyX + 3, bodyY - 3, bodyWidth - 6, 3);
-      }
-      if (asset.property_type === "rental_house") {
-        ctx.fillStyle = "#d5c6a6";
-        ctx.fillRect(bodyX + bodyWidth / 2 - 3, bodyY + 8, 6, 9);
-      } else {
-        ctx.fillStyle = "#d5c6a6";
-        ctx.fillRect(bodyX + bodyWidth / 2 - 2, bodyY + 8, 4, 8);
+        ctx.fillRect(bodyX + 5, bodyY + 11, bodyWidth - 10, 3);
       }
     }
     if (asset.owner_type !== "government") {
@@ -3823,34 +4233,247 @@ function drawPropertyAssets(now) {
   });
 }
 
+function drawSceneReactions(now) {
+  if (!state) return;
+  const flags = getSceneReactionState();
+  if (state.company?.position) {
+    drawWorkshopReaction(now, state.company.position, flags);
+  }
+  if (state.tourism?.market_position) {
+    drawMarketReaction(now, state.tourism.market_position, flags);
+  }
+  if (state.tourism?.inn_position) {
+    drawInnReaction(now, state.tourism.inn_position, flags);
+  }
+  if (flags.housingInterest) {
+    drawHousingInterestReaction();
+  }
+  drawActorEventGlows(now, flags);
+}
+
+function facingTowards(fromX, fromY, targetX, targetY) {
+  const dx = targetX - fromX;
+  const dy = targetY - fromY;
+  if (Math.abs(dy) > Math.abs(dx)) return dy > 0 ? "front" : "back";
+  return dx > 0 ? "right" : "left";
+}
+
+function pushVisualCluster(plan, ids, center, poseTag, baseRadius = 24, startAngle = -Math.PI * 0.9) {
+  const count = ids.length;
+  if (!count) return;
+  ids.forEach((id, index) => {
+    const angle = count === 1 ? startAngle : startAngle + (index / Math.max(1, count - 1)) * Math.PI * 0.9;
+    const radiusX = baseRadius + (index % 2) * 6;
+    const radiusY = Math.round(baseRadius * 0.45) + (index % 2) * 3;
+    const x = Math.round(center.x + Math.cos(angle) * radiusX);
+    const y = Math.round(center.y + 16 + Math.sin(angle) * radiusY);
+    plan.set(id, {
+      x,
+      y,
+      facing: facingTowards(x, y, center.x, center.y + 6),
+      poseTag,
+    });
+  });
+}
+
+function buildVisualGroupPlan(now) {
+  if (!state) return new Map();
+  const flags = getSceneReactionState();
+  const plan = new Map();
+  const used = new Set();
+  const availableAgentIds = state.agents.filter((agent) => sceneEntities.agents.get(agent.id)).map((agent) => agent.id);
+  const availableTourists = (state.tourists || []).filter((tourist) => sceneEntities.tourists.get(tourist.id));
+  const unusedAgents = (matcher) =>
+    state.agents
+      .filter((agent) => availableAgentIds.includes(agent.id) && !used.has(agent.id) && (!matcher || matcher(agent)))
+      .map((agent) => agent.id);
+  const unusedTourists = (matcher) =>
+    availableTourists.filter((tourist) => !used.has(tourist.id) && (!matcher || matcher(tourist))).map((tourist) => tourist.id);
+  const markUsed = (ids) => ids.forEach((id) => used.add(id));
+
+  if (flags.researchHot && state.company?.position) {
+    const center = gridToPixels(state.company.position);
+    const ids = unusedAgents((agent) => /GeoAI|研究|工坊|样本|训练|讨论/.test(`${agent.current_activity || ""} ${agent.current_plan || ""}`)).slice(0, 3);
+    if (ids.length >= 2) {
+      pushVisualCluster(plan, ids, { x: center.x + 8, y: center.y - 2 }, "研究讨论 GeoAI", 22, -Math.PI * 1.08);
+      markUsed(ids);
+    }
+  }
+
+  if ((flags.festivalMode || flags.tourismHot) && state.tourism?.market_position) {
+    const center = gridToPixels(state.tourism.market_position);
+    const ids = [
+      ...unusedTourists((tourist) => tourist.visitor_tier === "vip" || tourist.visitor_tier === "repeat").slice(0, 2),
+      ...unusedAgents((agent) => /游客|集市|消费|营业|旅馆|服务/.test(`${agent.current_activity || ""} ${agent.current_plan || ""}`)).slice(0, 1),
+    ].slice(0, 3);
+    if (ids.length >= 2) {
+      pushVisualCluster(plan, ids, { x: center.x - 4, y: center.y - 4 }, "夜市营业 游客消费", 26, -Math.PI * 0.95);
+      markUsed(ids);
+    }
+  }
+
+  if (flags.housingInterest && state.tourism?.inn_position) {
+    const center = gridToPixels(state.tourism.inn_position);
+    const ids = [
+      ...unusedTourists((tourist) => tourist.visitor_tier === "buyer").slice(0, 2),
+      ...unusedAgents((agent) => /住房|地产|租住|看房/.test(`${agent.current_activity || ""} ${agent.current_plan || ""}`)).slice(0, 1),
+    ].slice(0, 3);
+    if (ids.length >= 1) {
+      pushVisualCluster(plan, ids, { x: center.x + 18, y: center.y + 8 }, "看房 地产参观", 20, -Math.PI * 0.72);
+      markUsed(ids);
+    }
+  }
+
+  if ((flags.marketBusy || flags.regulationWave) && state.tourism?.market_position) {
+    const center = gridToPixels(state.tourism.market_position);
+    const ids = [
+      ...unusedAgents((agent) => /围观|争|和解|调停|讨论|消息/.test(`${agent.current_activity || ""} ${agent.current_plan || ""}`)).slice(0, 2),
+      ...unusedTourists(() => true).slice(0, 1),
+    ].slice(0, 3);
+    if (ids.length >= 2) {
+      pushVisualCluster(plan, ids, { x: center.x + 28, y: center.y + 14 }, "围观 讨论", 18, -Math.PI * 0.5);
+      markUsed(ids);
+    }
+  }
+
+  if (state.company?.position) {
+    const center = gridToPixels(state.company.position);
+    const ids = unusedAgents((agent) => /打工|工作|服务|工坊/.test(`${agent.current_activity || ""} ${agent.current_plan || ""}`)).slice(0, 2);
+    if (ids.length >= 2) {
+      pushVisualCluster(plan, ids, { x: center.x + 28, y: center.y + 18 }, "打工中 工坊忙碌", 14, -Math.PI * 0.25);
+      markUsed(ids);
+    }
+  }
+
+  return plan;
+}
+
+function getDisplayEntity(id, fallbackEntity) {
+  const override = displayEntityOverrides.get(id);
+  if (!override) return fallbackEntity;
+  return {
+    ...fallbackEntity,
+    x: override.x,
+    y: override.y,
+    facing: override.facing || fallbackEntity.facing,
+  };
+}
+
+function drawWorkshopReaction(now, point, flags) {
+  const center = gridToPixels(point);
+  if (flags.researchHot) {
+    ctx.fillStyle = "rgba(105, 139, 218, 0.16)";
+    roundRect(center.x - 58, center.y - 24, 116, 42, 12, true);
+    drawSparkPulse(center.x - 20, center.y - 4, 4, "rgba(126, 166, 246, 0.88)");
+    drawSparkPulse(center.x + 6, center.y + 2, 4, "rgba(126, 166, 246, 0.84)");
+    drawSparkPulse(center.x + 26, center.y - 6, 3, "rgba(126, 166, 246, 0.8)");
+    drawCrowdCluster(center.x - 28, center.y + 8, 4, ["#6c7fc2", "#9e76be", "#5c91a0"]);
+  }
+  if (flags.marketBusy) {
+    ctx.fillStyle = "rgba(223, 171, 96, 0.22)";
+    roundRect(center.x + 10, center.y + 8, 40, 14, 6, true);
+    ctx.fillStyle = "#fff5de";
+    ctx.font = '10px "PingFang SC", sans-serif';
+    ctx.fillText("忙碌", center.x + 20, center.y + 18);
+  }
+}
+
+function drawMarketReaction(now, point, flags) {
+  const center = gridToPixels(point);
+  const activeVisitors = Math.min(6, state?.tourists?.length || 0);
+  if (flags.tourismHot || flags.festivalMode) {
+    drawLanternString(center.x - 40, center.y - 38, 4, 18);
+    drawCrowdCluster(center.x - 18, center.y + 10, Math.max(3, activeVisitors), ["#d87d59", "#6c9f73", "#6c7bb3"]);
+  }
+  if (flags.festivalMode) {
+    ctx.fillStyle = "rgba(250, 198, 114, 0.2)";
+    roundRect(center.x - 44, center.y - 8, 92, 44, 12, true);
+    drawSparkPulse(center.x - 30, center.y - 4, 3, "rgba(246, 208, 108, 0.9)");
+    drawSparkPulse(center.x + 32, center.y + 2, 3, "rgba(246, 208, 108, 0.9)");
+  }
+}
+
+function drawInnReaction(now, point, flags) {
+  const center = gridToPixels(point);
+  if (flags.tourismHot) {
+    ctx.fillStyle = "rgba(255, 231, 180, 0.16)";
+    roundRect(center.x - 44, center.y - 12, 88, 38, 12, true);
+    drawCrowdCluster(center.x - 18, center.y + 8, 3, ["#b68a55", "#6c7bb3", "#8da86d"]);
+  }
+  if (flags.housingInterest) {
+    drawFootprintTrail(center.x + 24, center.y + 22, 5, 1);
+    ctx.fillStyle = "rgba(99, 153, 140, 0.92)";
+    roundRect(center.x + 32, center.y - 8, 16, 12, 4, true);
+    ctx.fillStyle = "#f7fff9";
+    ctx.font = '9px "PingFang SC", sans-serif';
+    ctx.fillText("看房", center.x + 35, center.y + 1);
+  }
+}
+
+function drawHousingInterestReaction() {
+  (state.properties || [])
+    .filter((asset) => asset.property_type === "rental_house" || asset.facility_kind === "public_housing")
+    .slice(0, 4)
+    .forEach((asset, index) => {
+      const px = (asset.position.x - 1) * tile;
+      const py = (asset.position.y - 1) * tile;
+      drawFootprintTrail(px + 8, py + asset.height * tile - 10 + index, 3, 1);
+      drawSparkPulse(px + asset.width * tile - 14, py + 10, 3, "rgba(104, 184, 162, 0.86)");
+    });
+}
+
+function drawActorEventGlows(now, flags) {
+  state.agents.forEach((agent) => {
+    const entity = sceneEntities.agents.get(agent.id);
+    if (!entity) return;
+    const activity = `${agent.current_activity || ""} ${agent.current_plan || ""}`;
+    let color = "";
+    if (flags.researchHot && /GeoAI|研究|工坊|样本|训练/.test(activity)) color = "rgba(107, 145, 231, 0.18)";
+    else if (flags.tourismHot && /游客|集市|旅馆|消费/.test(activity)) color = "rgba(96, 181, 157, 0.18)";
+    else if (flags.marketBusy && /银行|股票|贷款|现金|市场/.test(activity)) color = "rgba(216, 165, 98, 0.18)";
+    if (!color) return;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.ellipse(entity.x, entity.y + 10 + Math.sin(now / 240 + entity.x / 50), 20, 9, 0, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
 function drawCharacters(now) {
   const nearbyAgent = getNearbyAgent();
+  displayEntityOverrides = buildVisualGroupPlan(now);
   const actors = [
     ...state.agents.map((agent) => ({
       id: agent.id,
       label: agent.name,
-      entity: sceneEntities.agents.get(agent.id),
+      entity: getDisplayEntity(agent.id, sceneEntities.agents.get(agent.id)),
       style: agent.sprite_style,
+      activity: `${agent.current_activity || ""} ${displayEntityOverrides.get(agent.id)?.poseTag || ""}`.trim(),
+      bubble: agent.current_bubble,
+      tier: "",
       highlight: nearbyAgent && nearbyAgent.id === agent.id,
       selected: selectedActorId === agent.id,
     })),
     ...(state.tourists || []).map((tourist) => ({
       id: tourist.id,
       label: tourist.name,
-      entity: sceneEntities.tourists.get(tourist.id),
+      entity: getDisplayEntity(tourist.id, sceneEntities.tourists.get(tourist.id)),
       style: "tourist",
+      activity: `${tourist.current_activity || ""} ${displayEntityOverrides.get(tourist.id)?.poseTag || ""}`.trim(),
+      bubble: tourist.current_bubble,
+      tier: tourist.visitor_tier,
       highlight: nearbyAgent && nearbyAgent.id === tourist.id,
       selected: selectedActorId === tourist.id,
     })),
-    { id: "player", label: state.player.name, entity: sceneEntities.player, style: "scientist_b", highlight: false, selected: selectedActorId === "player" },
+    { id: "player", label: state.player.name, entity: getDisplayEntity("player", sceneEntities.player), style: "scientist_b", activity: state.player.current_activity, bubble: getPlayerBubbleText(), tier: "", highlight: false, selected: selectedActorId === "player" },
   ].filter((actor) => actor.entity).sort((left, right) => left.entity.y - right.entity.y);
 
   actors.forEach((actor) => {
-    drawSprite(actor.id, actor.entity, now, actor.style || "scientist_a", actor.highlight, actor.selected, actor.label);
+    drawSprite(actor.id, actor.entity, now, actor.style || "scientist_a", actor.highlight, actor.selected, actor.label, actor.activity, actor.bubble, actor.tier);
   });
 }
 
-function drawSprite(id, entity, now, style, highlighted, selected, label) {
+function drawSprite(id, entity, now, style, highlighted, selected, label, activity, bubble, tier = "") {
   const visual = agentVisuals[id] || (id.startsWith("tourist") ? agentVisuals.tourist : agentVisuals.player);
   const bob = Math.round(Math.sin(now / 220 + entity.targetX / 50) * 1.4);
   const centerX = Math.round(entity.x);
@@ -3871,7 +4494,8 @@ function drawSprite(id, entity, now, style, highlighted, selected, label) {
     ctx.fill();
   }
 
-  drawPixelPerson(centerX, baseY, visual, entity.facing, moving, now);
+  drawAnimatedPerson(id, style, centerX, baseY, visual, entity.facing, moving, now, tier);
+  drawActorIdleAnimation(id, centerX, baseY, moving, now, activity, tier);
 
   ctx.font = '14px "PingFang SC", sans-serif';
   const labelWidth = Math.max(34, ctx.measureText(label).width + 14);
@@ -3883,6 +4507,470 @@ function drawSprite(id, entity, now, style, highlighted, selected, label) {
   ctx.fillRect(labelX + 5, labelY + 5, 8, 8);
   ctx.fillStyle = "#fff8e6";
   ctx.fillText(label, labelX + 18, labelY + 13);
+  drawActivityMarker(centerX, labelY - 8, activity, bubble);
+}
+
+function drawActivityMarker(centerX, topY, activity = "", bubble = "") {
+  const text = `${activity || ""} ${bubble || ""}`;
+  let badge = "";
+  let fill = "rgba(87, 70, 52, 0.82)";
+  if (/GeoAI|研究|推理|样本|训练|基线|空间智能/.test(text)) {
+    badge = "研";
+    fill = "rgba(76, 110, 173, 0.88)";
+  } else if (/买|卖|盘|股票|借|贷款|银行|现金|市场/.test(text)) {
+    badge = "资";
+    fill = "rgba(181, 124, 52, 0.9)";
+  } else if (/游客|旅馆|集市|消费|看房/.test(text)) {
+    badge = "游";
+    fill = "rgba(76, 149, 132, 0.9)";
+  } else if (/调停|合作|聊|争|和解|对话/.test(text)) {
+    badge = "社";
+    fill = "rgba(145, 92, 134, 0.9)";
+  } else if (/打工|服务|工坊|工作/.test(text)) {
+    badge = "工";
+    fill = "rgba(102, 130, 86, 0.9)";
+  }
+  if (!badge) return;
+  ctx.fillStyle = fill;
+  roundRect(centerX - 9, topY, 18, 12, 4, true);
+  ctx.fillStyle = "#fff8e6";
+  ctx.font = '9px "PingFang SC", sans-serif';
+  ctx.fillText(badge, centerX - 4, topY + 9);
+}
+
+function spriteGroupForActor(id, style) {
+  if (id.startsWith("tourist")) return spriteSheetMeta.groups.tourist;
+  if (style === "scientist_b") return spriteSheetMeta.groups.scientist_b;
+  if (id === "player") return spriteSheetMeta.groups.scientist_a;
+  if (id === "mika" || id === "rae") return spriteSheetMeta.groups.scientist_b;
+  return spriteSheetMeta.groups.scientist_a;
+}
+
+function isDedicatedCoreAgent(id) {
+  return coreAgentIds.includes(id);
+}
+
+function drawDedicatedCoreAgent(id, centerX, baseY, facing, moving, now) {
+  const design = dedicatedCoreSpriteDefs[id];
+  if (!design) return false;
+  const stride = moving ? Math.round(Math.sin(now / 110 + centerX / 37) * 2) : 0;
+  const facingDir = facing === "left" ? -1 : 1;
+  const hairDark = shadeColor(design.hair, -18);
+  const skinDark = shadeColor(design.skin, -10);
+  const coatLight = shadeColor(design.coat, 8);
+  const accentDark = shadeColor(design.accent, -16);
+
+  ctx.fillStyle = "rgba(31, 27, 39, 0.18)";
+  ctx.beginPath();
+  ctx.ellipse(centerX, baseY + 4, 12, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (id === "lin") {
+    ctx.fillStyle = design.trousers;
+    ctx.fillRect(centerX - 7, baseY - 12 + stride, 5, 12);
+    ctx.fillRect(centerX + 2, baseY - 12 - stride, 5, 12);
+    ctx.fillStyle = design.shoes;
+    ctx.fillRect(centerX - 7, baseY - 1 + stride, 6, 2);
+    ctx.fillRect(centerX + 1, baseY - 1 - stride, 6, 2);
+    ctx.fillStyle = design.coatDark;
+    ctx.fillRect(centerX - 11, baseY - 31, 22, 18);
+    ctx.fillRect(centerX - 12, baseY - 25, 4, 10);
+    ctx.fillRect(centerX + 8, baseY - 25, 4, 10);
+    ctx.fillStyle = design.coat;
+    ctx.fillRect(centerX - 10, baseY - 30, 20, 17);
+    ctx.fillStyle = coatLight;
+    ctx.fillRect(centerX - 9, baseY - 29, 6, 14);
+    ctx.fillStyle = design.accent;
+    ctx.fillRect(centerX - 2, baseY - 28, 4, 12);
+    ctx.fillStyle = accentDark;
+    ctx.fillRect(centerX - 9, baseY - 15, 18, 2);
+  } else if (id === "mika") {
+    ctx.fillStyle = "#6f5878";
+    ctx.fillRect(centerX - 7, baseY - 12 + stride, 5, 12);
+    ctx.fillRect(centerX + 2, baseY - 12 - stride, 5, 12);
+    ctx.fillStyle = design.shoes;
+    ctx.fillRect(centerX - 7, baseY - 1 + stride, 6, 2);
+    ctx.fillRect(centerX + 1, baseY - 1 - stride, 6, 2);
+    ctx.fillStyle = design.coatDark;
+    ctx.fillRect(centerX - 10, baseY - 28, 20, 8);
+    ctx.fillStyle = design.coat;
+    ctx.fillRect(centerX - 11, baseY - 28, 22, 13);
+    ctx.fillStyle = design.accent;
+    ctx.fillRect(centerX + 8, baseY - 24, 5, 12);
+    ctx.fillStyle = coatLight;
+    ctx.fillRect(centerX - 6, baseY - 27, 12, 5);
+    ctx.fillStyle = accentDark;
+    ctx.fillRect(centerX - 9, baseY - 15, 18, 3);
+  } else if (id === "jo") {
+    ctx.fillStyle = design.trousers;
+    ctx.fillRect(centerX - 8, baseY - 12 + stride, 6, 12);
+    ctx.fillRect(centerX + 2, baseY - 12 - stride, 6, 12);
+    ctx.fillStyle = design.shoes;
+    ctx.fillRect(centerX - 8, baseY - 1 + stride, 7, 2);
+    ctx.fillRect(centerX + 1, baseY - 1 - stride, 7, 2);
+    ctx.fillStyle = design.coatDark;
+    ctx.fillRect(centerX - 12, baseY - 30, 24, 17);
+    ctx.fillStyle = design.coat;
+    ctx.fillRect(centerX - 10, baseY - 29, 20, 16);
+    ctx.fillStyle = design.accent;
+    ctx.fillRect(centerX - 10, baseY - 23, 20, 4);
+    ctx.fillStyle = coatLight;
+    ctx.fillRect(centerX - 2, baseY - 28, 4, 13);
+  } else if (id === "rae") {
+    ctx.fillStyle = design.trousers;
+    ctx.fillRect(centerX - 6, baseY - 12 + stride, 4, 12);
+    ctx.fillRect(centerX + 2, baseY - 12 - stride, 4, 12);
+    ctx.fillStyle = design.shoes;
+    ctx.fillRect(centerX - 6, baseY - 1 + stride, 5, 2);
+    ctx.fillRect(centerX + 1, baseY - 1 - stride, 5, 2);
+    ctx.fillStyle = design.coatDark;
+    ctx.fillRect(centerX - 12, baseY - 31, 24, 18);
+    ctx.fillRect(centerX - 13, baseY - 25, 4, 12);
+    ctx.fillRect(centerX + 9, baseY - 25, 4, 12);
+    ctx.fillStyle = design.coat;
+    ctx.fillRect(centerX - 11, baseY - 30, 22, 17);
+    ctx.fillStyle = design.accent;
+    ctx.fillRect(centerX - 2, baseY - 29, 4, 14);
+    ctx.fillStyle = coatLight;
+    ctx.fillRect(centerX - 8, baseY - 19, 16, 4);
+  } else if (id === "kai") {
+    ctx.fillStyle = design.trousers;
+    ctx.fillRect(centerX - 7, baseY - 12 + stride, 5, 12);
+    ctx.fillRect(centerX + 2, baseY - 12 - stride, 5, 12);
+    ctx.fillStyle = design.shoes;
+    ctx.fillRect(centerX - 7, baseY - 1 + stride, 6, 2);
+    ctx.fillRect(centerX + 1, baseY - 1 - stride, 6, 2);
+    ctx.fillStyle = design.coatDark;
+    ctx.fillRect(centerX - 11, baseY - 30, 22, 17);
+    ctx.fillStyle = design.coat;
+    ctx.fillRect(centerX - 10, baseY - 29, 20, 15);
+    ctx.fillStyle = design.accent;
+    ctx.fillRect(centerX + 5, baseY - 26, 4, 10);
+    ctx.fillStyle = coatLight;
+    ctx.fillRect(centerX - 9, baseY - 15, 18, 2);
+  }
+
+  ctx.fillStyle = skinDark;
+  ctx.fillRect(centerX - 7, baseY - 42, 14, 12);
+  ctx.fillStyle = design.skin;
+  ctx.fillRect(centerX - 6, baseY - 41, 12, 11);
+  ctx.fillStyle = hairDark;
+  ctx.fillRect(centerX - 8, baseY - 45, 16, 5);
+  if (id === "lin") {
+    ctx.fillRect(centerX - 8, baseY - 40, 4, 4);
+    ctx.fillRect(centerX + 4, baseY - 40, 4, 3);
+  } else if (id === "mika") {
+    ctx.fillRect(centerX - 7, baseY - 40, 3, 5);
+    ctx.fillRect(centerX + 5, baseY - 41, 4, 7);
+  } else if (id === "jo") {
+    ctx.fillRect(centerX - 9, baseY - 45, 18, 3);
+    ctx.fillStyle = design.accent;
+    ctx.fillRect(centerX - 6, baseY - 48, 12, 3);
+    ctx.fillStyle = hairDark;
+  } else if (id === "rae") {
+    ctx.fillRect(centerX - 8, baseY - 40, 4, 4);
+    ctx.fillRect(centerX + 4, baseY - 40, 4, 4);
+    ctx.fillRect(centerX - 2, baseY - 48, 4, 3);
+  } else if (id === "kai") {
+    ctx.fillRect(centerX - 9, baseY - 44, 18, 4);
+    ctx.fillRect(centerX + 5, baseY - 40, 3, 5);
+  }
+
+  if (facing === "back") {
+    ctx.fillStyle = design.hair;
+    ctx.fillRect(centerX - 7, baseY - 42, 14, 9);
+  } else if (facing === "left" || facing === "right") {
+    ctx.fillStyle = design.skin;
+    ctx.fillRect(centerX - 5 + facingDir * 2, baseY - 39, 8, 9);
+    ctx.fillStyle = design.hair;
+    ctx.fillRect(centerX - 6 + facingDir * 2, baseY - 45, 10, 6);
+  } else {
+    ctx.fillStyle = "#2d221e";
+    ctx.fillRect(centerX - 4, baseY - 37, 2, 2);
+    ctx.fillRect(centerX + 2, baseY - 37, 2, 2);
+    ctx.fillStyle = "#9a5d4b";
+    ctx.fillRect(centerX - 2, baseY - 33, 4, 2);
+  }
+
+  if (design.vibe === "clipboard") {
+    ctx.fillStyle = design.prop;
+    ctx.fillRect(centerX + (facingDir > 0 ? 8 : -12), baseY - 26, 5, 8);
+    ctx.fillStyle = "#b79f80";
+    ctx.fillRect(centerX + (facingDir > 0 ? 9 : -11), baseY - 25, 3, 1);
+  } else if (design.vibe === "scarf") {
+    const flutter = moving ? Math.sin(now / 110) * 2.2 : Math.sin(now / 240) * 1.4;
+    ctx.fillStyle = design.prop;
+    ctx.fillRect(centerX + 7 + flutter, baseY - 24, 5, 12);
+  } else if (design.vibe === "tool") {
+    ctx.fillStyle = design.prop;
+    ctx.fillRect(centerX - 12, baseY - 22, 7, 3);
+    ctx.fillStyle = "#5d412c";
+    ctx.fillRect(centerX - 9, baseY - 20, 2, 7);
+  } else if (design.vibe === "tea") {
+    ctx.fillStyle = design.prop;
+    ctx.fillRect(centerX + 8, baseY - 23, 5, 7);
+    ctx.fillStyle = "#cfba89";
+    ctx.fillRect(centerX + 9, baseY - 24, 3, 1);
+  } else if (design.vibe === "tablet") {
+    ctx.fillStyle = design.prop;
+    ctx.fillRect(centerX + 8, baseY - 24, 5, 8);
+    ctx.fillStyle = "#dceef8";
+    ctx.fillRect(centerX + 9, baseY - 23, 3, 3);
+  }
+  return true;
+}
+
+function drawAnimatedPerson(id, style, centerX, baseY, visual, facing, moving, now, tier = "") {
+  if (id.startsWith("tourist")) {
+    drawCasualTourist(centerX, baseY, facing, moving, now, id, tier);
+    return;
+  }
+  if (isDedicatedCoreAgent(id)) {
+    drawDedicatedCoreAgent(id, centerX, baseY, facing, moving, now);
+    return;
+  }
+  if (!artAssets.npcSheet) {
+    drawPixelPerson(centerX, baseY, visual, facing, moving, now);
+    return;
+  }
+  const group = spriteGroupForActor(id, style);
+  const row = spriteSheetMeta.rows[facing] ?? 0;
+  const walkFrame = moving ? (Math.floor(now / 120 + centerX / 70) % 4 === 0 ? 0 : (Math.floor(now / 120 + centerX / 70) % 2 === 0 ? 1 : 2)) : 1;
+  const sx = group * spriteSheetMeta.frameWidth * 3 + walkFrame * spriteSheetMeta.frameWidth;
+  const sy = row * spriteSheetMeta.frameHeight;
+  const drawWidth = 38;
+  const drawHeight = 57;
+  const dx = Math.round(centerX - drawWidth / 2);
+  const dy = Math.round(baseY - drawHeight);
+  drawAssetSprite(
+    artAssets.npcSheet,
+    sx,
+    sy,
+    spriteSheetMeta.frameWidth,
+    spriteSheetMeta.frameHeight,
+    dx,
+    dy,
+    drawWidth,
+    drawHeight,
+    1,
+  );
+  if (!id.startsWith("tourist")) {
+    ctx.fillStyle = "rgba(255,255,255,0.06)";
+    ctx.fillRect(dx + 8, dy + 22, drawWidth - 16, 18);
+    ctx.fillStyle = `${visual.accent}66`;
+    ctx.fillRect(dx + 12, dy + 24, drawWidth - 24, 12);
+  }
+  drawCoreAgentAccessories(id, dx, dy, drawWidth, drawHeight, facing, now, moving);
+}
+
+function touristPaletteForId(id) {
+  const palettes = [
+    { shirt: "#c88a53", coat: "#9f6b3d", hair: "#5a4333", skin: "#efc49e", accent: "#f0d18a" },
+    { shirt: "#7ca06b", coat: "#5f7f52", hair: "#6f533e", skin: "#edc19a", accent: "#dbe7b0" },
+    { shirt: "#6f8fb1", coat: "#54708d", hair: "#48322b", skin: "#f0c7a4", accent: "#d8e7f5" },
+    { shirt: "#b06f8c", coat: "#8d5871", hair: "#6a4235", skin: "#eec09a", accent: "#f3d8e7" },
+  ];
+  let hash = 0;
+  for (let index = 0; index < id.length; index += 1) hash = (hash * 31 + id.charCodeAt(index)) % 997;
+  return palettes[hash % palettes.length];
+}
+
+function touristTierPalette(base, tier) {
+  if (tier === "vip") {
+    return { ...base, shirt: "#915f90", coat: "#6f466d", accent: "#f3d8ef" };
+  }
+  if (tier === "repeat") {
+    return { ...base, shirt: "#6f9d75", coat: "#54765a", accent: "#d9ecbf" };
+  }
+  if (tier === "buyer") {
+    return { ...base, shirt: "#6d8fb6", coat: "#536f8b", accent: "#dce6f8" };
+  }
+  return base;
+}
+
+function drawCasualTourist(centerX, baseY, facing, moving, now, id, tier = "regular") {
+  const palette = touristTierPalette(touristPaletteForId(id), tier);
+  const stride = moving ? Math.round(Math.sin(now / 110 + centerX / 37) * 2) : 0;
+  const facingDir = facing === "left" ? -1 : 1;
+  const coatDark = shadeColor(palette.coat, -18);
+  const shirtDark = shadeColor(palette.shirt, -12);
+  const hairDark = shadeColor(palette.hair, -18);
+  const skinDark = shadeColor(palette.skin, -10);
+
+  ctx.fillStyle = "rgba(31, 27, 39, 0.18)";
+  ctx.beginPath();
+  ctx.ellipse(centerX, baseY + 4, 12, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#3a475f";
+  ctx.fillRect(centerX - 7, baseY - 11 + stride, 5, 11);
+  ctx.fillRect(centerX + 2, baseY - 11 - stride, 5, 11);
+  ctx.fillStyle = "#1f263a";
+  ctx.fillRect(centerX - 7, baseY - 1 + stride, 6, 2);
+  ctx.fillRect(centerX + 1, baseY - 1 - stride, 6, 2);
+
+  ctx.fillStyle = coatDark;
+  ctx.fillRect(centerX - 10, baseY - 28, 20, 15);
+  ctx.fillRect(centerX - 12, baseY - 23, 4, 9);
+  ctx.fillRect(centerX + 8, baseY - 23, 4, 9);
+  ctx.fillStyle = palette.shirt;
+  ctx.fillRect(centerX - 9, baseY - 28, 18, 14);
+  ctx.fillRect(centerX - 11, baseY - 22, 4, 8);
+  ctx.fillRect(centerX + 7, baseY - 22, 4, 8);
+  ctx.fillStyle = shirtDark;
+  ctx.fillRect(centerX - 3, baseY - 27, 6, 11);
+  ctx.fillRect(centerX - 8, baseY - 15, 16, 3);
+
+  ctx.fillStyle = palette.accent;
+  ctx.fillRect(centerX + (facingDir * 7), baseY - 23, 4, 8);
+  ctx.fillRect(centerX - 6, baseY - 23, 3, 3);
+
+  ctx.fillStyle = skinDark;
+  ctx.fillRect(centerX - 7, baseY - 42, 14, 12);
+  ctx.fillStyle = palette.skin;
+  ctx.fillRect(centerX - 6, baseY - 41, 12, 11);
+
+  ctx.fillStyle = hairDark;
+  ctx.fillRect(centerX - 8, baseY - 45, 16, 5);
+  ctx.fillRect(centerX - 8, baseY - 40, 3, 4);
+  ctx.fillRect(centerX + 5, baseY - 40, 3, 4);
+  ctx.fillStyle = palette.hair;
+  ctx.fillRect(centerX - 7, baseY - 44, 14, 4);
+
+  ctx.fillStyle = "#d6c08a";
+  ctx.fillRect(centerX - 8, baseY - 47, 16, 3);
+  ctx.fillRect(centerX - 4, baseY - 49, 8, 2);
+
+  if (tier === "repeat") {
+    ctx.fillStyle = "#c8d9a1";
+    ctx.fillRect(centerX - 10, baseY - 25, 3, 10);
+    ctx.fillRect(centerX - 6, baseY - 23, 12, 2);
+  } else if (tier === "vip") {
+    ctx.fillStyle = "#f0d18a";
+    ctx.fillRect(centerX + 6, baseY - 28, 3, 12);
+    ctx.fillStyle = "#5d3a4d";
+    ctx.fillRect(centerX - 11, baseY - 28, 2, 14);
+  } else if (tier === "buyer") {
+    ctx.fillStyle = "#e9e0c6";
+    ctx.fillRect(centerX + 6, baseY - 24, 5, 7);
+    ctx.fillStyle = "#8c7657";
+    ctx.fillRect(centerX + 7, baseY - 25, 3, 1);
+  }
+
+  if (facing === "back") {
+    ctx.fillStyle = palette.hair;
+    ctx.fillRect(centerX - 7, baseY - 42, 14, 9);
+  }
+  if (facing === "left" || facing === "right") {
+    ctx.fillStyle = palette.skin;
+    ctx.fillRect(centerX - 5 + facingDir * 2, baseY - 39, 8, 9);
+    ctx.fillStyle = palette.hair;
+    ctx.fillRect(centerX - 6 + facingDir * 2, baseY - 45, 10, 6);
+  }
+
+  ctx.fillStyle = "#2b1d1b";
+  ctx.fillRect(centerX - 4, baseY - 37, 2, 2);
+  ctx.fillRect(centerX + 2, baseY - 37, 2, 2);
+  ctx.fillStyle = "#9a5c48";
+  ctx.fillRect(centerX - 2, baseY - 33, 4, 2);
+}
+
+function drawCoreAgentAccessories(id, dx, dy, drawWidth, drawHeight, facing, now, moving) {
+  const facingDir = facing === "left" ? -1 : 1;
+  if (id === "lin") {
+    ctx.fillStyle = "#efe4cf";
+    ctx.fillRect(dx + 3, dy + 25, 6, 8);
+    ctx.fillStyle = "#b29a7a";
+    ctx.fillRect(dx + 4, dy + 26, 4, 1);
+  } else if (id === "mika") {
+    const flutter = moving ? Math.sin(now / 110) * 2 : Math.sin(now / 230) * 1.2;
+    ctx.fillStyle = "#f7c9b7";
+    ctx.fillRect(dx + 27 + flutter, dy + 22, 5, 11);
+  } else if (id === "jo") {
+    ctx.fillStyle = "#5d3f2b";
+    ctx.fillRect(dx + 2, dy + 24, 4, 10);
+    ctx.fillStyle = "#c99e52";
+    ctx.fillRect(dx + 1, dy + 24, 6, 2);
+  } else if (id === "rae") {
+    ctx.fillStyle = "#f0e0b6";
+    ctx.fillRect(dx + 28, dy + 22, 4, 8);
+    ctx.fillStyle = "#d1ba89";
+    ctx.fillRect(dx + 27, dy + 21, 6, 1);
+  } else if (id === "kai") {
+    ctx.fillStyle = "#6a88a4";
+    ctx.fillRect(dx + 28, dy + 24, 4, 7);
+    ctx.fillStyle = "#d8eef7";
+    ctx.fillRect(dx + 28, dy + 24, 4, 3);
+  } else if (id === "player") {
+    ctx.fillStyle = "#f0d999";
+    ctx.fillRect(dx + (facingDir > 0 ? 28 : 4), dy + 22, 4, 10);
+  }
+}
+
+function drawActorIdleAnimation(id, centerX, baseY, moving, now, activity = "", tier = "") {
+  if (moving) return;
+  const text = activity || "";
+  if (/聊|围观|对话|争|和解|调停/.test(text)) {
+    const alpha = 0.28 + (Math.sin(now / 220) + 1) * 0.1;
+    ctx.strokeStyle = `rgba(255, 249, 220, ${alpha})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(centerX - 12, baseY - 52, 5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(centerX + 10, baseY - 48, 4, 0, Math.PI * 2);
+    ctx.stroke();
+    if (/围观/.test(text)) {
+      ctx.strokeStyle = "rgba(255, 233, 164, 0.45)";
+      ctx.beginPath();
+      ctx.moveTo(centerX - 10, baseY - 30);
+      ctx.lineTo(centerX - 2, baseY - 20);
+      ctx.lineTo(centerX + 8, baseY - 28);
+      ctx.stroke();
+    }
+  }
+  if (/GeoAI|研究|样本|训练|基线|空间智能|工坊/.test(text)) {
+    drawSparkPulse(centerX - 10, baseY - 46, 3, "rgba(110, 150, 236, 0.86)");
+    drawSparkPulse(centerX + 8, baseY - 42, 2, "rgba(110, 150, 236, 0.72)");
+    if (/讨论/.test(text)) {
+      ctx.strokeStyle = "rgba(126, 166, 246, 0.36)";
+      ctx.beginPath();
+      ctx.arc(centerX, baseY - 24, 12 + Math.sin(now / 180) * 2, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+  if (/打工|工作|服务/.test(text)) {
+    const hammerY = baseY - 36 + Math.sin(now / 180) * 2;
+    ctx.fillStyle = "#6b4e35";
+    ctx.fillRect(centerX + 10, hammerY, 2, 10);
+    ctx.fillStyle = "#c9a26b";
+    ctx.fillRect(centerX + 7, hammerY, 8, 3);
+  }
+  if (/看房|住房|租住|地产/.test(text) || tier === "buyer") {
+    ctx.fillStyle = "rgba(108, 184, 162, 0.92)";
+    roundRect(centerX + 10, baseY - 46, 14, 10, 4, true);
+    ctx.fillStyle = "#f6fffb";
+    ctx.font = '8px "PingFang SC", sans-serif';
+    ctx.fillText("房", centerX + 14, baseY - 39);
+  }
+  if (id.startsWith("tourist") && tier === "vip") {
+    ctx.fillStyle = "rgba(250, 207, 120, 0.94)";
+    drawSparkPulse(centerX - 12, baseY - 44, 3, "rgba(250, 207, 120, 0.94)");
+  }
+  if (id.startsWith("tourist") && tier === "repeat") {
+    ctx.fillStyle = "rgba(164, 208, 138, 0.94)";
+    roundRect(centerX - 16, baseY - 46, 12, 10, 4, true);
+    ctx.fillStyle = "#f7fff0";
+    ctx.font = '8px "PingFang SC", sans-serif';
+    ctx.fillText("回", centerX - 13, baseY - 39);
+  }
+  if (/夜市|营业|消费/.test(text)) {
+    ctx.fillStyle = "rgba(248, 204, 116, 0.92)";
+    ctx.beginPath();
+    ctx.arc(centerX - 8, baseY - 44, 2, 0, Math.PI * 2);
+    ctx.arc(centerX + 8, baseY - 41, 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 function drawPixelPerson(centerX, baseY, visual, facing, moving, now) {
@@ -3982,17 +5070,18 @@ function drawPixelCluster(px, py, color, cells) {
 function drawBubbles() {
   const playerBubble = getPlayerBubbleText();
   if (playerBubble) {
-    drawBubble(sceneEntities.player.x, sceneEntities.player.y - 72, playerBubble);
+    const playerEntity = getDisplayEntity("player", sceneEntities.player);
+    drawBubble(playerEntity.x, playerEntity.y - 72, playerBubble);
   }
   state.agents.forEach((agent) => {
-    const entity = sceneEntities.agents.get(agent.id);
+    const entity = getDisplayEntity(agent.id, sceneEntities.agents.get(agent.id));
     if (!entity) return;
     const bubble = getBubbleText(agent);
     if (!bubble) return;
     drawBubble(entity.x, entity.y - 68, bubble);
   });
   (state.tourists || []).forEach((tourist) => {
-    const entity = sceneEntities.tourists.get(tourist.id);
+    const entity = getDisplayEntity(tourist.id, sceneEntities.tourists.get(tourist.id));
     if (!entity || !tourist.current_bubble) return;
     drawBubble(entity.x, entity.y - 64, tourist.current_bubble);
   });
@@ -4160,23 +5249,73 @@ function drawTerrainZone(room, now) {
   const palette = terrainPalettes[room.terrain] || terrainPalettes.meadow;
   ctx.fillStyle = palette.base;
   ctx.fillRect(px, py, width, height);
-  ctx.fillStyle = "rgba(255,255,255,0.08)";
-  ctx.fillRect(px, py, width, 8);
-  ctx.fillStyle = "rgba(71, 56, 34, 0.08)";
-  ctx.fillRect(px, py + height - 6, width, 6);
+
+  if (room.terrain === "stone" && artAssets.bgTiles) {
+    drawTiledPatch(artAssets.bgTiles, 0, 128, 64, 64, px, py, width, height, 0.42);
+  } else if (room.terrain === "lakeside") {
+    const beachHeight = Math.round(height * 0.38);
+    const waterY = py + beachHeight - 10;
+    const waterHeight = height - beachHeight + 10;
+    ctx.fillStyle = "#dbc89d";
+    ctx.fillRect(px, py, width, beachHeight);
+    ctx.fillStyle = "rgba(255,255,255,0.16)";
+    ctx.fillRect(px, py + 6, width, 4);
+    if (artAssets.beachTiles) {
+      for (let x = px; x < px + width; x += tile) {
+        const beachVariant = ((Math.floor(x / tile) + room.x) % 4) * 16;
+        drawAssetSprite(artAssets.beachTiles, beachVariant, 0, 16, 16, x, py + 8, tile, tile, 0.32);
+      }
+    }
+    drawAnimatedWaterStrip(px, waterY, width, waterHeight, now, 0.55);
+    for (let x = px + 4; x < px + width - 30; x += 36) {
+      const wave = Math.sin(now / 260 + x / 70) * 4;
+      ctx.fillStyle = "rgba(255,255,255,0.35)";
+      ctx.fillRect(x, waterY + 2 + wave, 18, 2);
+      ctx.fillStyle = "rgba(242, 231, 202, 0.5)";
+      ctx.fillRect(x + 5, waterY - 1 + wave * 0.35, 10, 2);
+    }
+    for (let ix = 0; ix < 9; ix += 1) {
+      const sx = px + 18 + ix * 86 + (ix % 2) * 8;
+      const sy = py + 30 + ((ix * 13) % Math.max(24, beachHeight - 46));
+      drawPixelCluster(sx, sy, "rgba(244, 238, 214, 0.9)", [
+        [0, 0, 3, 2],
+        [4, 2, 2, 2],
+        [2, 4, 2, 2],
+      ]);
+      ctx.fillStyle = "rgba(189, 138, 101, 0.35)";
+      ctx.fillRect(sx + 10, sy + 2, 3, 3);
+    }
+  } else {
+    if (artAssets.bgTiles && ["meadow", "garden", "orchard"].includes(room.terrain)) {
+      drawTiledPatch(artAssets.bgTiles, 128, 0, 64, 64, px, py, width, height, 0.25);
+    }
+    if (artAssets.forestTiles && ["meadow", "garden", "orchard", "wheat"].includes(room.terrain)) {
+      for (let gx = room.x; gx < room.x + room.w; gx += 1) {
+        for (let gy = room.y; gy < room.y + room.h; gy += 1) {
+          const tx = gx * tile;
+          const ty = gy * tile;
+          const fx = ((gx + gy) % 2) * 16;
+          const fy = room.terrain === "wheat" ? 320 : 160 + (((gx * 5 + gy) % 4) * 16);
+          drawAssetSprite(artAssets.forestTiles, fx, fy, 16, 16, tx, ty, tile, tile, room.terrain === "wheat" ? 0.12 : 0.18);
+        }
+      }
+    }
+  }
 
   for (let gx = room.x; gx < room.x + room.w; gx += 1) {
     for (let gy = room.y; gy < room.y + room.h; gy += 1) {
       const cellX = gx * tile;
       const cellY = gy * tile;
       const noise = tileNoise(gx, gy, room.x + room.y);
-      ctx.fillStyle = noise > 0.56 ? palette.alt : palette.base;
-      ctx.fillRect(cellX, cellY, tile, tile);
+      if (room.terrain !== "lakeside") {
+        ctx.fillStyle = noise > 0.56 ? palette.alt : palette.base;
+        ctx.fillRect(cellX, cellY, tile, tile);
+      }
       if (room.terrain === "wheat") {
-        ctx.fillStyle = (gx + gy) % 2 === 0 ? "rgba(227, 208, 126, 0.38)" : "rgba(173, 151, 79, 0.22)";
-        ctx.fillRect(cellX + 4, cellY + 4, tile - 8, tile - 8);
-        ctx.fillStyle = "rgba(126, 101, 48, 0.22)";
-        ctx.fillRect(cellX + 2, cellY + 2, 2, tile - 4);
+        ctx.fillStyle = (gx + gy) % 2 === 0 ? "rgba(227, 208, 126, 0.26)" : "rgba(173, 151, 79, 0.16)";
+        ctx.fillRect(cellX + 5, cellY + 4, tile - 10, tile - 8);
+        ctx.fillStyle = "rgba(126, 101, 48, 0.18)";
+        ctx.fillRect(cellX + 3, cellY + 4, 2, tile - 8);
         const sway = Math.sin(now / 360 + gx * 0.9 + gy * 0.5) * 2.4;
         ctx.fillStyle = "rgba(247, 225, 141, 0.3)";
         ctx.fillRect(cellX + 12 + sway, cellY + 7, 2, tile - 18);
@@ -4184,7 +5323,7 @@ function drawTerrainZone(room, now) {
         ctx.fillStyle = palette.deep;
         ctx.fillRect(cellX + 8, cellY + 36, tile - 16, 2);
       } else if (room.terrain === "stone") {
-        ctx.fillStyle = (gx + gy) % 2 === 0 ? "rgba(201, 193, 184, 0.12)" : "rgba(95, 86, 77, 0.12)";
+        ctx.fillStyle = (gx + gy) % 2 === 0 ? "rgba(201, 193, 184, 0.09)" : "rgba(95, 86, 77, 0.09)";
         ctx.fillRect(cellX + 5, cellY + 5, tile - 10, tile - 10);
         drawPixelCluster(cellX, cellY, "rgba(255,255,255,0.16)", [
           [9, 10, 7, 4],
@@ -4196,18 +5335,14 @@ function drawTerrainZone(room, now) {
           [11, 25, 6, 4],
         ]);
       } else if (room.terrain === "lakeside") {
-        ctx.fillStyle = "rgba(255,255,255,0.07)";
-        ctx.fillRect(cellX + 6, cellY + 8, tile - 16, 4);
-        ctx.fillStyle = `rgba(255,255,255,${0.05 + (Math.sin(now / 500 + gx + gy) + 1) * 0.03})`;
-        ctx.fillRect(cellX + 8, cellY + 22, tile - 20, 3);
-        ctx.fillStyle = "rgba(72, 129, 118, 0.16)";
-        ctx.fillRect(cellX + 4, cellY + 34, tile - 8, 2);
-        if (noise > 0.63) {
-          drawPixelCluster(cellX, cellY, "rgba(219, 245, 238, 0.42)", [
-            [12, 14, 3, 2],
-            [16, 12, 2, 2],
-            [19, 15, 3, 2],
-          ]);
+        if (cellY < py + Math.round(height * 0.38)) {
+          ctx.fillStyle = noise > 0.58 ? "rgba(203, 183, 135, 0.28)" : "rgba(242, 227, 185, 0.18)";
+          ctx.fillRect(cellX + 4, cellY + 5, tile - 8, tile - 10);
+        } else {
+          ctx.fillStyle = `rgba(255,255,255,${0.05 + (Math.sin(now / 500 + gx + gy) + 1) * 0.03})`;
+          ctx.fillRect(cellX + 8, cellY + 22, tile - 20, 3);
+          ctx.fillStyle = "rgba(72, 129, 118, 0.16)";
+          ctx.fillRect(cellX + 4, cellY + 34, tile - 8, 2);
         }
       } else if (room.terrain === "orchard") {
         ctx.fillStyle = "rgba(255,255,255,0.05)";
@@ -4244,21 +5379,27 @@ function drawTerrainZone(room, now) {
 function drawPath(path) {
   const px = path.x * tile;
   const py = path.y * tile;
-  ctx.fillStyle = "#d8c7a3";
+  const gradient = ctx.createLinearGradient(px, py, px, py + path.h * tile);
+  gradient.addColorStop(0, "#d9c39f");
+  gradient.addColorStop(1, "#b49a74");
+  ctx.fillStyle = gradient;
   ctx.fillRect(px, py, path.w * tile, path.h * tile);
-  ctx.fillStyle = "rgba(255, 248, 222, 0.18)";
-  ctx.fillRect(px, py, path.w * tile, 5);
-  ctx.fillStyle = "rgba(122, 97, 68, 0.18)";
-  ctx.fillRect(px, py + path.h * tile - 5, path.w * tile, 5);
+  if (artAssets.bgTiles) {
+    drawTiledPatch(artAssets.bgTiles, 0, 128, 64, 64, px, py, path.w * tile, path.h * tile, 0.2);
+  }
+  ctx.fillStyle = "rgba(255, 248, 222, 0.12)";
+  ctx.fillRect(px, py, path.w * tile, 4);
+  ctx.fillStyle = "rgba(122, 97, 68, 0.16)";
+  ctx.fillRect(px, py + path.h * tile - 4, path.w * tile, 4);
   for (let x = 0; x < path.w * tile; x += 18) {
     for (let y = 0; y < path.h * tile; y += 18) {
-      ctx.fillStyle = (x + y) % 36 === 0 ? "rgba(132, 108, 81, 0.18)" : "rgba(255,255,255,0.12)";
+      ctx.fillStyle = (x + y) % 36 === 0 ? "rgba(120, 95, 71, 0.16)" : "rgba(255,255,255,0.08)";
       ctx.fillRect(px + x + 4, py + y + 5, 4, 4);
     }
   }
-  for (let x = 10; x < path.w * tile; x += 36) {
-    ctx.fillStyle = "rgba(151, 126, 89, 0.18)";
-    ctx.fillRect(px + x, py + 9, 8, path.h * tile - 18);
+  for (let x = 10; x < path.w * tile; x += 40) {
+    ctx.fillStyle = "rgba(151, 126, 89, 0.15)";
+    ctx.fillRect(px + x, py + 8, 6, path.h * tile - 16);
   }
 }
 
@@ -4379,28 +5520,52 @@ function drawObstacle(obstacle, now) {
   }
 }
 
-function drawTree(centerX, centerY, now) {
-  const sway = Math.sin(now / 420 + centerX / 70) * 3;
+function drawTree(centerX, centerY, now, variant = 0, scale = 0.9) {
+  const sway = Math.sin(now / 420 + centerX / 70) * 2.5;
   ctx.fillStyle = "rgba(31, 46, 25, 0.18)";
   ctx.beginPath();
-  ctx.ellipse(centerX, centerY + 8, 18, 8, 0, 0, Math.PI * 2);
+  ctx.ellipse(centerX, centerY + 11, 18 * scale, 8 * scale, 0, 0, Math.PI * 2);
   ctx.fill();
-  ctx.fillStyle = "#66452c";
-  ctx.fillRect(centerX - 5, centerY - 4, 10, 16);
-  ctx.fillStyle = "#805b39";
-  ctx.fillRect(centerX - 3, centerY - 4, 3, 14);
-  ctx.fillStyle = "#4f8247";
-  ctx.beginPath();
-  ctx.arc(centerX + sway, centerY - 12, 16, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#6ea35f";
-  ctx.beginPath();
-  ctx.arc(centerX - 6 + sway * 0.8, centerY - 14, 8, 0, Math.PI * 2);
-  ctx.arc(centerX + 7 + sway * 0.8, centerY - 10, 7, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "rgba(255,255,255,0.18)";
-  ctx.fillRect(centerX - 8 + sway * 0.6, centerY - 22, 5, 3);
-  ctx.fillRect(centerX + 2 + sway * 0.6, centerY - 18, 4, 2);
+  if (!artAssets.treesSheet) {
+    ctx.fillStyle = "#66452c";
+    ctx.fillRect(centerX - 5, centerY - 4, 10, 16);
+    ctx.fillStyle = "#805b39";
+    ctx.fillRect(centerX - 3, centerY - 4, 3, 14);
+    ctx.fillStyle = "#4f8247";
+    ctx.beginPath();
+    ctx.arc(centerX + sway, centerY - 12, 16, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+  const sx = (variant % 2) * 96;
+  const sy = Math.floor(variant / 2) * 112;
+  const canopyHeight = 74;
+  const trunkHeight = 38;
+  const drawWidth = Math.round(58 * scale);
+  const canopyWidth = Math.round(64 * scale);
+  const canopyX = Math.round(centerX - canopyWidth / 2 + sway);
+  const canopyY = Math.round(centerY - 76 * scale);
+  const trunkX = Math.round(centerX - drawWidth / 2);
+  const trunkY = Math.round(centerY - 12 * scale);
+  drawAssetSprite(artAssets.treesSheet, sx, sy + canopyHeight, 96, trunkHeight, trunkX, trunkY, drawWidth, Math.round(34 * scale), 0.98);
+  foregroundNature.push({
+    image: artAssets.treesSheet,
+    sx,
+    sy,
+    sw: 96,
+    sh: canopyHeight,
+    dx: canopyX,
+    dy: canopyY,
+    dw: canopyWidth,
+    dh: Math.round(72 * scale),
+    baseY: centerY,
+  });
+}
+
+function drawForegroundNature() {
+  foregroundNature
+    .sort((left, right) => left.baseY - right.baseY)
+    .forEach((layer) => drawAssetSprite(layer.image, layer.sx, layer.sy, layer.sw, layer.sh, layer.dx, layer.dy, layer.dw, layer.dh, 0.98));
 }
 
 function drawFenceLine(x1, y1, x2, y2) {
@@ -5264,6 +6429,7 @@ if (bankWithdrawBtn) {
 }
 
 if (taxPolicyForm) {
+  bindTaxPolicyDraftInputs();
   taxPolicyForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!state) return;
@@ -5271,25 +6437,28 @@ if (taxPolicyForm) {
       if (taxPolicyStatus) taxPolicyStatus.textContent = "税务参数正在提交，请稍等一秒。";
       return;
     }
+    if (!taxPolicyDraft) ensureTaxPolicyDraft(state.government || {});
     taxPolicyPending = true;
     if (taxPolicySubmitBtn) taxPolicySubmitBtn.disabled = true;
     try {
       state = await api("/api/government/policy", {
         method: "POST",
         body: JSON.stringify({
-          wage_tax_rate_pct: Number(wageTaxInput?.value || 0),
-          securities_tax_rate_pct: Number(securitiesTaxInput?.value || 0),
-          property_transfer_tax_rate_pct: Number(propertyTransferTaxInput?.value || 0),
-          property_holding_tax_rate_pct: Number(propertyHoldingTaxInput?.value || 0),
-          consumption_tax_rate_pct: Number(consumptionTaxInput?.value || 0),
-          luxury_tax_rate_pct: Number(luxuryTaxInput?.value || 0),
-          enforcement_level: Number(enforcementLevelInput?.value || 0),
-          welfare_low_cash_threshold: Number(welfareThresholdInput?.value || 0),
-          welfare_base_support: Number(welfareBaseInput?.value || 0),
-          welfare_bankruptcy_support: Number(welfareBankruptcyInput?.value || 0),
-          note: taxPolicyNoteInput?.value || "",
+          wage_tax_rate_pct: Number(taxPolicyDraft?.wage_tax_rate_pct || 0),
+          securities_tax_rate_pct: Number(taxPolicyDraft?.securities_tax_rate_pct || 0),
+          property_transfer_tax_rate_pct: Number(taxPolicyDraft?.property_transfer_tax_rate_pct || 0),
+          property_holding_tax_rate_pct: Number(taxPolicyDraft?.property_holding_tax_rate_pct || 0),
+          consumption_tax_rate_pct: Number(taxPolicyDraft?.consumption_tax_rate_pct || 0),
+          luxury_tax_rate_pct: Number(taxPolicyDraft?.luxury_tax_rate_pct || 0),
+          enforcement_level: Number(taxPolicyDraft?.enforcement_level || 0),
+          welfare_low_cash_threshold: Number(taxPolicyDraft?.welfare_low_cash_threshold || 0),
+          welfare_base_support: Number(taxPolicyDraft?.welfare_base_support || 0),
+          welfare_bankruptcy_support: Number(taxPolicyDraft?.welfare_bankruptcy_support || 0),
+          note: taxPolicyDraft?.note || "",
         }),
       });
+      taxPolicyDraft = taxPolicySnapshot(state.government || {});
+      taxPolicyDraftDirty = false;
       syncSceneEntities();
       renderPanels();
       if (taxPolicyStatus) {
