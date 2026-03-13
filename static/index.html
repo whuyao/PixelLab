@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GeoAI Pixel Lab Test (UrbanComp Lab)</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260313aa" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260313aj" />
   </head>
   <body>
     <div class="project-banner">
@@ -17,6 +17,7 @@
         <button type="button" class="view-tab" data-view="market">市场</button>
         <button type="button" class="view-tab" data-view="life">生活与地产</button>
         <button type="button" class="view-tab" data-view="government">财政与政府</button>
+        <button type="button" class="view-tab" data-view="feed">小镇微博</button>
         <button type="button" class="view-tab" data-view="journal">日志与观察</button>
         <button type="button" class="view-tab" data-view="teaching">智能体教学</button>
       </nav>
@@ -509,6 +510,58 @@
         </div>
       </section>
 
+      <section class="view" data-view="feed">
+        <div class="feed-layout">
+          <div class="feed-main">
+            <section class="panel feed-composer-panel">
+              <div class="panel-head">
+                <h2>小镇微博</h2>
+                <span class="panel-tag">公开表达 / 轻舆论场 / 传播反应</span>
+              </div>
+              <form id="feedForm" class="feed-form">
+                <div class="feed-form-row">
+                  <select id="feedCategory" name="category">
+                    <option value="daily">日常</option>
+                    <option value="mood">心情</option>
+                    <option value="research">研究</option>
+                    <option value="market">市场</option>
+                    <option value="property">地产</option>
+                    <option value="tourism">游客</option>
+                    <option value="policy">政策</option>
+                    <option value="gossip">八卦</option>
+                  </select>
+                  <button id="feedSubmitBtn" type="submit">发布帖子</button>
+                </div>
+                <div id="feedComposerMeta" class="composer-tip"></div>
+                <textarea id="feedInput" name="content" rows="3" placeholder="写一条你想公开说的话：可以是更深入的研究判断、市场推演、情绪梳理、游客见闻，或者对某件事的公开态度。"></textarea>
+              </form>
+              <p id="feedStatus" class="signal-status"></p>
+            </section>
+            <section class="panel feed-timeline-panel">
+              <div class="panel-head">
+                <h2>小镇微博时间线</h2>
+                <span class="panel-tag">公开帖子 / 近 1000 条</span>
+              </div>
+              <div id="feedTimelineBox" class="feed-timeline-box"></div>
+            </section>
+          </div>
+          <aside class="feed-side">
+            <section class="panel feed-hot-panel">
+              <div class="panel-head">
+                <h2>小镇舆论场</h2>
+                <span class="panel-tag">总览 / 热榜 / 传播</span>
+              </div>
+              <div id="feedSideTabs" class="feed-subnav">
+                <button type="button" class="feed-side-tab is-active" data-feed-side-tab="overview">总览</button>
+                <button type="button" class="feed-side-tab" data-feed-side-tab="leaderboard">热榜</button>
+                <button type="button" class="feed-side-tab" data-feed-side-tab="propagation">传播</button>
+              </div>
+              <div id="feedSummaryBox" class="stack"></div>
+            </section>
+          </aside>
+        </div>
+      </section>
+
       <section class="view" data-view="teaching">
         <div class="teaching-layout">
           <section class="panel teaching-hero-panel">
@@ -628,12 +681,36 @@
                   <strong>开放系统</strong>
                   <div>游客、Brave 新闻或系统新闻、节庆活动和随机事件把外部冲击带进园区。</div>
                 </article>
+                <article class="event-card">
+                  <strong>公开舆论系统</strong>
+                  <div>小镇微博把私人想法变成公开信号，再把热度、可信度和围观传播回市场、游客、政府和关系网络。</div>
+                </article>
               </div>
             </section>
 
             <section class="panel teaching-panel">
               <div class="panel-head">
-                <h2>6. 一个简化数学模型</h2>
+                <h2>6. 小镇微博为什么重要</h2>
+                <span class="panel-tag">公开信号层</span>
+              </div>
+              <div class="teaching-block">
+                <p>小镇微博不是“附带的聊天页”，而是系统里的半公开舆论场。玩家、核心智能体、游客和政府都可以发帖、回帖、引用、点赞、转发和围观。</p>
+                <ul class="teaching-list">
+                  <li>私人体验会被公开化，变成大家都能看到的信号</li>
+                  <li>高热帖子会进入记忆、晨报和地图围观反应</li>
+                  <li>游客热帖会推高到访与消费预期</li>
+                  <li>政策帖会进入政府已知信息，改变建设和监管判断</li>
+                  <li>市场帖会改变情绪和交易倾向</li>
+                </ul>
+                <div class="teaching-mini-formula">
+                  <code>公开帖子 -> 热度 / 可信度 -> 记忆 / 市场 / 游客 / 政府 -> 下一轮行为</code>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel teaching-panel">
+              <div class="panel-head">
+                <h2>7. 一个简化数学模型</h2>
                 <span class="panel-tag">面向课堂</span>
               </div>
               <div class="teaching-block">
@@ -649,20 +726,24 @@
                 <div class="teaching-mini-formula">
                   <code>Emergence = Σ local interactions + delayed feedback + institutional constraints</code>
                 </div>
+                <div class="teaching-mini-formula">
+                  <code>FeedImpact = Heat × Credibility × TopicWeight</code>
+                </div>
               </div>
             </section>
 
             <section class="panel teaching-panel">
               <div class="panel-head">
-                <h2>7. 本项目适合怎么学</h2>
+                <h2>8. 本项目适合怎么学</h2>
                 <span class="panel-tag">课堂路径</span>
               </div>
               <div class="teaching-block">
                 <ol class="teaching-list ordered">
                   <li>先在首页观察地图和驾驶舱，理解世界里有哪些主体。</li>
                   <li>再去市场页看价格、借贷、游客消费和信贷监控。</li>
+                  <li>去小镇微博看公共舆论、热帖、传播链和政府回应。</li>
                   <li>去财政页看税率、保障、政府投资和制度反馈。</li>
-                  <li>最后到日志页，把实时对话、事件流和新闻时间线串起来。</li>
+                  <li>最后到日志页，把实时对话、事件流、晨报和新闻时间线串起来。</li>
                 </ol>
               </div>
             </section>
@@ -694,6 +775,6 @@
       <span>UrbanComp Lab (<a href="https://urbancomp.net" target="_blank" rel="noreferrer">https://urbancomp.net</a>) 开发</span>
       <span>GitHub：<a href="https://github.com/whuyao/PixelLab" target="_blank" rel="noreferrer">https://github.com/whuyao/PixelLab</a></span>
     </footer>
-    <script src="/static/app.js?v=20260313aa" type="module"></script>
+    <script src="/static/app.js?v=20260313aj" type="module"></script>
   </body>
 </html>

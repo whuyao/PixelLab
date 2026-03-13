@@ -61,6 +61,15 @@ const lifestyleSummary = document.getElementById("lifestyleSummary");
 const consumeCatalog = document.getElementById("consumeCatalog");
 const propertyList = document.getElementById("propertyList");
 const lifestyleStatus = document.getElementById("lifestyleStatus");
+const feedForm = document.getElementById("feedForm");
+const feedInput = document.getElementById("feedInput");
+const feedCategory = document.getElementById("feedCategory");
+const feedSubmitBtn = document.getElementById("feedSubmitBtn");
+const feedStatus = document.getElementById("feedStatus");
+const feedTimelineBox = document.getElementById("feedTimelineBox");
+const feedSummaryBox = document.getElementById("feedSummaryBox");
+const feedComposerMeta = document.getElementById("feedComposerMeta");
+const feedSideTabs = Array.from(document.querySelectorAll(".feed-side-tab"));
 const marketCanvas = document.getElementById("marketCanvas");
 const marketCtx = marketCanvas.getContext("2d");
 const marketMeta = document.getElementById("marketMeta");
@@ -113,7 +122,7 @@ const welfareBankruptcyInput = document.getElementById("welfareBankruptcyInput")
 const taxPolicyNoteInput = document.getElementById("taxPolicyNoteInput");
 const taxPolicySubmitBtn = document.getElementById("taxPolicySubmitBtn");
 const taxPolicyStatus = document.getElementById("taxPolicyStatus");
-const ASSET_VERSION = "20260313aa";
+const ASSET_VERSION = "20260313aj";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -124,6 +133,8 @@ const timeLabels = {
   night: "夜晚",
 };
 
+const slotOrder = ["morning", "noon", "afternoon", "evening", "night"];
+
 const weatherLabels = {
   sunny: "晴朗",
   breezy: "有风",
@@ -131,10 +142,11 @@ const weatherLabels = {
   drizzle: "小雨",
 };
 
-const availableViews = new Set(["home", "market", "life", "government", "journal", "teaching"]);
+const availableViews = new Set(["home", "market", "life", "government", "journal", "feed", "teaching"]);
 
 function routeForTargetKind(targetKind) {
   if (["market", "stock"].includes(targetKind)) return "market";
+  if (["feed", "post"].includes(targetKind)) return "feed";
   if (["gray_case", "dialogue", "event", "story"].includes(targetKind)) return "journal";
   return "journal";
 }
@@ -169,6 +181,12 @@ function setCurrentMarketTab(tab) {
       .filter(Boolean);
     section.classList.toggle("is-hidden", !allowed.includes(normalized));
   });
+}
+
+function setCurrentFeedSideTab(tab) {
+  const normalized = ["overview", "leaderboard", "propagation"].includes(tab) ? tab : "overview";
+  currentFeedSideTab = normalized;
+  feedSideTabs.forEach((button) => button.classList.toggle("is-active", button.dataset.feedSideTab === normalized));
 }
 
 function openActorModal() {
@@ -853,6 +871,10 @@ let tradePending = false;
 let lifestylePending = false;
 let grayCasePending = false;
 let macroPending = false;
+let feedPending = false;
+let feedReplyTargetId = "";
+let feedQuoteTargetId = "";
+let currentFeedSideTab = "overview";
 let selectedConsumeItemId = "";
 let selectedOwnedPropertyId = "";
 let selectedListedPropertyId = "";
@@ -860,6 +882,7 @@ let diffInFlight = false;
 let currentView = "home";
 let actorModalVisible = false;
 let currentMarketTab = "overview";
+let stableFeedCluster = null;
 const cameraState = {
   zoom: 1,
   manual: false,
@@ -1157,6 +1180,7 @@ function renderPanels() {
   if (!state) return;
   setCurrentView(currentView, { updateHash: false });
   setCurrentMarketTab(currentMarketTab);
+  setCurrentFeedSideTab(currentFeedSideTab);
   dayLabel.textContent = `第 ${state.day} 天`;
   timeLabel.textContent = timeLabels[state.time_slot];
   weatherLabel.textContent = weatherLabels[state.weather] || state.weather || "晴朗";
@@ -1243,6 +1267,19 @@ function renderPanels() {
       "gray-cases",
       serverSignature("gray_cases", [state.gray_cases], [highlightedGrayCaseId]),
       () => renderGrayCaseActions(),
+    );
+  }
+  if (isViewVisible("feed")) {
+    renderFeedComposerMeta();
+    renderIfChanged(
+      "feed-timeline",
+      serverSignature("feed", [state.feed_timeline?.slice(0, 1000)]),
+      () => renderFeedTimeline(),
+    );
+    renderIfChanged(
+      "feed-summary",
+      serverSignature("feed", [state.feed_timeline?.slice(0, 180)], [currentFeedSideTab]),
+      () => renderFeedSummary(),
     );
   }
   renderIfChanged(
@@ -2977,6 +3014,270 @@ function renderFinanceHistory() {
   financeHistoryBox.innerHTML = renderFinanceHistoryEntries((state.finance_history || []).slice(0, 20));
 }
 
+function feedCategoryLabel(category) {
+  return {
+    daily: "日常",
+    mood: "心情",
+    research: "研究",
+    market: "市场",
+    property: "地产",
+    tourism: "游客",
+    policy: "政策",
+    gossip: "八卦",
+  }[category] || "动态";
+}
+
+function feedAuthorLabel(post) {
+  return {
+    player: "玩家",
+    agent: "智能体",
+    tourist: "游客",
+    government: "政府",
+    system: "系统",
+  }[post.author_type] || "角色";
+}
+
+function buildFeedThreadForPost(post, maxItems = 4) {
+  const posts = state.feed_timeline || [];
+  const replies = posts.filter((item) => item.reply_to_post_id === post.id || item.quote_post_id === post.id);
+  replies.sort((left, right) => (right.heat || 0) - (left.heat || 0) || (right.views || 0) - (left.views || 0));
+  const visible = replies.slice(0, maxItems);
+  return { visible, hiddenCount: Math.max(0, replies.length - visible.length) };
+}
+
+function renderFeedThread(post) {
+  const { visible, hiddenCount } = buildFeedThreadForPost(post);
+  if (!visible.length) return "";
+  const items = visible
+    .map((item) => {
+      const itemClass = item.category === "gossip" ? "is-gossip" : item.category === "policy" ? "is-policy" : "";
+      return `
+        <div class="feed-thread-item ${itemClass}">
+          <div class="feed-thread-meta">
+            <span>${escapeHtml(item.author_name)} · ${escapeHtml(feedCategoryLabel(item.category))}</span>
+            <span>热度 ${item.heat || 0} · 转发 ${item.reposts || 0}</span>
+          </div>
+          <div class="feed-thread-content">${escapeHtml(truncateText(item.content, 96))}</div>
+        </div>
+      `;
+    })
+    .join("");
+  const more = hiddenCount > 0 ? `<div class="feed-thread-more">还有 ${hiddenCount} 条继续争论/接话没展开。</div>` : "";
+  return `<div class="feed-thread">${items}${more}</div>`;
+}
+
+function renderFeedCard(post) {
+  const replyTo = post.reply_to_post_id ? (state.feed_timeline || []).find((item) => item.id === post.reply_to_post_id) : null;
+  const quoteTo = post.quote_post_id ? (state.feed_timeline || []).find((item) => item.id === post.quote_post_id) : null;
+  const tags = (post.topic_tags || []).slice(0, 4).map((tag) => `<span class="feed-chip">${escapeHtml(tag)}</span>`).join("");
+  const desireTags = (post.desire_tags || []).slice(0, 3).map((tag) => `<span class="feed-chip desire">${escapeHtml(tag)}</span>`).join("");
+  const impacts = (post.impacts || []).slice(0, 3).map((tag) => `<span class="feed-impact">${escapeHtml(tag)}</span>`).join("");
+  const heatClass = post.heat >= 18 ? "hot" : post.heat >= 10 ? "warm" : "";
+  const threadMarkup = renderFeedThread(post);
+  return `
+    <article class="feed-card ${heatClass}">
+      <div class="feed-card-head">
+        <div>
+          <strong>${escapeHtml(post.author_name)}</strong>
+          <span class="feed-author-type">${feedAuthorLabel(post)}</span>
+        </div>
+        <div class="feed-meta-group">
+          <span>${escapeHtml(feedCategoryLabel(post.category))}</span>
+          <span>第 ${post.day} 天 · ${escapeHtml(timeLabels[post.time_slot] || post.time_slot)}</span>
+        </div>
+      </div>
+      ${replyTo ? `<div class="feed-linkline">回复 @${escapeHtml(replyTo.author_name)}：${escapeHtml(truncateText(replyTo.content, 44))}</div>` : ""}
+      ${quoteTo ? `<div class="feed-linkline">引用 @${escapeHtml(quoteTo.author_name)}：${escapeHtml(truncateText(quoteTo.content, 44))}</div>` : ""}
+      <div class="feed-content">${escapeHtml(post.content)}</div>
+      ${post.summary ? `<div class="feed-summary">${escapeHtml(post.summary)}</div>` : ""}
+      <div class="feed-chip-row">${tags}${desireTags}</div>
+      <div class="feed-impact-row">${impacts}</div>
+      ${threadMarkup}
+      <div class="feed-stats">
+        <span>热度 ${post.heat || 0}</span>
+        <span>可信度 ${post.credibility || 0}</span>
+        <span>围观 ${post.views || 0}</span>
+        <span>点赞 ${post.likes || 0}</span>
+        <span>转发 ${post.reposts || 0}</span>
+      </div>
+      <div class="feed-action-row">
+        <button type="button" class="feed-action-btn" data-feed-action="reply" data-feed-post-id="${post.id}">回复</button>
+        <button type="button" class="feed-action-btn" data-feed-action="quote" data-feed-post-id="${post.id}">引用</button>
+        <button type="button" class="feed-action-btn" data-feed-action="like" data-feed-post-id="${post.id}">点赞</button>
+        <button type="button" class="feed-action-btn" data-feed-action="repost" data-feed-post-id="${post.id}">转发</button>
+        <button type="button" class="feed-action-btn" data-feed-action="watch" data-feed-post-id="${post.id}">围观</button>
+      </div>
+    </article>
+  `;
+}
+
+function renderFeedTimeline() {
+  if (!feedTimelineBox) return;
+  const posts = (state.feed_timeline || []).slice(0, 1000);
+  if (!posts.length) {
+    feedTimelineBox.innerHTML = '<div class="feed-empty">这里会出现玩家、智能体、游客和政府在小镇微博上的公开帖子。</div>';
+    return;
+  }
+  feedTimelineBox.innerHTML = posts.map((post) => renderFeedCard(post)).join("");
+}
+
+function renderFeedSummary() {
+  if (!feedSummaryBox) return;
+  const posts = (state.feed_timeline || []).slice(0, 180);
+  if (!posts.length) {
+    feedSummaryBox.innerHTML = '<div class="memory-meta">等第一批公开帖子出现后，这里会显示热帖、热门话题和高热角色。</div>';
+    return;
+  }
+  const hotPosts = [...posts].sort((left, right) => (right.heat || 0) - (left.heat || 0)).slice(0, 12);
+  const leaderboard = [...posts].sort((left, right) => (right.heat || 0) - (left.heat || 0)).slice(0, 15);
+  const topicCounter = new Map();
+  posts.forEach((post) => (post.topic_tags || []).forEach((tag) => topicCounter.set(tag, (topicCounter.get(tag) || 0) + 1)));
+  const hotTopics = [...topicCounter.entries()].sort((left, right) => right[1] - left[1]).slice(0, 6);
+  const authorCounter = new Map();
+  posts.forEach((post) => authorCounter.set(post.author_name, (authorCounter.get(post.author_name) || 0) + (post.heat || 0)));
+  const hotAuthors = [...authorCounter.entries()].sort((left, right) => right[1] - left[1]).slice(0, 4);
+  const propagationTop = [...posts]
+    .map((post) => {
+      const replies = posts.filter((item) => item.reply_to_post_id === post.id).length;
+      const quotes = posts.filter((item) => item.quote_post_id === post.id).length;
+      return { post, chain: replies + quotes + (post.reposts || 0) };
+    })
+    .filter((item) => item.chain > 0)
+    .sort((left, right) => right.chain - left.chain)
+    .slice(0, 10);
+  const overviewCards = `
+    <article class="event-card">
+      <strong>热帖</strong>
+      <div class="stack">
+        ${hotPosts
+          .map(
+            (post) => `
+            <div class="feed-summary-row">
+              <span>${escapeHtml(post.author_name)} · ${escapeHtml(feedCategoryLabel(post.category))}</span>
+              <strong>热度 ${post.heat || 0}</strong>
+            </div>
+            <div class="event-meta">${escapeHtml(truncateText(post.content, 46))}</div>
+          `,
+          )
+          .join("")}
+      </div>
+    </article>
+    <article class="event-card">
+      <strong>热门话题</strong>
+      <div class="feed-chip-row">
+        ${hotTopics.map(([tag, count]) => `<span class="feed-chip">#${escapeHtml(tag)} · ${count}</span>`).join("") || '<span class="memory-meta">暂无明显聚集话题。</span>'}
+      </div>
+    </article>
+    <article class="event-card">
+      <strong>高热作者</strong>
+      <div class="stack">
+        ${hotAuthors
+          .map(
+            ([name, score]) => `<div class="feed-summary-row"><span>${escapeHtml(name)}</span><strong>${score}</strong></div>`,
+          )
+          .join("")}
+      </div>
+    </article>
+  `;
+  const leaderboardCards = `
+    <article class="event-card">
+      <strong>热榜 Top 15</strong>
+      <div class="stack">
+        ${leaderboard
+          .map(
+            (post, index) => `
+            <div class="feed-summary-row">
+              <span>No.${index + 1} · ${escapeHtml(post.author_name)} · ${escapeHtml(feedCategoryLabel(post.category))}</span>
+              <strong>${post.heat || 0}</strong>
+            </div>
+            <div class="event-meta">可信度 ${post.credibility || 0} · 围观 ${post.views || 0} · 转发 ${post.reposts || 0}</div>
+            <div class="event-meta">${escapeHtml(truncateText(post.content, 52))}</div>
+          `,
+          )
+          .join("")}
+      </div>
+    </article>
+  `;
+  const propagationCards = `
+    <article class="event-card">
+      <strong>传播链</strong>
+      <div class="stack">
+        ${
+          propagationTop.length
+            ? propagationTop
+                .map(
+                  ({ post, chain }) => `
+                  <div class="feed-summary-row">
+                    <span>${escapeHtml(post.author_name)} · ${escapeHtml(truncateText(post.content, 24))}</span>
+                    <strong>链长 ${chain}</strong>
+                  </div>
+                  <div class="event-meta">转发 ${post.reposts || 0} · 围观 ${post.views || 0} · 点赞 ${post.likes || 0}</div>
+                `,
+                )
+                .join("")
+            : '<div class="memory-meta">当前还没有明显扩散的转发链。</div>'
+        }
+      </div>
+    </article>
+    <article class="event-card">
+      <strong>扩散作者</strong>
+      <div class="stack">
+        ${hotAuthors
+          .slice(0, 6)
+          .map(
+            ([name, score]) => `<div class="feed-summary-row"><span>${escapeHtml(name)}</span><strong>扩散值 ${score}</strong></div>`,
+          )
+          .join("")}
+      </div>
+    </article>
+    <article class="event-card">
+      <strong>争吵楼中楼</strong>
+      <div class="stack">
+        ${
+          propagationTop.length
+            ? propagationTop
+                .slice(0, 5)
+                .map(({ post, chain }) => {
+                  const { visible } = buildFeedThreadForPost(post, 2);
+                  const participants = new Set([post.author_name, ...visible.map((item) => item.author_name)]);
+                  return `
+                    <div class="feed-summary-row">
+                      <span>${escapeHtml(post.author_name)} 发起 · ${escapeHtml(feedCategoryLabel(post.category))}</span>
+                      <strong>楼层 ${chain}</strong>
+                    </div>
+                    <div class="event-meta">${escapeHtml(truncateText(post.content, 48))}</div>
+                    <div class="event-meta">参与者：${escapeHtml([...participants].join(" · "))}</div>
+                  `;
+                })
+                .join("")
+            : '<div class="memory-meta">当前还没有明显成型的公开争论楼中楼。</div>'
+        }
+      </div>
+    </article>
+  `;
+  feedSummaryBox.innerHTML =
+    currentFeedSideTab === "leaderboard"
+      ? leaderboardCards
+      : currentFeedSideTab === "propagation"
+        ? propagationCards
+        : overviewCards;
+}
+
+function renderFeedComposerMeta() {
+  if (!feedComposerMeta) return;
+  const replyTo = feedReplyTargetId ? (state?.feed_timeline || []).find((item) => item.id === feedReplyTargetId) : null;
+  const quoteTo = feedQuoteTargetId ? (state?.feed_timeline || []).find((item) => item.id === feedQuoteTargetId) : null;
+  if (replyTo) {
+    feedComposerMeta.innerHTML = `当前在回复 <strong>@${escapeHtml(replyTo.author_name)}</strong>：${escapeHtml(truncateText(replyTo.content, 34))} <button type="button" class="feed-inline-clear" data-feed-clear="reply">取消</button>`;
+    return;
+  }
+  if (quoteTo) {
+    feedComposerMeta.innerHTML = `当前在引用 <strong>@${escapeHtml(quoteTo.author_name)}</strong>：${escapeHtml(truncateText(quoteTo.content, 34))} <button type="button" class="feed-inline-clear" data-feed-clear="quote">取消</button>`;
+    return;
+  }
+  feedComposerMeta.textContent = "小镇微博上的公开帖子会被玩家、智能体、游客和政府看到；高热帖子会进入记忆，并可能改变市场、游客和关系。";
+}
+
 function renderDialogue() {
   const timelineSnapshot = captureDialogueTimelineState();
   const latest = pendingDialogue || state.latest_dialogue;
@@ -3782,23 +4083,72 @@ function drawDownloadedScenery(now) {
 function latestWorldSignalText() {
   const eventTitles = (state?.events || []).slice(0, 3).map((event) => `${event.title} ${event.summary}`);
   const briefingText = ((state?.daily_briefings?.[0]?.entries || []).slice(0, 4).map((entry) => `${entry.title || ""} ${entry.summary || ""}`));
-  return [...eventTitles, ...briefingText, state?.tourism?.latest_signal || ""].join(" ");
+  const feedText = (state?.feed_timeline || []).slice(0, 4).map((post) => `${post.author_name} ${post.category} ${post.content}`);
+  return [...eventTitles, ...briefingText, ...feedText, state?.tourism?.latest_signal || ""].join(" ");
+}
+
+function slotIndex(slot) {
+  return slotOrder.indexOf(slot);
+}
+
+function postAgeSlots(post) {
+  if (!state || !post) return 999;
+  const currentSerial = state.day * slotOrder.length + Math.max(0, slotIndex(state.time_slot));
+  const postSerial = post.day * slotOrder.length + Math.max(0, slotIndex(post.time_slot));
+  return Math.max(0, currentSerial - postSerial);
+}
+
+function getHotFeedFocus() {
+  const posts = state?.feed_timeline || [];
+  const hot = posts.find((post) => (post.heat || 0) >= 24) || posts[0];
+  if (!hot) return null;
+  const participants = posts
+    .filter((post) => post.id === hot.id || post.reply_to_post_id === hot.id || post.quote_post_id === hot.id)
+    .map((post) => ({ id: post.author_id, type: post.author_type, category: post.category, author: post.author_name }));
+  return { hot, participants, ageSlots: postAgeSlots(hot) };
 }
 
 function latestRecentEventText(limit = 6) {
   return ((state?.event_history || state?.events || []).slice(0, limit).map((event) => `${event.title || ""} ${event.summary || ""}`)).join(" ");
 }
 
+function recentEventRecords(limit = 8) {
+  return (state?.event_history || state?.events || []).slice(0, limit);
+}
+
+function recentFeedPosts(limit = 8) {
+  return (state?.feed_timeline || []).slice(0, limit);
+}
+
 function getSceneReactionState() {
   const text = `${latestWorldSignalText()} ${latestRecentEventText(8)}`;
   const timeSlot = state?.time_slot || "morning";
+  const hotFeedFocus = getHotFeedFocus();
+  const events = recentEventRecords(8);
+  const posts = recentFeedPosts(8);
+  const tourismSignalCount =
+    events.filter((event) => /游客|旅馆|集市|文旅|消费|回头客|高消费|看房/.test(`${event.title || ""} ${event.summary || ""}`)).length +
+    posts.filter((post) => post.category === "tourism" && (post.heat || 0) >= 32 && postAgeSlots(post) <= 2).length;
+  const marketSignalCount =
+    events.filter((event) => /市场|股票|大盘|借贷|银行|财政|监管/.test(`${event.title || ""} ${event.summary || ""}`)).length +
+    posts.filter((post) => ["market", "policy"].includes(post.category) && (post.heat || 0) >= 30 && postAgeSlots(post) <= 2).length;
+  const regulationSignalCount =
+    events.filter((event) => /监管|抽查|税|财政|政府/.test(`${event.title || ""} ${event.summary || ""}`)).length +
+    posts.filter((post) => post.category === "policy" && (post.heat || 0) >= 28 && postAgeSlots(post) <= 2).length;
   return {
     researchHot: /GeoAI|研究|空间智能|推理|样本|训练|基线|里程碑|工坊/.test(text),
-    tourismHot: /游客|旅馆|集市|文旅|消费|回头客|高消费/.test(text),
+    tourismHot: tourismSignalCount >= 2 || (state?.tourism?.daily_revenue || 0) >= 80 || (state?.tourism?.today_arrivals || 0) >= 2,
     housingInterest: /看房|购房|住房|公共住房|租住|地产/.test(text),
-    marketBusy: /市场|股票|买入|卖出|借贷|银行|财政|大盘/.test(text),
+    marketBusy: marketSignalCount >= 2,
     festivalMode: timeSlot === "evening" && /夜市|节庆|展演|活动日|热闹/.test(text),
-    regulationWave: /监管|抽查|税|财政|政府/.test(text),
+    regulationWave: regulationSignalCount >= 1,
+    feedBuzz: Boolean(hotFeedFocus?.hot && hotFeedFocus.ageSlots <= 2 && (hotFeedFocus.hot.heat || 0) >= 32),
+    governmentReplyHot:
+      Boolean(
+        hotFeedFocus?.hot &&
+        hotFeedFocus.ageSlots <= 2 &&
+        (hotFeedFocus.hot.author_type === "government" || /政府回应|财政与监管局|公共服务/.test(hotFeedFocus.hot.content || "")),
+      ),
   };
 }
 
@@ -4279,8 +4629,11 @@ function pushVisualCluster(plan, ids, center, poseTag, baseRadius = 24, startAng
 function buildVisualGroupPlan(now) {
   if (!state) return new Map();
   const flags = getSceneReactionState();
+  const hotFeedFocus = getHotFeedFocus();
+  const freshHotFeed = hotFeedFocus?.hot && hotFeedFocus.ageSlots <= 4 ? hotFeedFocus : null;
   const plan = new Map();
   const used = new Set();
+  if (!freshHotFeed) stableFeedCluster = null;
   const availableAgentIds = state.agents.filter((agent) => sceneEntities.agents.get(agent.id)).map((agent) => agent.id);
   const availableTourists = (state.tourists || []).filter((tourist) => sceneEntities.tourists.get(tourist.id));
   const unusedAgents = (matcher) =>
@@ -4293,19 +4646,19 @@ function buildVisualGroupPlan(now) {
 
   if (flags.researchHot && state.company?.position) {
     const center = gridToPixels(state.company.position);
-    const ids = unusedAgents((agent) => /GeoAI|研究|工坊|样本|训练|讨论/.test(`${agent.current_activity || ""} ${agent.current_plan || ""}`)).slice(0, 3);
+    const ids = unusedAgents((agent) => /GeoAI|研究|工坊|样本|训练|讨论/.test(`${agent.current_activity || ""} ${agent.current_plan || ""}`)).slice(0, 2);
     if (ids.length >= 2) {
       pushVisualCluster(plan, ids, { x: center.x + 8, y: center.y - 2 }, "研究讨论 GeoAI", 22, -Math.PI * 1.08);
       markUsed(ids);
     }
   }
 
-  if ((flags.festivalMode || flags.tourismHot) && state.tourism?.market_position) {
+  if (!freshHotFeed && (flags.festivalMode || flags.tourismHot) && state.tourism?.market_position) {
     const center = gridToPixels(state.tourism.market_position);
     const ids = [
-      ...unusedTourists((tourist) => tourist.visitor_tier === "vip" || tourist.visitor_tier === "repeat").slice(0, 2),
+      ...unusedTourists((tourist) => tourist.visitor_tier === "vip" || tourist.visitor_tier === "repeat").slice(0, 1),
       ...unusedAgents((agent) => /游客|集市|消费|营业|旅馆|服务/.test(`${agent.current_activity || ""} ${agent.current_plan || ""}`)).slice(0, 1),
-    ].slice(0, 3);
+    ].slice(0, 2);
     if (ids.length >= 2) {
       pushVisualCluster(plan, ids, { x: center.x - 4, y: center.y - 4 }, "夜市营业 游客消费", 26, -Math.PI * 0.95);
       markUsed(ids);
@@ -4315,24 +4668,72 @@ function buildVisualGroupPlan(now) {
   if (flags.housingInterest && state.tourism?.inn_position) {
     const center = gridToPixels(state.tourism.inn_position);
     const ids = [
-      ...unusedTourists((tourist) => tourist.visitor_tier === "buyer").slice(0, 2),
+      ...unusedTourists((tourist) => tourist.visitor_tier === "buyer").slice(0, 1),
       ...unusedAgents((agent) => /住房|地产|租住|看房/.test(`${agent.current_activity || ""} ${agent.current_plan || ""}`)).slice(0, 1),
-    ].slice(0, 3);
+    ].slice(0, 2);
     if (ids.length >= 1) {
       pushVisualCluster(plan, ids, { x: center.x + 18, y: center.y + 8 }, "看房 地产参观", 20, -Math.PI * 0.72);
       markUsed(ids);
     }
   }
 
-  if ((flags.marketBusy || flags.regulationWave) && state.tourism?.market_position) {
+  if (!freshHotFeed && (flags.marketBusy || flags.regulationWave) && state.tourism?.market_position) {
     const center = gridToPixels(state.tourism.market_position);
     const ids = [
-      ...unusedAgents((agent) => /围观|争|和解|调停|讨论|消息/.test(`${agent.current_activity || ""} ${agent.current_plan || ""}`)).slice(0, 2),
+      ...unusedAgents((agent) => /围观|争|和解|调停|讨论|消息/.test(`${agent.current_activity || ""} ${agent.current_plan || ""}`)).slice(0, 1),
       ...unusedTourists(() => true).slice(0, 1),
-    ].slice(0, 3);
+    ].slice(0, 2);
     if (ids.length >= 2) {
       pushVisualCluster(plan, ids, { x: center.x + 28, y: center.y + 14 }, "围观 讨论", 18, -Math.PI * 0.5);
       markUsed(ids);
+    }
+  }
+
+  if (freshHotFeed && state.tourism?.market_position) {
+    const center = gridToPixels(state.tourism.market_position);
+    const hotIds = (freshHotFeed.participants || [])
+      .filter((item) => item.type !== "player")
+      .map((item) => item.id)
+      .filter((id) => !used.has(id) && (sceneEntities.agents.has(id) || sceneEntities.tourists.has(id)));
+    const ids = [...hotIds, ...unusedAgents(() => true), ...unusedTourists(() => true)].slice(0, 2);
+    if (ids.length >= 2) {
+      const clusterKey = `${freshHotFeed.hot.id}:${ids.join(",")}`;
+      if (!stableFeedCluster || stableFeedCluster.key !== clusterKey || stableFeedCluster.until < now) {
+        stableFeedCluster = {
+          key: clusterKey,
+          ids,
+          until: now + 2800,
+          center: { x: center.x + 12, y: center.y - 10 },
+          poseTag: freshHotFeed.hot.category === "policy" ? "政府公告回应 围观" : "热帖围观 小镇微博",
+        };
+      }
+      pushVisualCluster(plan, stableFeedCluster.ids, stableFeedCluster.center, stableFeedCluster.poseTag, 22, -Math.PI * 0.82);
+      markUsed(stableFeedCluster.ids);
+    }
+  }
+
+  if (flags.governmentReplyHot && state.government?.government_asset_ids?.length) {
+    const facility = (state.properties || []).find((asset) => asset.owner_type === "government" && asset.status === "owned");
+    if (facility) {
+      const center = gridToPixels({ x: facility.position.x, y: facility.position.y });
+      const ids = unusedAgents((agent) => /财政|政府|监管|政策/.test(`${agent.current_activity || ""} ${agent.current_plan || ""}`)).slice(0, 2);
+      if (ids.length >= 1) {
+        pushVisualCluster(plan, ids, { x: center.x + 10, y: center.y + 8 }, "政府回应 政策讨论", 16, -Math.PI * 0.64);
+        markUsed(ids);
+      }
+    }
+  }
+
+  if (freshHotFeed?.hot && state.tourism?.market_position) {
+    const center = gridToPixels(state.tourism.market_position);
+    const chainIds = (freshHotFeed.participants || [])
+      .filter((item) => item.type !== "player")
+      .map((item) => item.id)
+      .filter((id) => !used.has(id) && (sceneEntities.agents.has(id) || sceneEntities.tourists.has(id)))
+      .slice(0, 2);
+    if (chainIds.length >= 2 && /gossip|policy|market/.test(freshHotFeed.hot.category || "")) {
+      pushVisualCluster(plan, chainIds, { x: center.x + 34, y: center.y - 4 }, "公开争论 热帖扩散", 20, -Math.PI * 0.58);
+      markUsed(chainIds);
     }
   }
 
@@ -4376,11 +4777,19 @@ function drawWorkshopReaction(now, point, flags) {
     ctx.font = '10px "PingFang SC", sans-serif';
     ctx.fillText("忙碌", center.x + 20, center.y + 18);
   }
+  if (flags.feedBuzz) {
+    ctx.fillStyle = "rgba(233, 188, 102, 0.18)";
+    roundRect(center.x - 44, center.y - 34, 88, 18, 8, true);
+    ctx.fillStyle = "#fff5dd";
+    ctx.font = '10px "PingFang SC", sans-serif';
+    ctx.fillText("热帖扩散", center.x - 18, center.y - 22);
+  }
 }
 
 function drawMarketReaction(now, point, flags) {
   const center = gridToPixels(point);
   const activeVisitors = Math.min(6, state?.tourists?.length || 0);
+  const hotFeedFocus = getHotFeedFocus();
   if (flags.tourismHot || flags.festivalMode) {
     drawLanternString(center.x - 40, center.y - 38, 4, 18);
     drawCrowdCluster(center.x - 18, center.y + 10, Math.max(3, activeVisitors), ["#d87d59", "#6c9f73", "#6c7bb3"]);
@@ -4391,10 +4800,19 @@ function drawMarketReaction(now, point, flags) {
     drawSparkPulse(center.x - 30, center.y - 4, 3, "rgba(246, 208, 108, 0.9)");
     drawSparkPulse(center.x + 32, center.y + 2, 3, "rgba(246, 208, 108, 0.9)");
   }
+  if (hotFeedFocus?.hot && hotFeedFocus.ageSlots <= 4 && (hotFeedFocus.hot.heat || 0) >= 30) {
+    ctx.fillStyle = "rgba(255, 239, 196, 0.2)";
+    roundRect(center.x - 52, center.y - 30, 104, 18, 8, true);
+    ctx.fillStyle = "#fff5de";
+    ctx.font = '10px "PingFang SC", sans-serif';
+    ctx.fillText("热帖讨论中", center.x - 20, center.y - 18);
+    drawCrowdCluster(center.x + 8, center.y - 2, 3, ["#8f73c7", "#d87d59", "#6c9f73"]);
+  }
 }
 
 function drawInnReaction(now, point, flags) {
   const center = gridToPixels(point);
+  const hotFeedFocus = getHotFeedFocus();
   if (flags.tourismHot) {
     ctx.fillStyle = "rgba(255, 231, 180, 0.16)";
     roundRect(center.x - 44, center.y - 12, 88, 38, 12, true);
@@ -4407,6 +4825,13 @@ function drawInnReaction(now, point, flags) {
     ctx.fillStyle = "#f7fff9";
     ctx.font = '9px "PingFang SC", sans-serif';
     ctx.fillText("看房", center.x + 35, center.y + 1);
+  }
+  if (hotFeedFocus?.hot && hotFeedFocus.ageSlots <= 4 && /property|tourism|gossip/.test(hotFeedFocus.hot.category || "")) {
+    ctx.fillStyle = "rgba(255, 248, 217, 0.16)";
+    roundRect(center.x - 38, center.y - 28, 76, 16, 8, true);
+    ctx.fillStyle = "#fff8e6";
+    ctx.font = '10px "PingFang SC", sans-serif';
+    ctx.fillText("游客驻足议论", center.x - 20, center.y - 17);
   }
 }
 
@@ -4928,6 +5353,18 @@ function drawActorIdleAnimation(id, centerX, baseY, moving, now, activity = "", 
       ctx.lineTo(centerX + 8, baseY - 28);
       ctx.stroke();
     }
+  }
+  if (/微博|热帖|公开帖子|围观/.test(text)) {
+    const alpha = 0.24 + (Math.sin(now / 180) + 1) * 0.11;
+    ctx.strokeStyle = `rgba(255, 214, 132, ${alpha})`;
+    ctx.beginPath();
+    ctx.arc(centerX, baseY - 24, 14 + Math.sin(now / 160) * 2, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255, 232, 176, 0.95)";
+    roundRect(centerX - 10, baseY - 56, 20, 10, 4, true);
+    ctx.fillStyle = "#7a5730";
+    ctx.font = '8px "PingFang SC", sans-serif';
+    ctx.fillText("帖", centerX - 3, baseY - 48);
   }
   if (/GeoAI|研究|样本|训练|基线|空间智能|工坊/.test(text)) {
     drawSparkPulse(centerX - 10, baseY - 46, 3, "rgba(110, 150, 236, 0.86)");
@@ -6499,6 +6936,97 @@ if (newsWindowSubmitBtn) {
   });
 }
 
+if (feedForm) {
+  feedForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!state) return;
+    if (feedPending) {
+      if (feedStatus) feedStatus.textContent = "这条帖子正在发布，请稍等一秒。";
+      return;
+    }
+    const content = (feedInput?.value || "").trim();
+    if (!content) {
+      if (feedStatus) feedStatus.textContent = "先写一句你想公开说的话。";
+      return;
+    }
+    feedPending = true;
+    if (feedSubmitBtn) feedSubmitBtn.disabled = true;
+    try {
+      state = await api("/api/feed/post", {
+        method: "POST",
+        body: JSON.stringify({
+          content,
+          category: feedCategory?.value || "daily",
+          reply_to_post_id: feedReplyTargetId || null,
+          quote_post_id: feedQuoteTargetId || null,
+        }),
+      });
+      syncSceneEntities();
+      renderPanels();
+      if (feedInput) feedInput.value = "";
+      feedReplyTargetId = "";
+      feedQuoteTargetId = "";
+      if (feedStatus) feedStatus.textContent = "帖子已发布，公开舆论场已经收到这条新动态。";
+    } catch (error) {
+      if (feedStatus) feedStatus.textContent = error.message;
+    } finally {
+      feedPending = false;
+      if (feedSubmitBtn) feedSubmitBtn.disabled = false;
+      renderFeedComposerMeta();
+    }
+  });
+}
+
+if (feedTimelineBox) {
+  feedTimelineBox.addEventListener("click", async (event) => {
+    const actionBtn = event.target.closest(".feed-action-btn");
+    if (!actionBtn) return;
+    const postId = actionBtn.dataset.feedPostId || "";
+    const action = actionBtn.dataset.feedAction || "";
+    if (!postId) return;
+    if (action === "reply") {
+      feedReplyTargetId = postId;
+      feedQuoteTargetId = "";
+      if (feedInput) feedInput.focus();
+    } else if (action === "quote") {
+      feedQuoteTargetId = postId;
+      feedReplyTargetId = "";
+      if (feedInput) feedInput.focus();
+    } else if (["like", "repost", "watch"].includes(action)) {
+      try {
+        if (feedStatus) feedStatus.textContent = action === "repost" ? "正在转发这条小镇微博…" : action === "like" ? "正在点赞这条小镇微博…" : "正在围观这条小镇微博…";
+        state = await api("/api/feed/react", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ post_id: postId, action }),
+        });
+        if (feedStatus) {
+          feedStatus.textContent =
+            action === "repost"
+              ? "这条帖子已经被转发，热度和系统影响会继续扩散。"
+              : action === "like"
+                ? "你刚刚为这条帖子点了赞。"
+                : "你刚刚围观了一条小镇微博。";
+        }
+        renderPanels();
+      } catch (error) {
+        if (feedStatus) feedStatus.textContent = error.message;
+      }
+    }
+    renderFeedComposerMeta();
+  });
+}
+
+if (feedComposerMeta) {
+  feedComposerMeta.addEventListener("click", (event) => {
+    const clearBtn = event.target.closest(".feed-inline-clear");
+    if (!clearBtn) return;
+    if (clearBtn.dataset.feedClear === "reply") feedReplyTargetId = "";
+    if (clearBtn.dataset.feedClear === "quote") feedQuoteTargetId = "";
+    renderFeedComposerMeta();
+  });
+}
+
 sellAllBtn.addEventListener("click", async () => {
   if (tradePending || !state) return;
   const symbol = tradeSymbol.value;
@@ -6543,6 +7071,12 @@ viewTabs.forEach((button) => {
 marketTabs.forEach((button) => {
   button.addEventListener("click", () => {
     setCurrentMarketTab(button.dataset.marketTab || "overview");
+    renderPanels();
+  });
+});
+feedSideTabs.forEach((button) => {
+  button.addEventListener("click", () => {
+    setCurrentFeedSideTab(button.dataset.feedSideTab || "overview");
     renderPanels();
   });
 });
@@ -6829,9 +7363,9 @@ function getCanvasWorldPoint(event) {
 function pickActorAt(worldX, worldY) {
   if (!state) return null;
   const actors = [
-    { id: "player", entity: sceneEntities.player, radiusX: 18, radiusY: 32 },
-    ...state.agents.map((agent) => ({ id: agent.id, entity: sceneEntities.agents.get(agent.id), radiusX: 18, radiusY: 32 })),
-    ...(state.tourists || []).map((tourist) => ({ id: tourist.id, entity: sceneEntities.tourists.get(tourist.id), radiusX: 18, radiusY: 32 })),
+    { id: "player", entity: getDisplayEntity("player", sceneEntities.player), radiusX: 18, radiusY: 32 },
+    ...state.agents.map((agent) => ({ id: agent.id, entity: getDisplayEntity(agent.id, sceneEntities.agents.get(agent.id)), radiusX: 18, radiusY: 32 })),
+    ...(state.tourists || []).map((tourist) => ({ id: tourist.id, entity: getDisplayEntity(tourist.id, sceneEntities.tourists.get(tourist.id)), radiusX: 18, radiusY: 32 })),
   ].filter((actor) => actor.entity);
   return actors.find((actor) => Math.abs(worldX - actor.entity.x) <= actor.radiusX && Math.abs(worldY - (actor.entity.y - 24)) <= actor.radiusY) || null;
 }

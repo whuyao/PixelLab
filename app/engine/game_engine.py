@@ -22,7 +22,7 @@ from app.engine.social_engine import SocialEngine
 from app.engine.task_system import apply_task_progress
 from app.engine.time_system import advance_time
 from app.engine.world_state import build_initial_world
-from app.models import AnalysisPoint, Agent, BankLoanRecord, ConsumableItem, DailyBankPoint, DailyBriefItem, DailyBriefing, DailyEconomyPoint, DialogueOutcome, DialogueRecord, FinanceRecord, GrayCase, IndexCandle, LabEvent, LoanRecord, MemoryEntry, NewsTimelineItem, Point, PropertyAsset, SocialThread, StateDiffResponse, StoryBeat, Task, TimeSlot, TouristAgent, TourismState, WorldState
+from app.models import AnalysisPoint, Agent, BankLoanRecord, ConsumableItem, DailyBankPoint, DailyBriefItem, DailyBriefing, DailyEconomyPoint, DialogueOutcome, DialogueRecord, FeedPost, FinanceRecord, GrayCase, IndexCandle, LabEvent, LoanRecord, MemoryEntry, NewsTimelineItem, Point, PropertyAsset, SocialThread, StateDiffResponse, StoryBeat, Task, TimeSlot, TouristAgent, TourismState, WorldState
 from app.services.activity_logger import ActivityLogger
 
 
@@ -210,7 +210,7 @@ class GameEngine:
         )
 
     def _refresh_state_signatures(self) -> None:
-        self.state.version = max(self.state.version, 47)
+        self.state.version = max(self.state.version, 51)
         self.state.section_signatures = self._sign_sections(self._build_state_sections())
 
     def _sign_sections(self, sections: dict[str, object]) -> dict[str, str]:
@@ -277,6 +277,9 @@ class GameEngine:
                 "latest_dialogue": dump(state.latest_dialogue),
                 "dialogue_history": dump(state.dialogue_history[:220]),
                 "loans": dump(state.loans),
+            },
+            "feed": {
+                "feed_timeline": dump(state.feed_timeline[:1000]),
             },
             "daily": {
                 "daily_briefings": dump(state.daily_briefings[:3]),
@@ -389,6 +392,72 @@ class GameEngine:
 
     def player_sell_property(self, property_id: str) -> WorldState:
         return self.lifestyle_engine.player_sell_property(property_id)
+
+    def create_player_feed_post(self, content: str, category: str = "daily", reply_to_post_id: str | None = None, quote_post_id: str | None = None) -> WorldState:
+        cleaned = (content or "").strip()
+        if not cleaned:
+            raise ValueError("先写一句你想发的内容。")
+        reply_to = self._find_feed_post(reply_to_post_id) if reply_to_post_id else None
+        quote_to = self._find_feed_post(quote_post_id) if quote_post_id else None
+        post = FeedPost(
+            id=f"feed-{uuid4().hex[:8]}",
+            author_type="player",
+            author_id=self.state.player.id,
+            author_name=self.state.player.name,
+            day=self.state.day,
+            time_slot=self.state.time_slot,
+            category=category if category in {"daily", "mood", "research", "market", "property", "tourism", "policy", "gossip"} else "daily",
+            content=cleaned[:160],
+            topic_tags=self._feed_topic_tags(cleaned, category),
+            desire_tags=[self._player_desire_label(cleaned)],
+            reply_to_post_id=reply_to.id if reply_to else None,
+            quote_post_id=quote_to.id if quote_to else None,
+            likes=max(0, min(18, 2 + self.state.player.reputation_score // 16)),
+            views=max(12, 30 + self.state.day % 17 + self.state.player.reputation_score),
+            summary=f"你发了一条关于“{self._feed_title_topic(cleaned, category)}”的微博。",
+            impacts=self._feed_impacts_for_category(category),
+        )
+        post.credibility = self._feed_credibility_for_post(post)
+        post.heat = self._compute_feed_heat(post)
+        self._append_feed_post(post, remember=True, apply_impacts=True)
+        self.state.player.daily_actions.append(f"feed:{category}")
+        if reply_to and reply_to.author_type == "agent" and reply_to.author_id != self.state.player.id:
+            agent = self.get_agent(reply_to.author_id)
+            self._adjust_player_relation(agent, 1, "你在小镇微博上公开接了对方的话。", observer=True)
+        self._log("feed_post", author_type="player", author_name=self.state.player.name, category=post.category, content=post.content, heat=post.heat)
+        return self.state
+
+    def react_to_feed_post(self, post_id: str, action: str) -> WorldState:
+        post = self._find_feed_post(post_id)
+        if post is None:
+            raise KeyError(f"未找到微博帖子：{post_id}")
+        if action not in {"like", "repost", "watch"}:
+            raise ValueError("不支持的微博互动动作。")
+        if action == "watch":
+            post.views = min(9999, post.views + 4)
+        elif action == "like":
+            post.views = min(9999, post.views + 2)
+            post.likes = min(999, post.likes + 1)
+            if post.author_type == "agent":
+                agent = self.get_agent(post.author_id)
+                self._adjust_player_relation(agent, 1, "你在小镇微博上给对方点了赞。", observer=True)
+        elif action == "repost":
+            post.views = min(9999, post.views + 9)
+            post.likes = min(999, post.likes + 2)
+            post.reposts = min(999, post.reposts + 1)
+            self._apply_player_intervention_cost("feed_repost", amount=1)
+            tone = self._feed_tone(post.content)
+            if post.category == "market":
+                self.state.market.sentiment = self._bounded(self.state.market.sentiment + tone * 2)
+            elif post.category == "tourism":
+                self.state.tourism.latest_signal = f"小镇微博转发：{post.content[:24]}"
+                self.state.tourism.daily_messages_count += 1
+            elif post.category in {"mood", "gossip"}:
+                self.state.lab.team_atmosphere = self._bounded(self.state.lab.team_atmosphere + tone)
+        post.credibility = self._feed_credibility_for_post(post)
+        post.heat = self._compute_feed_heat(post)
+        self._log("feed_reaction", action=action, post_id=post.id, author_name=post.author_name, category=post.category, heat=post.heat)
+        return self.state
 
     def speak_to_agent(self, agent_id: str, player_text: str) -> DialogueOutcome:
         if self.has_tourist(agent_id):
@@ -600,6 +669,8 @@ class GameEngine:
         self.lifestyle_engine.run_tick()
         self._trigger_property_market_activity()
         self.social_engine.run_tick()
+        self._maybe_generate_feed_posts()
+        self._spread_feed_posts()
         self._advance_gray_cases(daily_roll=False)
         self._settle_due_loans()
         self._settle_due_bank_loans()
@@ -609,6 +680,801 @@ class GameEngine:
         self._refresh_government_agent_state()
         self._log("world_simulation_tick")
         return self.state
+
+    def _maybe_generate_feed_posts(self) -> None:
+        if getattr(self.state, "feed_timeline", None) is None:
+            self.state.feed_timeline = []
+        current_slot_posts = [post for post in self.state.feed_timeline if post.day == self.state.day and post.time_slot == self.state.time_slot]
+        latest_event = self.state.events[0] if self.state.events else None
+        recent_hot_gossip = any(post.category == "gossip" and post.heat >= 16 for post in self.state.feed_timeline[:10])
+        topic_buzz = bool(
+            latest_event
+            and latest_event.category in {"general", "market"}
+            and (latest_event.source in {"Brave Search", "系统新闻台"} or "热点" in latest_event.title)
+        )
+        social_buzz = topic_buzz or recent_hot_gossip or bool(self.state.tourism.latest_signal and "微博热议" in self.state.tourism.latest_signal)
+        slot_cap = 5 if social_buzz else 3
+        if len(current_slot_posts) >= slot_cap:
+            return
+        hot_post = self._pick_hot_feed_post()
+        candidates: list[FeedPost] = []
+        recent_feed = self.state.feed_timeline[:8]
+        recent_agent_posts = sum(1 for post in recent_feed if post.author_type == "agent")
+        recent_government_posts = sum(1 for post in recent_feed if post.author_type == "government")
+        if hot_post is not None and self.random.random() < 0.42:
+            agent_pool = [agent for agent in self.state.agents if agent.id != hot_post.author_id] or self.state.agents
+            agent = self.random.choice(agent_pool)
+            candidates.append(self._build_agent_feed_reply(agent, hot_post))
+        elif self.random.random() < 0.68 or recent_agent_posts == 0:
+            agent = self.random.choice(self.state.agents)
+            candidates.append(self._build_agent_feed_post(agent, latest_event))
+        if self.state.tourists and self.random.random() < 0.32:
+            tourist_pool = [tourist for tourist in self.state.tourists if tourist.id != (hot_post.author_id if hot_post else "")] or self.state.tourists
+            tourist = self.random.choice(tourist_pool)
+            if hot_post is not None and self.random.random() < 0.42:
+                candidates.append(self._build_tourist_feed_reply(tourist, hot_post))
+            else:
+                candidates.append(self._build_tourist_feed_post(tourist, latest_event))
+        if social_buzz and self.random.random() < 0.78:
+            buzz_pool = [agent for agent in self.state.agents if hot_post is None or agent.id != hot_post.author_id] or self.state.agents
+            candidates.append(self._build_agent_feed_post(self.random.choice(buzz_pool), latest_event))
+            if self.state.tourists and self.random.random() < 0.55:
+                candidates.append(self._build_tourist_feed_post(self.random.choice(self.state.tourists), latest_event))
+            if hot_post is not None and self.random.random() < 0.45:
+                reactive_pool = [agent for agent in self.state.agents if agent.id != hot_post.author_id] or self.state.agents
+                candidates.append(self._build_agent_feed_reply(self.random.choice(reactive_pool), hot_post))
+            if hot_post is not None and self.random.random() < 0.3:
+                second_wave_pool = [agent for agent in self.state.agents if agent.id not in {hot_post.author_id}] or self.state.agents
+                candidates.append(self._build_agent_feed_reply(self.random.choice(second_wave_pool), hot_post))
+        if self.random.random() < 0.2 or (self.state.time_slot in {"morning", "evening"} and recent_government_posts == 0):
+            if hot_post is not None and hot_post.author_type != "government" and self.random.random() < 0.48:
+                candidates.append(self._build_government_feed_reply(hot_post))
+            else:
+                candidates.append(self._build_government_feed_post(latest_event))
+        for post in candidates[: max(0, slot_cap - len(current_slot_posts))]:
+            self._append_feed_post(post, remember=True, apply_impacts=True)
+            self._log("feed_post", author_type=post.author_type, author_name=post.author_name, category=post.category, content=post.content, heat=post.heat)
+
+    def _build_agent_feed_post(self, agent: Agent, latest_event: LabEvent | None) -> FeedPost:
+        category = self._agent_feed_category(agent, latest_event)
+        content, tags = self._agent_feed_content(agent, category, latest_event)
+        desire_code, _ = dominant_desire_for_agent(self.state, agent)
+        post = FeedPost(
+            id=f"feed-{uuid4().hex[:8]}",
+            author_type="agent",
+            author_id=agent.id,
+            author_name=agent.name,
+            day=self.state.day,
+            time_slot=self.state.time_slot,
+            category=category,
+            content=content,
+            topic_tags=tags,
+            desire_tags=[DESIRE_LABELS.get(desire_code, desire_code)],
+            likes=max(0, min(24, 3 + max(0, agent.relations.get("player", 0)) // 12 + self.random.randint(0, 4))),
+            views=max(18, 24 + agent.cash // 120 + self.random.randint(0, 25)),
+            summary=f"{agent.name} 把这轮最在意的事发成了一条公开帖子。",
+            impacts=self._feed_impacts_for_category(category),
+        )
+        post.credibility = self._feed_credibility_for_post(post)
+        post.heat = self._compute_feed_heat(post)
+        return post
+
+    def _build_agent_feed_reply(self, agent: Agent, target_post: FeedPost) -> FeedPost:
+        desire_code, _ = dominant_desire_for_agent(self.state, agent)
+        topic = self._feed_title_topic(target_post.content, target_post.category)
+        style_seed = int(hashlib.sha1(f"{agent.id}-{target_post.id}-{self.state.day}".encode("utf-8")).hexdigest()[:6], 16)
+        softener = (agent.speech_habits or [""])[0] if agent.speech_habits else ""
+        content = self._agent_feed_reply_content(agent, target_post.author_name, topic, desire_code, style_seed, softener)
+        post = FeedPost(
+            id=f"feed-{uuid4().hex[:8]}",
+            author_type="agent",
+            author_id=agent.id,
+            author_name=agent.name,
+            day=self.state.day,
+            time_slot=self.state.time_slot,
+            category=target_post.category if target_post.category in {"research", "market", "property", "tourism", "policy", "gossip", "mood"} else "daily",
+            content=content[:160],
+            topic_tags=list(dict.fromkeys((target_post.topic_tags or [])[:3] + [agent.current_location])),
+            desire_tags=[DESIRE_LABELS.get(desire_code, desire_code)],
+            reply_to_post_id=target_post.id,
+            likes=max(0, min(20, 2 + agent.state.focus // 22 + self.random.randint(0, 4))),
+            views=max(18, 22 + self.random.randint(0, 22)),
+            summary=f"{agent.name} 在公开场里接了 {target_post.author_name} 的话。",
+            impacts=self._feed_impacts_for_category(target_post.category),
+        )
+        post.credibility = self._feed_credibility_for_post(post)
+        post.heat = self._compute_feed_heat(post)
+        return post
+
+    def _build_tourist_feed_post(self, tourist: TouristAgent, latest_event: LabEvent | None) -> FeedPost:
+        is_social_buzz = bool(
+            latest_event
+            and latest_event.category == "general"
+            and (latest_event.source in {"Brave Search", "系统新闻台"} or "热点" in latest_event.title or "传闻" in latest_event.title)
+        )
+        category = "gossip" if is_social_buzz else ("tourism" if tourist.visitor_tier != "buyer" else "property")
+        base_text = tourist.brief_note or tourist.current_activity or "这里比我预想得更有意思。"
+        style_seed = int(hashlib.sha1(f"{tourist.id}-{self.state.day}-{self.state.time_slot}-{tourist.visitor_tier}".encode("utf-8")).hexdigest()[:6], 16)
+        angle = style_seed % 3
+        if category == "gossip":
+            topic = (latest_event.title if latest_event is not None else tourist.favorite_topic or "这条小镇传闻")[:24]
+            options = [
+                f"今天到处都在聊“{topic}”。我本来只想看看热闹，结果听着听着，发现大家真正怕的还是日子会越来越贵、越来越挤。",
+                f"游客视角说一句：“{topic}”这种传闻一热，气氛马上就会变。有人觉得更有戏，有人已经开始担心这里会不会被搞得太满。",
+                f"我今天在旅馆和集市听了好几轮“{topic}”，最明显的感觉是：同一件事，对想赚钱的人和想过安稳日子的人完全不是一个意思。",
+            ]
+            content = options[angle]
+        elif tourist.visitor_tier == "vip":
+            options = [
+                f"今天在{tourist.current_location}转了一圈，我本来挺挑的，结果还真被这里留住了。不是因为它多贵，而是它居然有点真生活。{base_text[:28]}",
+                f"我花钱向来认感觉。这里最难得的是，不会让人觉得自己只是被当成一笔消费。{base_text[:24]}",
+                f"说实话，很多地方只会端着热闹给你看，这里倒是有点松弛，像能真的住人。{base_text[:24]}",
+            ]
+            content = options[angle]
+        elif tourist.visitor_tier == "buyer":
+            options = [
+                f"今天看房时心里有点打鼓。价格当然重要，但我现在更在意的是，住进来以后会不会天天都觉得累。{base_text[:26]}",
+                f"我对这里开始认真了，所以反而更谨慎。一个地方如果只适合投资，不适合生活，最后会把自己掏空。{base_text[:20]}",
+                f"现在最想比较的不是挂牌数字，而是这里能不能让我把日子过顺。房子要是只会涨，不会让人想留下，其实也没劲。{base_text[:22]}",
+            ]
+            content = options[angle]
+        elif tourist.visitor_tier == "repeat":
+            options = [
+                f"第二次来还是觉得这里有劲儿，这就不容易了。回头客最怕第一次像惊喜，第二次只剩套路。{base_text[:24]}",
+                f"能让我再回来一次，通常不是因为更热闹，而是因为第一次没看清的层次第二次开始冒出来了。{base_text[:22]}",
+                f"回访最大的好处，就是能分清这地方是真的有生活，还是只会第一次哄你开心。{base_text[:20]}",
+            ]
+            content = options[angle]
+        else:
+            options = [
+                f"随手记一下：这里比我想的更像有人在过日子，不只是摆给游客看。今天最有意思的是{(tourist.favorite_topic or '集市和旅馆周边')[:14]}。",
+                f"第一次来，本来只想看热闹，结果反而记住了人怎么停下来聊天、干活、互相看一眼。{base_text[:20]}",
+                f"游客其实很容易被漂亮景观哄住，但这里偶尔会冒出一点真的生活感，这点挺戳人的。{base_text[:20]}",
+            ]
+            content = options[angle]
+        tags = [tourist.current_location, self._tourist_tier_label(tourist.visitor_tier)]
+        if category == "gossip":
+            tags.append("社会热点")
+        if latest_event is not None and latest_event.category in {"market", "general"}:
+            tags.append(latest_event.category)
+        post = FeedPost(
+            id=f"feed-{uuid4().hex[:8]}",
+            author_type="tourist",
+            author_id=tourist.id,
+            author_name=tourist.name,
+            day=self.state.day,
+            time_slot=self.state.time_slot,
+            category=category,
+            content=content[:160],
+            topic_tags=tags,
+            desire_tags=[tourist.favorite_topic or "到处看看"],
+            likes=max(0, min(18, 1 + tourist.message_influence * 3 + self.random.randint(0, 4))),
+            views=max(16, 18 + tourist.message_influence * 12 + self.random.randint(0, 18)),
+            summary=f"{tourist.name} 发了一条游客动态。",
+            impacts=self._feed_impacts_for_category(category),
+        )
+        post.credibility = self._feed_credibility_for_post(post)
+        post.heat = self._compute_feed_heat(post)
+        return post
+
+    def _build_tourist_feed_reply(self, tourist: TouristAgent, target_post: FeedPost) -> FeedPost:
+        style_seed = int(hashlib.sha1(f"{tourist.id}-{target_post.id}-{self.state.day}".encode("utf-8")).hexdigest()[:6], 16)
+        if target_post.category == "gossip":
+            options = [
+                f"{tourist.name} 回复 {target_post.author_name}：这类传闻一旦热起来，游客其实最先感到的不是结论，而是这里到底会更有意思，还是更让人发紧。",
+                f"{tourist.name} 回复 {target_post.author_name}：外面的人听这种热点，先想的是体验会不会变味。大家没空做复杂分析，但会立刻决定还想不想来。",
+                f"{tourist.name} 回复 {target_post.author_name}：我认同一半。传闻最厉害的地方，不是它真不真，而是它会让很多人提前改行为。",
+            ]
+        else:
+            options = [
+                f"{tourist.name} 回复 {target_post.author_name}：你说的我也有感觉，不过游客最先记住的不是结论，而是这里值不值得多待一会儿、再多花一点钱。",
+                f"{tourist.name} 回复 {target_post.author_name}：外面的人看这里，先吃到的是气氛，不是逻辑。你这条判断要是落到现场，体验感接不接得住很关键。",
+                f"{tourist.name} 回复 {target_post.author_name}：我同意一部分，但游客不会替你做复杂分析。大家最后记住的，往往就是这里让人舒服还是让人发紧。",
+            ]
+        content = options[style_seed % len(options)]
+        post = FeedPost(
+            id=f"feed-{uuid4().hex[:8]}",
+            author_type="tourist",
+            author_id=tourist.id,
+            author_name=tourist.name,
+            day=self.state.day,
+            time_slot=self.state.time_slot,
+            category="gossip" if target_post.category == "gossip" else ("tourism" if target_post.category != "property" else "property"),
+            content=content[:160],
+            topic_tags=list(dict.fromkeys((target_post.topic_tags or [])[:3] + [tourist.current_location])),
+            desire_tags=[tourist.favorite_topic or "体验感"],
+            reply_to_post_id=target_post.id,
+            likes=max(0, min(14, 1 + tourist.message_influence * 2 + self.random.randint(0, 3))),
+            views=max(12, 16 + tourist.message_influence * 10 + self.random.randint(0, 16)),
+            summary=f"{tourist.name} 接了一条公开帖子。",
+            impacts=self._feed_impacts_for_category("tourism"),
+        )
+        post.credibility = self._feed_credibility_for_post(post)
+        post.heat = self._compute_feed_heat(post)
+        return post
+
+    def _build_government_feed_post(self, latest_event: LabEvent | None) -> FeedPost:
+        agenda = self.state.government.current_agenda or "维持财政与设施平衡"
+        action = self.state.government.last_agent_action or "继续观察游客、税收和市场反馈"
+        note = self.state.government.last_policy_note or "暂无新的额外说明"
+        options = [
+            f"【政府运营说明】这轮我们盯得最紧的是“{agenda}”。最近动作：{action}。政策备注：{note[:28]}。",
+            f"【政府运营说明】眼下不会只追着短期热度跑。当前议程是“{agenda}”，最近动作是：{action}。",
+            f"【政府运营说明】财政、游客和住房是拴在一起的。我们现在的议程是“{agenda}”，最近已经做了：{action}。",
+        ]
+        style_seed = int(hashlib.sha1(f"{self.state.day}-{self.state.time_slot}-government".encode('utf-8')).hexdigest()[:6], 16)
+        content = options[style_seed % len(options)]
+        tags = ["财政", "监管", "公共服务"]
+        if latest_event is not None:
+            tags.append(latest_event.category)
+        post = FeedPost(
+            id=f"feed-{uuid4().hex[:8]}",
+            author_type="government",
+            author_id="government",
+            author_name="园区财政与监管局",
+            day=self.state.day,
+            time_slot=self.state.time_slot,
+            category="policy",
+            content=content[:160],
+            topic_tags=tags,
+            desire_tags=["稳定运行"],
+            likes=2 + max(0, self.state.government.enforcement_level // 18),
+            views=32 + self.state.day % 21,
+            summary="政府发布了一条公开运营说明。",
+            impacts=["影响政府页", "进入政策观察"],
+        )
+        post.credibility = self._feed_credibility_for_post(post)
+        post.heat = self._compute_feed_heat(post)
+        return post
+
+    def _build_government_feed_reply(self, target_post: FeedPost) -> FeedPost:
+        style_seed = int(hashlib.sha1(f"gov-reply-{target_post.id}-{self.state.day}".encode("utf-8")).hexdigest()[:6], 16)
+        options = [
+            f"【政府回应】关于 {target_post.author_name} 提到的情况，我们不会只盯一时情绪。财政压力、设施使用、游客反馈和市场后果都会一起看。",
+            f"【政府回应】这类讨论我们已经看到了。政策不会只跟着热度跑，还要看维护成本、公共服务缺口和后面会不会有人扛不住。",
+            f"【政府回应】公开讨论有价值，但我们更关心它后面那层结构问题：住房、游客、消费和财政之间会不会被重新拉扯。",
+        ]
+        content = options[style_seed % len(options)]
+        post = FeedPost(
+            id=f"feed-{uuid4().hex[:8]}",
+            author_type="government",
+            author_id="government",
+            author_name="园区财政与监管局",
+            day=self.state.day,
+            time_slot=self.state.time_slot,
+            category="policy",
+            content=content[:160],
+            topic_tags=list(dict.fromkeys((target_post.topic_tags or [])[:3] + ["财政", "监管"])),
+            desire_tags=["稳定运行"],
+            reply_to_post_id=target_post.id,
+            likes=3 + self.random.randint(0, 4),
+            views=28 + self.state.day % 23,
+            summary=f"政府回应了 {target_post.author_name} 的公开帖子。",
+            impacts=["影响政府页", "进入政策观察", "进入晨报"],
+        )
+        post.credibility = self._feed_credibility_for_post(post)
+        post.heat = self._compute_feed_heat(post)
+        return post
+
+    def _agent_feed_category(self, agent: Agent, latest_event: LabEvent | None) -> str:
+        if latest_event and latest_event.category == "market":
+            return "market"
+        if latest_event and latest_event.category == "general" and (latest_event.source in {"Brave Search", "系统新闻台"} or "热点" in latest_event.title):
+            return "gossip"
+        if any(post.category == "gossip" and post.heat >= 16 for post in self.state.feed_timeline[:8]) and self.random.random() < 0.36:
+            return "gossip"
+        if self.state.tourism.latest_signal and any(token in self.state.tourism.latest_signal for token in ["微博热议", "传闻", "热点"]) and self.random.random() < 0.28:
+            return "gossip"
+        if "GeoAI" in (agent.current_plan or "") or "GeoAI" in (agent.current_activity or ""):
+            return "research"
+        if "房" in (agent.current_activity or "") or agent.current_location == self.state.tourism.inn_location:
+            return "property"
+        if agent.state.stress >= 72 or agent.state.mood <= 35:
+            return "mood"
+        if agent.current_location in {self.state.tourism.market_location, self.state.tourism.inn_location}:
+            return "tourism"
+        return "daily"
+
+    def _agent_feed_content(self, agent: Agent, category: str, latest_event: LabEvent | None) -> tuple[str, list[str]]:
+        event_hint = latest_event.title if latest_event is not None else "今天还没出更大的外部波动"
+        plan_hint = (agent.current_plan or agent.current_activity or event_hint).replace("“", "").replace("”", "")
+        style_seed = int(hashlib.sha1(f"{agent.id}-{self.state.day}-{self.state.time_slot}-{category}".encode("utf-8")).hexdigest()[:6], 16)
+        angle = style_seed % 3
+        speech = (agent.speech_habits or [""])[0] if agent.speech_habits else ""
+        desire_code, _ = dominant_desire_for_agent(self.state, agent)
+        if category == "research":
+            if agent.id == "lin":
+                options = [
+                    f"{speech}我今天一直卡在“{plan_hint[:26]}”上。最怕的不是没突破，是它看起来像突破，实际上只是把漏洞换了个地方藏。",
+                    f"GeoAI 这轮最磨人的，是每个人都想快一点，但证据没到让我放心的那一步。我宁可慢，也不想以后回头补锅。",
+                    f"我现在不敢被漂亮结果哄住。先把“{plan_hint[:24]}”一层层拆开，能证实多少算多少。",
+                ]
+            elif agent.id == "mika":
+                options = [
+                    f"{speech}我今天脑子里一直在打架：一边觉得“{plan_hint[:24]}”可能真能冒新路，一边又怕自己只是被兴奋感带跑了。",
+                    f"研究这事最怪的地方，就是灵光一来，人会忍不住先爱上那个答案。我现在在努力把自己拽回来。",
+                    f"如果这轮 GeoAI 真有点东西，那应该是那种越想越亮的感觉，不是第一眼特别炸、第二眼就空掉。",
+                ]
+            elif agent.id == "jo":
+                options = [
+                    f"{speech}别先庆祝。我今天盯着“{plan_hint[:24]}”看了半天，能不能落地还早，先把最硬那一步做完再说。",
+                    f"研究不是拼谁先喊突破，是拼谁最后真把东西做出来。现在这轮还差得远，别被漂亮话抬走。",
+                    f"我不怕难题，我怕半成品硬往前推。GeoAI 这块今天最该做的，是把假动作剔掉。",
+                ]
+            elif agent.id == "rae":
+                options = [
+                    f"{speech}今天研究组的情绪其实很满，大家都在“{plan_hint[:24]}”这里绷着。我更想先把那口气理顺，不然好结果也会被焦虑吃掉。",
+                    f"研究推进当然重要，但如果每个人都被自己吓得发紧，再好的思路也会被磨掉。我今天最在意的是节奏。",
+                    f"我其实能感觉到这轮是有东西的，只是越到这种时候越要照顾人，不然最后先散掉的是人心。",
+                ]
+            else:
+                options = [
+                    f"{speech}我今天闻到一点风向变了的味道，“{plan_hint[:24]}”这条线如果成，后面不只是研究，外面的资金和注意力都会跟着动。",
+                    f"研究有时候像盘前信号，看着还不成形，但真转起来会很快。我现在反而不想说得太满，先盯第二步。",
+                    f"我不觉得这轮只是技术问题。GeoAI 如果往前拱出来，后面整套话语权都会变，所以现在每一步都有人在看。",
+                ]
+            content = options[angle]
+            tags = ["GeoAI", "研究讨论", agent.current_location]
+        elif category == "market":
+            if agent.id == "lin":
+                options = [
+                    f"{speech}这轮盘面最危险的不是涨跌本身，而是太多人已经把“想象中的结果”当成事实先算进去了。",
+                    f"表面像轮动，底下其实是预期在自我抬价。只要证据一松，情绪会掉得比价格更快。",
+                    f"今天让我不舒服的，是“{plan_hint[:22]}”这种还没坐实的东西，已经被当成下注理由了。",
+                ]
+            elif agent.id == "mika":
+                options = [
+                    f"{speech}今天看盘像看一群人集体做梦，梦做得太齐的时候我反而会紧张，因为醒得也会很整齐。",
+                    f"市场最会骗你的时候，就是它看起来特别有故事感的时候。我现在对这种顺滑上涨会本能地多看一眼。",
+                    f"这轮钱在往哪里跑其实已经很有戏了，大家嘴上说理性，脚已经先冲过去了。",
+                ]
+            elif agent.id == "jo":
+                options = [
+                    f"{speech}别跟我讲情怀，盘面今天就是有人在抢先手。涨归涨，谁最后接盘、谁先变现，才是硬问题。",
+                    f"市场里最不缺的就是说法。我只看一件事：钱是不是在真流动，还是只是在互相壮胆。",
+                    f"今天这盘子不复杂，就是有人想快进。快进可以，别装成价值发现就行。",
+                ]
+            elif agent.id == "rae":
+                options = [
+                    f"{speech}这轮市场让我最在意的，其实是大家会不会被它带得越来越急。钱一快，人就容易把边界弄丢。",
+                    f"盘面一热，很多人会把焦虑伪装成判断。我更担心这种气氛会顺着市场一路传到生活里。",
+                    f"市场本身不是坏事，但如果每个人都开始被涨跌牵着走，后面最先伤到的还是日常。",
+                ]
+            else:
+                options = [
+                    f"{speech}这轮盘感挺强，风已经吹起来了。问题不是涨不涨，是谁闻到得早、谁跑得慢。",
+                    f"市场现在像在找下一个能讲大故事的口子。你要说纯基本面，我不信；你要说没机会，我也不信。",
+                    f"钱在找叙事，叙事也在找钱。今天这种味道一出来，后面就不会只是一根线的问题了。",
+                ]
+            content = options[angle]
+            tags = ["市场", self.state.market.regime, self.state.market.rotation_leader]
+        elif category == "property":
+            if agent.id == "lin":
+                options = [
+                    f"{speech}住房这件事最难的不是价格，而是它会决定谁能把生活安下来，谁只能一直临时应付。",
+                    f"地产在这里已经不是孤零零的资产了，它在改人的判断、消费和留下来的勇气。",
+                    f"如果“{plan_hint[:22]}”继续往前顶，接下来变化的不只挂牌价，还有谁愿意把以后押在这里。",
+                ]
+            elif agent.id == "mika":
+                options = [
+                    f"{speech}看房这事最近特别像照镜子。大家挑的不是墙和窗，是自己想过成什么样。",
+                    f"我越来越觉得住房会暴露一个地方的真性格：它到底是在欢迎人留下，还是只欢迎价格往上走。",
+                    f"房子如果只剩涨幅，最后会把生活感磨掉。可没有生活感，这地方就又不值那个价了。",
+                ]
+            elif agent.id == "jo":
+                options = [
+                    f"{speech}地产别说虚的。房子够不够住、维护费扛不扛得住、谁最后买单，这几件事先算清楚。",
+                    f"看房热起来以后，最容易被忽略的是后面的维护和周转。买得到不算本事，养得住才算。",
+                    f"住房一旦被拿来只当筹码，后面最先掉队的是普通日子，不是报表。",
+                ]
+            elif agent.id == "rae":
+                options = [
+                    f"{speech}最近很多人的情绪都挂在住房上。住得稳不稳，会直接改掉一个人说话的方式和脸上的松弛。",
+                    f"住房焦虑很少是单独来的，它后面总拖着消费、关系和安全感一起动。",
+                    f"我现在更在意的是谁还能安心住下来，而不是谁又多赚了一点账面数字。",
+                ]
+            else:
+                options = [
+                    f"{speech}房这条线最近太敏感了。游客在看，资金在看，想留下来的人也在看，风往哪儿偏一下都很明显。",
+                    f"地产一热，后面连游客停留和消费都会跟着重排。说白了，这已经不是单独的房价问题。",
+                    f"我现在盯住房，不是因为它最浪漫，而是因为它最容易把别的信号都放大出来。",
+                ]
+            content = options[angle]
+            tags = ["地产", "住房", agent.current_location]
+        elif category == "tourism":
+            if agent.id == "lin":
+                options = [
+                    f"{speech}游客今天怎么走、在哪儿停、愿不愿意回头，比单纯的消费额更像真实信号。",
+                    f"游客不会替我们写报告，但他们会用脚投票。停留时间和回访意愿，往往比热闹数字更诚实。",
+                    f"如果只盯收入，很容易看漏真正的风向。游客最后是松下来还是赶着走，其实已经说明很多了。",
+                ]
+            elif agent.id == "mika":
+                options = [
+                    f"{speech}我今天最喜欢看游客发呆和突然停住的那几秒，那些不是流程，是一个地方真的把人留住了。",
+                    f"游客最诚实的时刻不是掏钱，是他们忽然愿意把速度慢下来。我会一直记这种小反应。",
+                    f"热闹不是难点，难的是让人觉得想多待一会儿。今天这点我反而觉得挺有戏。",
+                ]
+            elif agent.id == "jo":
+                options = [
+                    f"{speech}游客别只看人头，关键看停留、看复购、看最后有没有继续掏钱。数字得拆开看。",
+                    f"今天游客流量还行，但我更关心他们花钱以后有没有觉得值。只来一趟的热闹没多大用。",
+                    f"游客最怕被当成提款机。体验接不住，后面所有回头率都会掉。",
+                ]
+            elif agent.id == "rae":
+                options = [
+                    f"{speech}游客其实很敏感，他们会先感到这里的氛围稳不稳、累不累，然后才决定要不要多留一会儿。",
+                    f"我今天反而更在意游客是不是舒服。体验感一差，人会很快收回来，连消费都带着防备。",
+                    f"游客愿意留下，不只是因为热闹，也因为这里有没有让人放松一点点。",
+                ]
+            else:
+                options = [
+                    f"{speech}游客这条线像外面吹进来的风，今天往哪边偏一点，明天消费和看房都会跟着转。",
+                    f"我越来越觉得游客不是客流，是风向标。谁先闻到那股变化，后面谁就先占位置。",
+                    f"别小看游客停留，他们一犹豫、一回头，后面整个市场的节奏都可能跟着动。",
+                ]
+            content = options[angle]
+            tags = ["游客", "消费", agent.current_location]
+        elif category == "mood":
+            if agent.id == "lin":
+                options = [
+                    f"{speech}这轮状态是有点绷，但我更怕自己在发紧的时候做出过于自信的判断，所以先把节奏放稳。",
+                    f"有时候最累的不是事情本身，而是你明知道证据还不够，周围却已经在等你开口。",
+                    f"今天真正压着我的，是“{plan_hint[:24]}”到底还值不值得继续顶，不是表面那点热闹。",
+                ]
+            elif agent.id == "mika":
+                options = [
+                    f"{speech}我今天情绪有点飘，一会儿觉得什么都能做，一会儿又觉得自己是不是想太多了。",
+                    f"最烦的不是忙，是脑子里同时冒出十条路，然后每一条都像在喊我立刻决定。",
+                    f"我现在最想先让自己别乱冲。兴奋感很好，但要是被它牵着跑，后面会很空。",
+                ]
+            elif agent.id == "jo":
+                options = [
+                    f"{speech}状态紧是正常的，别演。事一堆、人一堆、钱一堆，谁都不可能一直松着。",
+                    f"我今天烦的不是结果差，是有些问题明明该现在处理，却总有人想往后拖。",
+                    f"这轮最耗人的，是每件事都像在催你马上定方向，连喘口气都像浪费时间。",
+                ]
+            elif agent.id == "rae":
+                options = [
+                    f"{speech}今天大家都绷得挺紧，我自己也没多轻松，只能提醒自己先别把呼吸弄丢。",
+                    f"很多时候情绪不是突然爆的，是一整天都在忍。今天我能感觉到那个边缘已经很近了。",
+                    f"我现在最想做的不是逞强，而是把自己和身边的人都先稳住一点。",
+                ]
+            else:
+                options = [
+                    f"{speech}我今天心里一直有点毛，像风要变但还没完全吹过来，这种时候人最容易做错动作。",
+                    f"状态紧的时候，外面每个小信号都会被放大。我现在在强迫自己别被那些噪音拖走。",
+                    f"今天压着我的不是单独一件事，是“接下来可能一起变”的那种感觉。",
+                ]
+            content = options[angle]
+            tags = ["情绪", "节奏", agent.current_location]
+        elif category == "gossip":
+            latest_title = (latest_event.title if latest_event is not None else plan_hint)[:24]
+            if agent.id == "lin":
+                options = [
+                    f"{speech}外面的热点最容易把复杂问题压成一句口号。今天这条“{latest_title}”，我更想先看它到底戳中了什么真实处境。",
+                    f"我对社会热点一直有点警惕，因为它们最会制造一种“大家都懂了”的错觉。真正难的是把情绪后面的结构讲清楚。",
+                    f"这轮热点表面热，底下还是住房、收入和生活成本这些老问题。换个标题，并不代表矛盾就换了。",
+                ]
+            elif agent.id == "mika":
+                options = [
+                    f"{speech}我今天刷到“{latest_title}”时心里咯噔了一下。那种感觉像很多人突然同时把自己憋着的话说出来了。",
+                    f"社会热点最有意思的地方，是它会把平时没人敢直说的情绪一下子拽到台面上。我会被这种时刻击中。",
+                    f"有些热帖一看就知道会过去，但也有些会留在心里。“{latest_title}”就有点这种味道。",
+                ]
+            elif agent.id == "jo":
+                options = [
+                    f"{speech}外面那条“{latest_title}”我看了，情绪是情绪，现实还是现金、房租、工时和谁来买单。",
+                    f"社会热点最容易把人带去站队，我更想先问一句：这事落到日常里，到底是谁更难了。",
+                    f"热帖当然能吵，但吵完以后生活成本还在、账还得付。所以我对这种热度一向先打个折。",
+                ]
+            elif agent.id == "rae":
+                options = [
+                    f"{speech}我今天看到“{latest_title}”的时候，第一反应不是对错，而是很多人应该真的被这些日子压得很难开口。",
+                    f"社会热点有时像一个公共出口，让平时说不出来的人终于能把累和委屈往外放一点。",
+                    f"这类讨论最不该被轻轻带过，因为它后面常常站着一整片还没被照顾到的人。",
+                ]
+            else:
+                options = [
+                    f"{speech}这条“{latest_title}”能冲上来，说明外面的风已经在变了。谁先接住这股讨论，后面谁就更容易带节奏。",
+                    f"社会热点我一般不会只当围观。它一热，游客、消费、住房、舆情都会跟着偏一点，这才是我盯它的原因。",
+                    f"很多人把热帖当情绪，我更把它当信号。像“{latest_title}”这种，后面通常不只是一阵风。",
+                ]
+            content = options[angle]
+            tags = ["社会热点", latest_title, agent.current_location]
+        else:
+            if agent.id == "lin":
+                options = [
+                    f"{speech}今天最该记住的不是热闹，是“{plan_hint[:30]}”这种小地方。很多转向都是先从没人注意的角落开始。",
+                    f"表面看今天没什么爆点，但我脑子里一直没放下“{plan_hint[:28]}”，它比大声说出来的东西更像真问题。",
+                    f"如果今天只能留一句话，我会提醒自己先把“{plan_hint[:26]}”看透，再决定要不要表态。",
+                ]
+            elif agent.id == "mika":
+                options = [
+                    f"{speech}今天最戳我的不是结果，是“{plan_hint[:28]}”那一下让我突然意识到，很多事其实已经在悄悄偏了。",
+                    f"我老觉得今天表面很平，底下却一直有小东西在冒泡。“{plan_hint[:26]}”就是那种泡。",
+                    f"要给今天留一句话的话，大概是：别急着翻篇，有些细节还在等你回头看第二次。",
+                ]
+            elif agent.id == "jo":
+                options = [
+                    f"{speech}今天最值得记的不是谁说得响，是“{plan_hint[:28]}”这种会真落地的东西。别被表面节奏带走。",
+                    f"看着没大事，不代表真没事。有些小动作要是现在不盯住，后面会很烦。",
+                    f"今天给自己的话就一句：先把最实的那块做完，别被虚的东西拖着跑。",
+                ]
+            elif agent.id == "rae":
+                options = [
+                    f"{speech}今天我最想记住的是“{plan_hint[:28]}”，因为它不一定最显眼，但它最能说明大家现在是松还是紧。",
+                    f"有些一天的气氛，会藏在很细的地方。我今天一直忘不掉“{plan_hint[:26]}”那一下。",
+                    f"如果今天留一句话，我会写：先顾住人，再顾住后面的事。",
+                ]
+            else:
+                options = [
+                    f"{speech}今天最有味道的，不是明面上的热闹，而是“{plan_hint[:28]}”这种像信号一样冒出来的小动作。",
+                    f"我脑子里一直挂着“{plan_hint[:26]}”，因为这种不起眼的东西，往往才是下一轮真正会动的地方。",
+                    f"要说今天给自己的提醒，就是先盯信号、别急着下注，风还没吹透。",
+                ]
+            content = options[angle]
+            tags = ["日常", agent.current_location]
+        if desire_code in DESIRE_LABELS:
+            tags.append(DESIRE_LABELS[desire_code])
+        return content[:160], [tag for tag in tags if tag]
+
+    def _agent_feed_reply_content(
+        self,
+        agent: Agent,
+        target_author: str,
+        topic: str,
+        desire_code: str,
+        style_seed: int,
+        softener: str,
+    ) -> str:
+        desire_label = DESIRE_LABELS.get(desire_code, desire_code)
+        angle = style_seed % 3
+        lead = f"{softener}，" if softener else ""
+        if agent.id == "lin":
+            options = [
+                f"{lead}我不是不认你这句，我只是觉得“{topic}”还没到能让人完全放心的程度。再往前走，先掉下去的人是谁，我得先看清。",
+                f"{lead}这话我听进去了，但我还是会追一句：证据够不够？要是后面要靠别人补洞，那现在的热度就不值钱。",
+                f"{lead}{target_author}，我同意一半。问题不在“{topic}”听起来顺不顺，而在它落地以后，是谁先开始扛代价。",
+            ]
+            tails = [
+                f"我现在最怕的，就是“{desire_label}”这根线还没看清就先被大家当成结论。",
+                "证据没站稳之前，我不会让自己把话说满。",
+                "所以我会先盯代价，不会先被热度劝服。",
+            ]
+        elif agent.id == "mika":
+            options = [
+                f"{lead}{target_author}，你这句我一下就接住了，但我脑子里同时冒出另一个画面：要是“{topic}”真往前滚，会不会先把最脆的地方扯开？",
+                f"{lead}我不是要唱反调，我只是老觉得“{topic}”背后还藏着一层没说出来的东西，不把那层翻出来我会一直别扭。",
+                f"{lead}你说得让我心里动了一下，可我还是忍不住想问：这到底会把人从哪儿托起来，又会把谁先往下拽？",
+            ]
+            tails = [
+                f"我现在最怕的不是输，是被“{desire_label}”这股劲推着跑太快。",
+                "如果后面那层情绪不翻出来，我会一直惦记着它。",
+                "我想先把那个别扭感说出来，不然我会一直卡着。",
+            ]
+        elif agent.id == "jo":
+            options = [
+                f"{lead}{target_author}，话能这么说，事不一定能这么做。真往“{topic}”上走，钱谁掏、活谁干、锅谁背，你先说清。",
+                f"{lead}别先顺着热度跑。我不是反对“{topic}”，我是反对一堆人靠它壮胆，最后让别人去擦地。",
+                f"{lead}我认你有道理，但别只讲方向。落下来以后谁能扛、谁扛不住，这才是我现在最在意的。",
+            ]
+            tails = [
+                "说白了，账要先算清，别靠气氛往前冲。",
+                "热闹我不接，能落地我才接。",
+                "所以别跟我谈抽象，我只看谁最后真去扛。",
+            ]
+        elif agent.id == "rae":
+            options = [
+                f"{lead}{target_author}，我能接住你这口气，但“{topic}”如果真推进，最先被压到的人是谁，我还是想替他们多问一句。",
+                f"{lead}我不是想把讨论变慢，只是很多决定一快起来，最难受的人往往没来得及说话。",
+                f"{lead}这句话我不反对，我只是想把那层感受补上：事情走下去以后，大家会不会更稳一点，还是更绷一点？",
+            ]
+            tails = [
+                f"我会一直盯着“{desire_label}”这根线，因为它最容易先断在沉默的人身上。",
+                "我更想先把人接住，再往下谈方案。",
+                "所以我会多问一句感受，不想让人被节奏直接冲过去。",
+            ]
+        else:
+            options = [
+                f"{lead}{target_author}，你这句一出来，风向已经有点变了。我更在意的是“{topic}”会把谁吸过去，又会把谁吓退。",
+                f"{lead}我听见你这句的时候，脑子里第一反应不是对错，是后面哪股人会先跟上，哪股钱会先动。",
+                f"{lead}这话不是没道理，但我闻到的是另一层味道：只要“{topic}”继续发酵，后面连不想表态的人都会被卷进去。",
+            ]
+            tails = [
+                f"我现在盯着的，就是“{desire_label}”这股风会先把谁卷进去。",
+                "这事只要发酵下去，后面就不只是嘴上的讨论了。",
+                "所以我会先看信号怎么扩，再决定往哪边站。",
+            ]
+        return f"{options[angle]} {tails[angle]}"[:160]
+
+    def _feed_topic_tags(self, content: str, category: str) -> list[str]:
+        tags = [category]
+        if any(token in content for token in ["GeoAI", "空间智能", "研究"]):
+            tags.append("GeoAI")
+        if any(token in content for token in ["股票", "盘面", "市场", "现金流"]):
+            tags.append("市场")
+        if any(token in content for token in ["游客", "旅馆", "集市"]):
+            tags.append("游客")
+        if any(token in content for token in ["房", "住房", "看房", "地产"]):
+            tags.append("地产")
+        if any(token in content for token in ["税", "监管", "财政"]):
+            tags.append("政策")
+        return tags[:4]
+
+    def _feed_impacts_for_category(self, category: str) -> list[str]:
+        mapping = {
+            "daily": ["影响关系"],
+            "mood": ["影响关系", "进入记忆"],
+            "research": ["影响研究", "进入记忆"],
+            "market": ["影响市场", "进入记忆"],
+            "property": ["影响地产", "影响游客"],
+            "tourism": ["影响游客", "进入晨报"],
+            "policy": ["影响政府页", "进入晨报"],
+            "gossip": ["影响关系", "影响游客"],
+        }
+        return mapping.get(category, ["进入记忆"])
+
+    def _feed_title_topic(self, content: str, category: str) -> str:
+        if category == "research":
+            return "研究进展"
+        if category == "market":
+            return "市场看法"
+        if category == "tourism":
+            return "游客动态"
+        if category == "property":
+            return "房产与生活"
+        if category == "policy":
+            return "政策变化"
+        if category == "mood":
+            return "心情和状态"
+        if category == "gossip":
+            return "社会热点"
+        return content[:10] or "日常动态"
+
+    def _compute_feed_heat(self, post: FeedPost) -> int:
+        return max(1, min(100, int(post.likes * 1.5 + post.reposts * 3.2 + post.views / 11 + len(post.topic_tags) * 2 + post.credibility / 12)))
+
+    def _feed_credibility_for_post(self, post: FeedPost) -> int:
+        if post.author_type == "player":
+            return max(12, min(96, 18 + int((self.state.player.reputation_score or 0) * 0.72) + int(self.state.lab.reputation * 0.08)))
+        if post.author_type == "agent":
+            agent = self.get_agent(post.author_id)
+            return max(12, min(95, int((agent.credit_score + agent.state.focus + max(0, 100 - agent.state.stress)) / 3)))
+        if post.author_type == "government":
+            return max(40, min(98, 52 + self.state.government.public_service_level // 2))
+        if post.author_type == "tourist":
+            tourist = self._find_tourist(post.author_id)
+            base = 34 + tourist.message_influence * 8
+            if tourist.visitor_tier == "vip":
+                base += 12
+            elif tourist.visitor_tier == "buyer":
+                base += 8
+            return max(18, min(86, base))
+        return 50
+
+    def _find_feed_post(self, post_id: str | None) -> FeedPost | None:
+        if not post_id:
+            return None
+        return next((post for post in self.state.feed_timeline if post.id == post_id), None)
+
+    def _pick_hot_feed_post(self) -> FeedPost | None:
+        candidates = [post for post in self.state.feed_timeline[:12] if post.heat >= 14]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda item: item.heat + item.credibility // 6)
+
+    def _feed_tone(self, content: str) -> int:
+        positive = ["回暖", "利好", "稳定", "热闹", "顺", "改善", "值得", "支撑", "增长", "热"]
+        negative = ["拖慢", "风险", "紧", "压", "问题", "放缓", "谨慎", "绷", "差", "跌"]
+        score = sum(1 for token in positive if token in content) - sum(1 for token in negative if token in content)
+        return max(-2, min(2, score))
+
+    def _spread_feed_posts(self) -> None:
+        if not self.state.feed_timeline:
+            return
+        current_day, current_slot_index = self._slot_sort_key(self.state.day, self.state.time_slot)
+        current_serial = current_day * len(SLOT_SEQUENCE) + current_slot_index
+        for post in self.state.feed_timeline[:18]:
+            post_day, post_slot_index = self._slot_sort_key(post.day, post.time_slot)
+            post_serial = post_day * len(SLOT_SEQUENCE) + post_slot_index
+            freshness = max(0, 6 - max(0, current_serial - post_serial))
+            category_bias = {
+                "market": 4,
+                "policy": 3,
+                "research": 3,
+                "tourism": 2,
+                "property": 2,
+                "mood": 1,
+                "daily": 1,
+                "gossip": 2,
+            }.get(post.category, 1)
+            visibility_gain = max(1, freshness + category_bias + post.credibility // 25)
+            reaction_gain = max(0, freshness // 2 + category_bias // 2)
+            if post.author_type == "government":
+                visibility_gain += 3
+            if post.author_type == "tourist" and post.category == "tourism":
+                visibility_gain += 2
+            post.views = min(9999, post.views + visibility_gain + self.random.randint(0, 4))
+            post.likes = min(999, post.likes + reaction_gain + self.random.randint(0, 2))
+            if freshness >= 4 and self.random.random() < min(0.38, post.credibility / 240):
+                post.reposts = min(999, post.reposts + 1)
+            post.heat = self._compute_feed_heat(post)
+        self.state.feed_timeline.sort(
+            key=lambda item: (
+                self._slot_sort_key(item.day, item.time_slot),
+                item.heat,
+                item.credibility,
+            ),
+            reverse=True,
+        )
+        self.state.feed_timeline = self.state.feed_timeline[:1000]
+
+    def _apply_feed_impacts(self, post: FeedPost) -> None:
+        tone = self._feed_tone(post.content)
+        credibility_weight = max(1, post.credibility // 25)
+        heat_weight = max(1, post.heat // 20)
+        if post.category == "market":
+            self.state.market.sentiment = self._bounded(self.state.market.sentiment + tone * credibility_weight * heat_weight)
+        elif post.category == "tourism":
+            self.state.tourism.latest_signal = f"微博舆情：{post.content[:24]}"
+            self.state.tourism.daily_messages_count += 1
+            if tone > 0:
+                self.state.tourism.repeat_customers_total += 1
+        elif post.category == "research":
+            self.state.lab.collective_reasoning = self._bounded(self.state.lab.collective_reasoning + max(1, heat_weight))
+            self.state.lab.research_progress = self._bounded(self.state.lab.research_progress + max(0, tone + 1))
+        elif post.category == "policy":
+            self.state.government.known_signals.insert(0, post.content[:36])
+            self.state.government.known_signals = self.state.government.known_signals[:10]
+        elif post.category in {"mood", "gossip"}:
+            self.state.lab.team_atmosphere = self._bounded(self.state.lab.team_atmosphere + tone)
+            if post.category == "gossip" and tone != 0:
+                self.state.tourism.latest_signal = f"小镇微博热议：{post.content[:24]}"
+                self.state.tourism.daily_messages_count += 1
+        elif post.category == "property" and tone > 0:
+            self.state.tourism.buyer_leads_total += 1
+        if post.reply_to_post_id:
+            parent = self._find_feed_post(post.reply_to_post_id)
+            if parent and post.author_type == "agent" and parent.author_type == "player":
+                agent = self.get_agent(post.author_id)
+                self._adjust_player_relation(agent, 1 if tone >= 0 else 0, "你在小镇微博上的公开互动被对方看见了。", observer=True)
+
+    def _append_feed_post(self, post: FeedPost, remember: bool = False, apply_impacts: bool = False) -> None:
+        if getattr(self.state, "feed_timeline", None) is None:
+            self.state.feed_timeline = []
+        duplicate = next(
+            (
+                existing
+                for existing in self.state.feed_timeline[:16]
+                if existing.author_type == post.author_type
+                and existing.author_id == post.author_id
+                and existing.category == post.category
+                and existing.content[:64] == post.content[:64]
+            ),
+            None,
+        )
+        if duplicate is not None:
+            return
+        self.state.feed_timeline.insert(0, post)
+        self.state.feed_timeline = self.state.feed_timeline[:1000]
+        if apply_impacts:
+            self._apply_feed_impacts(post)
+        if not remember:
+            return
+        memory_text = f"微博：{post.author_name}说“{post.content[:26]}”"
+        if post.author_type == "agent":
+            agent = self.get_agent(post.author_id)
+            self._remember(agent, memory_text, 2, long_term=post.heat >= 16)
+        elif post.author_type == "tourist":
+            tourist = self._find_tourist(post.author_id)
+            self._remember_tourist(tourist, memory_text, 2)
+        elif post.author_type == "player":
+            self.state.player.injected_topics.insert(0, f"微博：{post.content[:24]}")
+            self.state.player.injected_topics = self.state.player.injected_topics[:10]
+        if post.heat >= 18:
+            for agent in self.state.agents[:2]:
+                self._remember(agent, f"热帖挂在脑子里：{post.author_name}提到“{post.content[:20]}”", 1)
+            self.state.tourism.latest_signal = f"微博热帖：{post.content[:24]}"
 
     def _move_agents_autonomously(self) -> None:
         moved_agents: list[dict[str, object]] = []
@@ -1695,6 +2561,20 @@ class GameEngine:
             add_entry(
                 f"游客速递：昨天游客带来约 ${previous_tourist_revenue} 的本地收入，{self.state.tourism.market_name} 和 {self.state.tourism.inn_name} 都更热闹了；累计回头客 {self.state.tourism.repeat_customers_total}、高消费客户 {self.state.tourism.vip_customers_total}。",
                 target_kind="market",
+            )
+        hot_feed = next(
+            (
+                post
+                for post in sorted(self.state.feed_timeline, key=lambda item: (item.day, item.heat), reverse=True)
+                if post.day == previous_day
+            ),
+            None,
+        )
+        if hot_feed is not None:
+            add_entry(
+                f"微博热帖：{hot_feed.author_name} 昨天围绕“{self._feed_title_topic(hot_feed.content, hot_feed.category)}”发声，热度冲到 {hot_feed.heat}，很多人今天还在接着讨论。",
+                target_kind="feed",
+                target_id=hot_feed.id,
             )
         if previous_tourist_signals:
             latest_signal = previous_tourist_signals[0]
@@ -7578,13 +8458,15 @@ class GameEngine:
 
     def _ensure_agent_runtime_fields(self) -> None:
         previous_version = self.state.version or 0
-        self.state.version = max(self.state.version, 47)
+        self.state.version = max(self.state.version, 51)
         if self.state.loans is None:
             self.state.loans = []
         if self.state.archived_tasks is None:
             self.state.archived_tasks = []
         if self.state.dialogue_history is None:
             self.state.dialogue_history = []
+        if getattr(self.state, "feed_timeline", None) is None:
+            self.state.feed_timeline = []
         if self.state.geoai_milestones is None:
             self.state.geoai_milestones = []
         if self.state.daily_briefings is None:
@@ -7673,6 +8555,16 @@ class GameEngine:
             self._refresh_tourism_cycle()
         if self.state.section_signatures is None:
             self.state.section_signatures = {}
+        for post in self.state.feed_timeline or []:
+            post.content = self._localized_text(post.content)
+            post.summary = self._localized_text(post.summary)
+            post.topic_tags = [self._localized_text(item) for item in post.topic_tags or []]
+            post.desire_tags = [self._localized_text(item) for item in post.desire_tags or []]
+            post.impacts = [self._localized_text(item) for item in post.impacts or []]
+            if post.credibility is None:
+                post.credibility = 50
+            if getattr(post, "reposts", None) is None:
+                post.reposts = 0
         player_owned = [asset.id for asset in self.state.properties if asset.owner_type == "player" and asset.owner_id == self.state.player.id and asset.status == "owned"]
         if player_owned and not self.state.player.owned_property_ids:
             self.state.player.owned_property_ids = player_owned

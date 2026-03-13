@@ -191,6 +191,28 @@ class DialogueRecord(BaseModel):
     gray_trade_severity: int = 0
 
 
+class FeedPost(BaseModel):
+    id: str
+    author_type: Literal["player", "agent", "tourist", "government", "system"]
+    author_id: str
+    author_name: str
+    day: int
+    time_slot: TimeSlot
+    category: Literal["daily", "mood", "research", "market", "property", "tourism", "policy", "gossip"] = "daily"
+    content: str
+    topic_tags: list[str] = Field(default_factory=list)
+    desire_tags: list[str] = Field(default_factory=list)
+    reply_to_post_id: str | None = None
+    quote_post_id: str | None = None
+    likes: int = 0
+    reposts: int = 0
+    views: int = 0
+    heat: int = 0
+    credibility: int = 50
+    summary: str = ""
+    impacts: list[str] = Field(default_factory=list)
+
+
 class SocialThread(BaseModel):
     id: str
     participants: list[str] = Field(default_factory=list)
@@ -586,7 +608,7 @@ class DailyBankPoint(BaseModel):
 
 
 class WorldState(BaseModel):
-    version: int = 47
+    version: int = 51
     world_width: int = 44
     world_height: int = 26
     day: int
@@ -607,6 +629,7 @@ class WorldState(BaseModel):
     archived_tasks: list[Task] = Field(default_factory=list)
     ambient_dialogues: list[DialogueOutcome] = Field(default_factory=list)
     dialogue_history: list[DialogueRecord] = Field(default_factory=list)
+    feed_timeline: list[FeedPost] = Field(default_factory=list)
     geoai_milestones: list[int] = Field(default_factory=list)
     daily_briefings: list[DailyBriefing] = Field(default_factory=list)
     news_timeline: list[NewsTimelineItem] = Field(default_factory=list)
@@ -659,6 +682,18 @@ class AdvanceRequest(BaseModel):
 
 class SpeakRequest(BaseModel):
     text: str
+
+
+class FeedPostRequest(BaseModel):
+    content: str
+    category: Literal["daily", "mood", "research", "market", "property", "tourism", "policy", "gossip"] = "daily"
+    reply_to_post_id: str | None = None
+    quote_post_id: str | None = None
+
+
+class FeedReactionRequest(BaseModel):
+    post_id: str
+    action: Literal["like", "repost", "watch"]
 
 
 class TradeRequest(BaseModel):

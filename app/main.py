@@ -10,10 +10,11 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import Settings, load_settings
 from app.engine.game_engine import GameEngine
-from app.models import AdvanceRequest, BankBorrowRequest, BankDepositRequest, BankRepayRequest, BankWithdrawRequest, ConsumeRequest, GrayCaseActionRequest, LabEvent, MacroNewsRequest, MoveRequest, NewsRequest, NewsTimelinePolicyRequest, NewsTimelineRequest, PropertyFinanceRequest, SpeakRequest, StateDiffRequest, StateDiffResponse, TaxPolicyRequest, TimeSlot, TradeRequest, WorldState
+from app.models import AdvanceRequest, BankBorrowRequest, BankDepositRequest, BankRepayRequest, BankWithdrawRequest, ConsumeRequest, FeedPostRequest, FeedReactionRequest, GrayCaseActionRequest, LabEvent, MacroNewsRequest, MoveRequest, NewsRequest, NewsTimelinePolicyRequest, NewsTimelineRequest, PropertyFinanceRequest, SpeakRequest, StateDiffRequest, StateDiffResponse, TaxPolicyRequest, TimeSlot, TradeRequest, WorldState
 from app.services.activity_logger import ActivityLogger
 from app.services.openai_dialogue_service import OpenAIDialogueError, OpenAIDialogueService
 from app.services.brave_service import BraveSearchError, BraveService
+from app.services.public_hotspot_service import PublicHotspotError, PublicHotspotService
 from app.services.event_mapper import map_macro_news_to_event, map_search_result_to_event
 from app.storage.repository import SnapshotRepository
 
@@ -28,6 +29,7 @@ class AppContext:
         if saved_state:
             self.engine.log_world_snapshot("snapshot_loaded", details={"source": str(settings.save_path)})
         self.brave = BraveService(settings.brave_api_key)
+        self.hotspots = PublicHotspotService()
         self.dialogue = OpenAIDialogueService(
             settings.llm_api_key,
             settings.llm_model,
@@ -101,6 +103,14 @@ def _build_synthetic_timeline_event(spec: dict[str, str], slot: TimeSlot, world:
             ("服务业用工需求回升", "短期劳动需求增加，让本地打工收入和现金流预期略有改善。", 1, "broad", 2),
             ("工资兑现周期拉长", "部分服务业订单回款慢，市场开始担心劳动收入兑现延后。", -1, "SIG", 2),
         ],
+        "社会热点": [
+            ("社交平台热议年轻人消费降级", "互联网讨论把焦点拉回到生活成本、收入预期和日常消费取舍。", -1, "AGR", 3),
+            ("一线城市周边短途疗愈游突然走红", "社交平台上的体验分享让文旅与短住市场被重新关注。", 1, "AGR", 3),
+            ("平台热帖争论住房到底该先买还是先租", "围绕住房焦虑、现金流和长期生活感的讨论持续升温。", 0, "AGR", 3),
+            ("社交平台疯传夜市会把本地生活彻底带贵", "传闻把夜市、房租、游客和生活成本绑在一起，引发一轮关于谁在承受代价的争论。", -1, "AGR", 4),
+            ("有人热议这里会不会变成新的‘躺平避难地’", "围绕工作节奏、生活压力和消费选择的讨论突然升温，很多人开始重新评估什么才算舒服的生活。", 0, "broad", 3),
+            ("短视频在传这里可能冒出下一波文旅黑马", "关于回头客、房价和游客消费的讨论迅速发酵，外部关注开始明显抬头。", 1, "AGR", 4),
+        ],
     }
     choices = banks.get(spec["theme"], [("系统新闻台发来一条市场消息", "这条消息会让系统短期重新评估风险偏好。", 0, "broad", 2)])
     digest = hashlib.sha1(f"{spec['theme']}-{world.day}-{world.time_slot}".encode("utf-8")).hexdigest()
@@ -134,7 +144,10 @@ async def _rebuild_news_timeline() -> None:
         {"theme": "游客与文旅", "query": "China tourism domestic travel spending cultural market latest", "category": "general"},
         {"theme": "GeoAI 与空间智能", "query": "geospatial AI GeoAI spatial intelligence mapping funding latest", "category": "geoai"},
         {"theme": "就业与劳动", "query": "China employment wages labor services income latest", "category": "general"},
+        {"theme": "社会热点", "query": "China social media hot topics youth lifestyle housing consumption latest", "category": "general"},
     ]
+    social_spec = next(spec for spec in specs if spec["theme"] == "社会热点")
+    core_specs = [spec for spec in specs if spec["theme"] != "社会热点"]
     world = context.engine.get_state()
     context.engine.state.news_timeline = [item for item in context.engine.state.news_timeline if item.status != "scheduled"]
     created = 0
@@ -145,10 +158,13 @@ async def _rebuild_news_timeline() -> None:
         14: (4, 6),
     }.get(window_days, (2, 4))
     min_items, max_items = sample_bounds
-    sample_size = min(len(specs), context.engine.random.randint(min_items, max_items))
-    chosen_specs = context.engine.random.sample(specs, sample_size)
+    sample_size = min(len(core_specs), context.engine.random.randint(min_items, max_items))
+    chosen_specs = context.engine.random.sample(core_specs, sample_size)
+    social_probability = {3: 0.35, 7: 1.0, 14: 1.0}.get(window_days, 1.0)
+    if context.engine.random.random() < social_probability:
+        chosen_specs.append(social_spec)
     horizon_slots = window_days * 5
-    offsets = sorted(context.engine.random.sample(range(1, horizon_slots + 1), sample_size))
+    offsets = sorted(context.engine.random.sample(range(1, horizon_slots + 1), len(chosen_specs)))
     for offset, spec in zip(offsets, chosen_specs, strict=True):
         event = None
         if context.brave.api_key:
@@ -159,6 +175,13 @@ async def _rebuild_news_timeline() -> None:
             except Exception:
                 event = None
         if event is None:
+            try:
+                results = await context.hotspots.search(spec["query"], count=5)
+                if results:
+                    event = map_search_result_to_event(_pick_preferred_brave_result(results), spec["query"], world.time_slot, spec["category"])
+            except (PublicHotspotError, Exception):
+                event = None
+        if event is None:
             event = _build_synthetic_timeline_event(spec, world.time_slot, world)
         event.market_strength = max(4, event.market_strength)
         if event.category == "market":
@@ -167,6 +190,25 @@ async def _rebuild_news_timeline() -> None:
             event.tone_hint = 1 if context.engine.random.random() < 0.5 else -1
         scheduled_day, scheduled_slot = context.engine.slot_after(offset)
         context.engine.schedule_news_timeline_item(event, spec["query"], spec["theme"], scheduled_day, scheduled_slot)
+        created += 1
+    has_social = any(
+        item.status == "scheduled"
+        and item.theme == "社会热点"
+        and item.scheduled_day <= context.engine.state.day + window_days
+        for item in context.engine.state.news_timeline
+    )
+    if not has_social and window_days >= 7:
+        fallback_event = _build_synthetic_timeline_event(social_spec, world.time_slot, world)
+        fallback_event.market_strength = max(4, fallback_event.market_strength)
+        fallback_offset = max(1, min(horizon_slots, context.engine.random.randint(2, max(2, horizon_slots // 2))))
+        scheduled_day, scheduled_slot = context.engine.slot_after(fallback_offset)
+        context.engine.schedule_news_timeline_item(
+            fallback_event,
+            social_spec["query"],
+            social_spec["theme"],
+            scheduled_day,
+            scheduled_slot,
+        )
         created += 1
     context.engine.state.tourism.last_note = f"系统刚自动排好了未来 {window_days} 天内的 {created} 条主线新闻。"
 
@@ -267,6 +309,26 @@ async def speak(agent_id: str, payload: SpeakRequest) -> WorldState:
 async def auto_speak(agent_id: str, payload: SpeakRequest) -> WorldState:
     try:
         await _apply_ai_player_dialogue(agent_id, payload.text, observer_mode=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return _persist_and_return_state()
+
+
+@app.post("/api/feed/post", response_model=WorldState)
+async def create_feed_post(payload: FeedPostRequest) -> WorldState:
+    try:
+        context.engine.create_player_feed_post(payload.content, payload.category, payload.reply_to_post_id, payload.quote_post_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _persist_and_return_state()
+
+
+@app.post("/api/feed/react", response_model=WorldState)
+async def react_feed_post(payload: FeedReactionRequest) -> WorldState:
+    try:
+        context.engine.react_to_feed_post(payload.post_id, payload.action)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except KeyError as exc:
