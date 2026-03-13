@@ -57,6 +57,74 @@
 
 ## 配置与部署
 
+## 5 分钟新手指南
+
+如果你是第一次接触这个项目，按下面 4 步走就够了：
+
+### 1. 克隆项目
+
+```bash
+git clone https://github.com/whuyao/PixelLab.git
+cd PixelLab
+```
+
+### 2. 一键安装
+
+```bash
+./scripts/pixellab.sh install
+```
+
+### 3. 填写密钥
+
+安装完成后，编辑：
+
+```bash
+/tmp/localfarmer.env
+```
+
+最少填一套 LLM：
+
+```env
+LLM_PROVIDER=openai
+OPENAI_API_KEY=你的_OPENAI_KEY
+OPENAI_MODEL=gpt-5-mini
+```
+
+或者：
+
+```env
+LLM_PROVIDER=qwen
+QWEN_API_KEY=你的_QWEN_KEY
+QWEN_MODEL=qwen3.5-flash
+```
+
+### 4. 启动
+
+```bash
+./scripts/pixellab.sh run
+```
+
+打开：
+
+```text
+http://127.0.0.1:8765
+```
+
+### 新手建议先看什么
+
+- `首页`：看地图、任务和主指标
+- `小镇微博`：看公开舆论、热榜和传播
+- `市场`：看股市、银行和资金流
+- `智能体教学`：快速理解整个系统怎么运作
+
+### 常用维护命令
+
+```bash
+./scripts/pixellab.sh status
+./scripts/pixellab.sh upgrade
+./scripts/pixellab.sh uninstall
+```
+
 ### 环境要求
 
 - Python `3.11+` 推荐，当前开发环境实测为 `3.14`
@@ -77,7 +145,52 @@ git clone https://github.com/whuyao/PixelLab.git
 cd PixelLab
 ```
 
-### 2. 创建虚拟环境并安装依赖
+### 2. 推荐：使用命令行安装器
+
+项目现在自带统一安装脚本：
+
+```bash
+./scripts/pixellab.sh install
+```
+
+它会自动完成：
+
+- 检查当前目录是否为 git clone
+- 检查 Python 版本是否满足 `3.11+`
+- 创建 `.venv`
+- 安装项目依赖
+- 初始化仓库外配置文件
+- 创建 `save/` 和 `logs/` 目录
+
+常用命令：
+
+```bash
+./scripts/pixellab.sh install
+./scripts/pixellab.sh upgrade
+./scripts/pixellab.sh upgrade --pull
+./scripts/pixellab.sh uninstall
+./scripts/pixellab.sh uninstall --purge-data --purge-env
+./scripts/pixellab.sh status
+./scripts/pixellab.sh run
+```
+
+说明：
+
+- `install`：首次安装
+- `upgrade`：重新安装依赖并刷新本地环境
+- `upgrade --pull`：先 `git pull --ff-only` 再升级
+- `uninstall`：卸载 `.venv` 和本地安装产物，默认保留存档和日志
+- `uninstall --purge-data --purge-env`：连 `save/`、`logs/` 和 env 文件一起删除
+- `status`：查看环境和服务状态
+- `run`：启动本地服务
+
+如需自定义 env 文件路径：
+
+```bash
+./scripts/pixellab.sh install --env-file /path/to/localfarmer.env
+```
+
+### 3. 手动方式：创建虚拟环境并安装依赖
 
 ```bash
 python3 -m venv .venv
@@ -93,7 +206,7 @@ cd /Volumes/Yaoy/project/LocalFarmer
 source .venv/bin/activate
 ```
 
-### 3. 配置密钥和运行参数
+### 4. 配置密钥和运行参数
 
 项目默认不会从仓库里的 `.env` 读密钥，而是读取一个仓库外的临时配置文件。
 
@@ -161,11 +274,17 @@ LOCALFARMER_ENV_FILE=/tmp/localfarmer.env
 - 不要把任何真实 key 写进 `systemd` unit、Nginx 配置、README 截图或前端代码
 - 如果以后接入 Cloudflare Tunnel / Cloudflare Access，建议仍然只让应用监听本机 `127.0.0.1:8765`，由 Cloudflare 侧负责外网访问、TLS 和访问控制
 
-### 4. 启动项目
+### 5. 启动项目
 
 ```bash
 source .venv/bin/activate
 python run_localfarmer.py
+```
+
+或者直接：
+
+```bash
+./scripts/pixellab.sh run
 ```
 
 默认监听：
@@ -185,7 +304,7 @@ http://127.0.0.1:8765
 - 用你自己的反向代理把它转发成外部地址
 - 外层代理负责 HTTPS、域名和访问控制
 
-### 5. 停止项目
+### 6. 停止项目
 
 在运行终端里按：
 
@@ -193,13 +312,39 @@ http://127.0.0.1:8765
 Ctrl + C
 ```
 
-### 6. 首次运行后你会得到什么
+### 7. 首次运行后你会得到什么
 
 - 浏览器前端页面：`http://127.0.0.1:8765`
 - SQLite 存档：[save/localfarmer.db](/Volumes/Yaoy/project/LocalFarmer/save/localfarmer.db)
 - 行为日志：[logs/activity.jsonl](/Volumes/Yaoy/project/LocalFarmer/logs/activity.jsonl)
 
-### 7. 常见部署方式
+### 8. 升级与卸载
+
+升级本地环境：
+
+```bash
+./scripts/pixellab.sh upgrade
+```
+
+如果你希望升级前顺手拉取最新代码：
+
+```bash
+./scripts/pixellab.sh upgrade --pull
+```
+
+安全卸载（保留存档和日志）：
+
+```bash
+./scripts/pixellab.sh uninstall
+```
+
+彻底卸载（连存档、日志和 env 文件一起删掉）：
+
+```bash
+./scripts/pixellab.sh uninstall --purge-data --purge-env
+```
+
+### 9. 常见部署方式
 
 #### 本地开发运行
 
