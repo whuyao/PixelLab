@@ -236,6 +236,8 @@ flowchart LR
   基于最近 100 天模拟时间的系统阶段演化与角色分化分析。
 - [system_development_retrospective.md](/Volumes/Yaoy/project/LocalFarmer/docs/system_development_retrospective.md)
   从原型到当前复合系统的整体发展复盘。
+- [big_government_mode_guide.md](/Volumes/Yaoy/project/LocalFarmer/docs/big_government_mode_guide.md)
+  面向演示与教学的大政府模式独立说明，聚焦权限、工期、锚点与制度影响。
 - [simulation_day312_academic_analysis.md](/Volumes/Yaoy/project/LocalFarmer/docs/simulation_day312_academic_analysis.md)
   更偏学术分析写法的长期运行报告。
 

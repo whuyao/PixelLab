@@ -420,6 +420,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 
 - 当前系统设计与实现：
   - [architecture_report.md](/Volumes/Yaoy/project/LocalFarmer/docs/architecture_report.md)：完整技术架构
+  - [big_government_mode_guide.md](/Volumes/Yaoy/project/LocalFarmer/docs/big_government_mode_guide.md)：大政府模式玩法与制度机制说明
   - [consumption_real_estate_design.md](/Volumes/Yaoy/project/LocalFarmer/docs/consumption_real_estate_design.md)：消费、地产与生活满意度系统设计
   - [undergrad_system_explainer.md](/Volumes/Yaoy/project/LocalFarmer/docs/undergrad_system_explainer.md)：面向本科生的系统解释
   - [system_development_retrospective.md](/Volumes/Yaoy/project/LocalFarmer/docs/system_development_retrospective.md)：系统发展过程复盘
