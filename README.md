@@ -117,6 +117,19 @@ QWEN_MODEL=qwen3.5-flash
 ./scripts/pixellab.sh run
 ```
 
+如果你需要后台常驻服务，使用：
+
+```bash
+./scripts/pixellab-service.sh start
+./scripts/pixellab-service.sh status
+```
+
+停止：
+
+```bash
+./scripts/pixellab-service.sh stop
+```
+
 打开：
 
 ```text
@@ -427,6 +440,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
   - [architecture_report.md](docs/architecture_report.md)：完整技术架构
   - [big_government_mode_guide.md](docs/big_government_mode_guide.md)：大政府模式玩法与制度机制说明
   - [casino_system_guide.md](docs/casino_system_guide.md)：地下赌场玩法、赌税、灰案与监管联动说明
+  - [casino_emergence_report.md](docs/casino_emergence_report.md)：地下赌场接入后在经济、微博、灰案与监管层面的涌现复盘
   - [consumption_real_estate_design.md](docs/consumption_real_estate_design.md)：消费、地产与生活满意度系统设计
   - [undergrad_system_explainer.md](docs/undergrad_system_explainer.md)：面向本科生的系统解释
   - [system_development_retrospective.md](docs/system_development_retrospective.md)：系统发展过程复盘
@@ -557,7 +571,8 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 - 赢大钱会触发炫耀与微博发帖
 - 游客会在 `小镇微博` 发布“后巷赌局”类帖子
 - 赌场是灰色经济节点，会进入灰案、监管抽查和财政收入
-- 市场页和日志页都已经带赌场观察卡和下注热度图
+- 市场页和日志页都已经带赌场观察卡、下注热度图、最近 10 笔赌局和最大输赢榜
+- 赌场自动交易会进入 `实时对话`，并可以通过 `只看地下赌博` 单独筛出
 
 当前 5 个核心角色在微博上的公开人格已经刻意拉开：
 
@@ -579,9 +594,9 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 
 - 实时分析
 - 实时对话
-  - 最近 200 条结构化记录
+  - 最近 1000 条结构化记录
   - 支持按人物筛选
-  - 支持只看借贷 / 灰色交易 / 欲望冲突
+  - 支持只看借贷 / 灰色交易 / 地下赌博 / 欲望冲突
   - 筛选控件只作用于当前对话流，不影响其他日志模块
 - 经济事件流
 - `Lab Daily`

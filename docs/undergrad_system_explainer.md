@@ -392,6 +392,7 @@ GeoAI 是 `Geospatial Artificial Intelligence`，中文通常叫：
 - 赌场热度
 - 炫耀帖与赌局传闻
 - 灰案与监管联动
+- 赌场自动交易写入日志与实时对话
 
 它决定了：
 

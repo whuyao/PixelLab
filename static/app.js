@@ -16,6 +16,7 @@ const dialogueActorFilter = document.getElementById("dialogueActorFilter");
 const dialogueFilterAll = document.getElementById("dialogueFilterAll");
 const dialogueFilterLoan = document.getElementById("dialogueFilterLoan");
 const dialogueFilterGray = document.getElementById("dialogueFilterGray");
+const dialogueFilterCasino = document.getElementById("dialogueFilterCasino");
 const dialogueFilterDesire = document.getElementById("dialogueFilterDesire");
 const signalStatus = document.getElementById("signalStatus");
 const newsWindowSelect = document.getElementById("newsWindowSelect");
@@ -796,7 +797,7 @@ function renderDialogueCard(record) {
     .filter(Boolean)
     .join("");
   return `
-    <article class="dialogue-card ${record.gray_trade ? "gray-trade-card" : ""} ${highlightedDialogueId === record.id ? "is-highlighted" : ""}" data-record-id="${escapeHtml(record.id)}">
+    <article class="dialogue-card ${record.gray_trade ? "gray-trade-card" : ""} ${record.gray_trade_type === "地下赌博" ? "casino-trade-card" : ""} ${highlightedDialogueId === record.id ? "is-highlighted" : ""}" data-record-id="${escapeHtml(record.id)}">
       <div class="dialogue-card-head">
         <strong>${escapeHtml((record.participant_names || []).join(" × ") || "匿名对话")}</strong>
         <span class="dialogue-time">${escapeHtml(formatDialogueTime(record))}</span>
@@ -1434,7 +1435,7 @@ function renderPanels() {
     );
     renderIfChanged(
       "dialogue",
-      serverSignature("dialogue", [state.latest_dialogue, state.dialogue_history?.slice(0, 200), state.loans], [pendingDialogue, dialogueFilterMode, dialogueFilterActor, highlightedDialogueId]),
+      serverSignature("dialogue", [state.latest_dialogue, state.dialogue_history?.slice(0, 1000), state.loans], [pendingDialogue, dialogueFilterMode, dialogueFilterActor, highlightedDialogueId]),
       () => renderDialogue(),
     );
     renderIfChanged(
@@ -2562,8 +2563,12 @@ function renderMarketModule() {
   if (casinoRecentBox) {
     const recentCasinoRecords = (state.finance_history || [])
       .filter((record) => record.category === "casino")
-      .slice(0, 8);
-    casinoRecentBox.innerHTML = recentCasinoRecords.length
+      .slice(0, 10);
+    const casinoLeaderboard = [...(state.finance_history || [])]
+      .filter((record) => record.category === "casino")
+      .sort((left, right) => Math.abs(Number(right.amount || 0)) - Math.abs(Number(left.amount || 0)))
+      .slice(0, 6);
+    const recentMarkup = recentCasinoRecords.length
       ? recentCasinoRecords
           .map((record) => {
             const sign = Number(record.amount || 0) >= 0 ? "+" : "";
@@ -2576,7 +2581,29 @@ function renderMarketModule() {
             `;
           })
           .join("")
-      : '<article class="position-card"><strong>最近还没有赌局</strong><div class="metric-meta">再运行几轮，最近几笔赌局会显示在这里。</div></article>';
+      : '<article class="position-card"><strong>最近还没有赌局</strong><div class="metric-meta">再运行几轮，最近 10 笔赌局会显示在这里。</div></article>';
+    const leaderboardMarkup = casinoLeaderboard.length
+      ? casinoLeaderboard
+          .map((record, index) => {
+            const value = Number(record.amount || 0);
+            const sign = value >= 0 ? "+" : "";
+            const label = value >= 0 ? "赢" : "输";
+            return `
+              <div class="metric-meta"><strong>${index + 1}.</strong> ${escapeHtml(record.actor_name)} · ${label} ${sign}${formatCompactCurrency(value)} · ${record.day} 天</div>
+            `;
+          })
+          .join("")
+      : '<div class="metric-meta">当前还没有形成明显的输赢榜。</div>';
+    casinoRecentBox.innerHTML = `
+      <article class="position-card">
+        <strong>最近 10 笔赌局</strong>
+        <div class="stack">${recentMarkup}</div>
+      </article>
+      <article class="position-card">
+        <strong>最大输赢榜</strong>
+        <div class="stack">${leaderboardMarkup}</div>
+      </article>
+    `;
   }
 }
 
@@ -3638,7 +3665,7 @@ function renderFeedComposerMeta() {
 function renderDialogue() {
   const timelineSnapshot = captureDialogueTimelineState();
   const latest = pendingDialogue || state.latest_dialogue;
-  const history = ((state.dialogue_history || []).slice(0, 200)).filter((record) => recordMatchesDialogueFilters(record));
+  const history = ((state.dialogue_history || []).slice(0, 1000)).filter((record) => recordMatchesDialogueFilters(record));
   const activeLoans = (state.loans || []).filter((loan) => loan.status === "active" || loan.status === "overdue");
   const actorName =
     dialogueFilterActor === "all"
@@ -3653,9 +3680,11 @@ function renderDialogue() {
       ? "只看借贷"
       : dialogueFilterMode === "gray"
         ? "只看灰色交易"
-        : dialogueFilterMode === "desire"
-          ? "只看欲望冲突"
-          : "全部类型";
+        : dialogueFilterMode === "casino"
+          ? "只看地下赌博"
+          : dialogueFilterMode === "desire"
+            ? "只看欲望冲突"
+            : "全部类型";
   const filterSummary = `当前筛选：${actorName} · ${modeLabel}`;
   const loanMarkup =
     activeLoans.map((loan) => `<span class="dialogue-chip loan-chip">${escapeHtml(formatLoan(loan))} · ${loan.status === "overdue" ? "逾期" : "进行中"}</span>`).join("") ||
@@ -3695,7 +3724,7 @@ function renderDialogue() {
   if (!history.length && !latest) {
     dialogueBox.innerHTML = `
       <div class="dialogue-toolbar">
-        <span>筛选结果 0 / 200 条</span>
+        <span>筛选结果 0 / 1000 条</span>
         <span>活跃借款 ${activeLoans.length}</span>
       </div>
       <div class="dialogue-filter-summary">${escapeHtml(filterSummary)}</div>
@@ -3708,7 +3737,7 @@ function renderDialogue() {
   const historyMarkup = history.map((record) => renderDialogueCard(record)).join("");
   dialogueBox.innerHTML = `
     <div class="dialogue-toolbar">
-      <span>筛选结果 ${history.length} / 200 条</span>
+      <span>筛选结果 ${history.length} / 1000 条</span>
       <span>活跃借款 ${activeLoans.length}</span>
     </div>
     <div class="dialogue-filter-summary">${escapeHtml(filterSummary)}</div>
@@ -3735,6 +3764,7 @@ function renderDialogueFilterControls() {
   if (dialogueFilterAll) dialogueFilterAll.classList.toggle("active", dialogueFilterMode === "all");
   if (dialogueFilterLoan) dialogueFilterLoan.classList.toggle("active", dialogueFilterMode === "loan");
   if (dialogueFilterGray) dialogueFilterGray.classList.toggle("active", dialogueFilterMode === "gray");
+  if (dialogueFilterCasino) dialogueFilterCasino.classList.toggle("active", dialogueFilterMode === "casino");
   if (dialogueFilterDesire) dialogueFilterDesire.classList.toggle("active", dialogueFilterMode === "desire");
 }
 
@@ -3748,6 +3778,12 @@ function recordMatchesDialogueFilters(record) {
   }
   if (dialogueFilterMode === "gray") {
     return Boolean(record.gray_trade) || record.kind === "gray_trade";
+  }
+  if (dialogueFilterMode === "casino") {
+    return (
+      record.gray_trade_type === "地下赌博" ||
+      /地下赌场|赌场|牌桌|赌/.test(`${record.topic || ""}${record.key_point || ""}${record.financial_note || ""}`)
+    );
   }
   if (dialogueFilterMode === "desire") {
     return record.mood === "tense" || /拉扯|分歧|冲突|驱动/.test(`${record.topic || ""}${record.key_point || ""}`);
@@ -8117,6 +8153,12 @@ if (dialogueFilterLoan) {
 if (dialogueFilterGray) {
   dialogueFilterGray.addEventListener("click", () => {
     dialogueFilterMode = "gray";
+    renderPanels();
+  });
+}
+if (dialogueFilterCasino) {
+  dialogueFilterCasino.addEventListener("click", () => {
+    dialogueFilterMode = "casino";
     renderPanels();
   });
 }

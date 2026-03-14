@@ -1932,6 +1932,12 @@ canvas {
   background: linear-gradient(180deg, rgba(235, 233, 228, 0.96), rgba(219, 214, 207, 0.94));
 }
 
+.casino-trade-card {
+  border-color: rgba(132, 77, 34, 0.92);
+  background: linear-gradient(180deg, rgba(255, 241, 221, 0.98), rgba(235, 214, 186, 0.96));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 0 0 1px rgba(176, 114, 45, 0.16);
+}
+
 .dialogue-card-head,
 .dialogue-badges {
   display: flex;

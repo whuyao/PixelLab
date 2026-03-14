@@ -325,7 +325,7 @@ class GameEngine:
             },
             "dialogue": {
                 "latest_dialogue": dump(state.latest_dialogue),
-                "dialogue_history": dump(state.dialogue_history[:220]),
+                "dialogue_history": dump(state.dialogue_history[:1000]),
                 "loans": dump(state.loans),
             },
             "feed": {
@@ -713,6 +713,42 @@ class GameEngine:
             ),
         )
         self.state.events = self.state.events[:8]
+
+    def _append_casino_dialogue_record(
+        self,
+        *,
+        actor_id: str,
+        actor_name: str,
+        actor_role: str,
+        stake: int,
+        outcome_text: str,
+        net_delta: int,
+        payout: int,
+        tax: int,
+    ) -> None:
+        self._append_dialogue_record(
+            DialogueRecord(
+                id=f"dialogue-{uuid4().hex[:8]}",
+                kind="gray_trade",
+                day=self.state.day,
+                time_slot=self.state.time_slot,
+                participants=[actor_id],
+                participant_names=[actor_name],
+                topic="地下赌场",
+                summary=f"{actor_name} 在后巷地下赌场下注 ${stake}，{outcome_text}，净变化 ${net_delta}。",
+                key_point=f"{actor_name} 压了 ${stake}，返还 ${payout}，赌税 ${tax}，净变化 ${net_delta}。",
+                transcript=[
+                    f"{actor_name}：我先压 ${stake}，看看今晚手气站不站我这边。",
+                    f"庄家：{outcome_text}{'，台面吐了 $' + str(payout) if payout else '。'}",
+                ],
+                desire_labels={actor_name: "想搏一把运气和现金缓冲"},
+                mood="warm" if net_delta > 0 else "tense" if net_delta < -(stake // 2) else "neutral",
+                financial_note=f"{actor_role}下注 ${stake}，返还 ${payout}，赌税 ${tax}，净变化 ${net_delta}。",
+                gray_trade=True,
+                gray_trade_type="地下赌博",
+                gray_trade_severity=2 if payout else 3,
+            )
+        )
 
     def _pick_casino_relation_target(self, actor: Agent) -> Agent | None:
         same_area = [
@@ -5307,6 +5343,16 @@ class GameEngine:
                 asset_name=casino.name,
                 counterparty="灰市牌桌",
             )
+            self._append_casino_dialogue_record(
+                actor_id=agent.id,
+                actor_name=agent.name,
+                actor_role="智能体",
+                stake=stake,
+                outcome_text=str(result["outcome"]),
+                net_delta=int(result["net"]),
+                payout=int(result["payout"]),
+                tax=int(result["tax"]),
+            )
             self._record_casino_stats(stake=stake, payout=int(result["payout"]), tax=int(result["tax"]), actor_name=agent.name, actor_type="agent")
             self._maybe_register_casino_case(actor_id=agent.id, actor_name=agent.name, actor_type="agent", stake=stake, net_delta=int(result["net"]), trigger="desperation" if tight_cash else "thrill")
             self._maybe_publish_casino_buzz(actor_name=agent.name, actor_type="agent", stake=stake, outcome_text=str(result["outcome"]), net_delta=int(result["net"]), tourist=False)
@@ -5357,6 +5403,16 @@ class GameEngine:
                 amount=int(result["net"]),
                 asset_name=casino.name,
                 counterparty="灰市牌桌",
+            )
+            self._append_casino_dialogue_record(
+                actor_id=tourist.id,
+                actor_name=tourist.name,
+                actor_role="游客",
+                stake=stake,
+                outcome_text=str(result["outcome"]),
+                net_delta=int(result["net"]),
+                payout=int(result["payout"]),
+                tax=int(result["tax"]),
             )
             self._record_casino_stats(stake=stake, payout=int(result["payout"]), tax=int(result["tax"]), actor_name=tourist.name, actor_type="tourist")
             self._maybe_register_casino_case(actor_id=tourist.id, actor_name=tourist.name, actor_type="tourist", stake=stake, net_delta=int(result["net"]), trigger="tourist")
@@ -6543,7 +6599,7 @@ class GameEngine:
         if self.state.dialogue_history is None:
             self.state.dialogue_history = []
         self.state.dialogue_history.insert(0, record)
-        self.state.dialogue_history = self.state.dialogue_history[:200]
+        self.state.dialogue_history = self.state.dialogue_history[:1000]
 
     def _append_finance_record(
         self,
@@ -8179,6 +8235,43 @@ class GameEngine:
             )
             self.state.daily_casino_history.append(point)
         self.state.daily_casino_history = self.state.daily_casino_history[-90:]
+
+    def _backfill_casino_dialogue_history_from_finance(self) -> None:
+        if self.state.dialogue_history is None:
+            self.state.dialogue_history = []
+        if any(record.gray_trade_type == "地下赌博" for record in self.state.dialogue_history):
+            return
+        casino_records = [
+            record
+            for record in self.state.finance_history or []
+            if record.category == "casino" and record.action == "gamble"
+        ]
+        if not casino_records:
+            return
+        for record in reversed(casino_records[:20]):
+            summary = record.summary or f"{record.actor_name} 在后巷地下赌场试了手气。"
+            self.state.dialogue_history.insert(
+                0,
+                DialogueRecord(
+                    id=f"dialogue-{uuid4().hex[:8]}",
+                    kind="gray_trade",
+                    day=record.day,
+                    time_slot=record.time_slot,
+                    participants=[record.actor_id],
+                    participant_names=[record.actor_name],
+                    topic="地下赌场",
+                    summary=summary,
+                    key_point=summary,
+                    transcript=[summary],
+                    desire_labels={record.actor_name: "想搏一把运气和现金缓冲"},
+                    mood="warm" if (record.amount or 0) > 0 else "tense" if (record.amount or 0) < 0 else "neutral",
+                    financial_note=f"{record.actor_name} 在 {record.asset_name or '后巷地下赌场'} 参与了地下赌博，净变化 ${record.amount or 0}。",
+                    gray_trade=True,
+                    gray_trade_type="地下赌博",
+                    gray_trade_severity=2 if (record.amount or 0) >= 0 else 3,
+                ),
+            )
+        self.state.dialogue_history = self.state.dialogue_history[:1000]
 
     def _player_desire_label(self, text: str) -> str:
         normalized = text.strip()
@@ -10121,6 +10214,7 @@ class GameEngine:
             self._backfill_daily_bank_history_from_finance()
         if not self.state.daily_casino_history:
             self._backfill_daily_casino_history_from_finance()
+        self._backfill_casino_dialogue_history_from_finance()
         if not self.state.daily_economy_history:
             self._record_daily_economy_point(
                 self.state.day,
