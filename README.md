@@ -426,6 +426,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
   - [system_development_retrospective.md](docs/system_development_retrospective.md)：系统发展过程复盘
 - 运行分析与历史案例：
   - [recent_100day_emergence_report.md](docs/recent_100day_emergence_report.md)：最近 100 天系统与智能体涌现报告
+  - [recent_100day_government_emergence_report.md](docs/recent_100day_government_emergence_report.md)：最近 100 天政府智能体与大政府模式涌现报告
   - [emergent_behavior_casebook.md](docs/emergent_behavior_casebook.md)：10 个涌现行为案例
   - [simulation_day312_review.md](docs/simulation_day312_review.md)：第 312 天阶段的历史运行复盘
   - [simulation_day312_academic_analysis.md](docs/simulation_day312_academic_analysis.md)：第 312 天阶段的历史学术分析版
