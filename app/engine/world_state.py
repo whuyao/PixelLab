@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.models import AnalysisPoint, Agent, AgentState, BankState, ConsumableItem, GovernmentState, IndexCandle, LabEvent, LabMetrics, MarketState, MemoryEntry, Player, Point, PropertyAsset, StockQuote, Task, WorldState
+from app.models import AnalysisPoint, Agent, AgentState, BankState, CasinoState, ConsumableItem, DailyCasinoPoint, GovernmentState, IndexCandle, LabEvent, LabMetrics, MarketState, MemoryEntry, Player, Point, PropertyAsset, StockQuote, Task, WorldState
 
 
 def _memory(text: str, day: int, slot: str, importance: int = 1) -> MemoryEntry:
@@ -649,9 +649,31 @@ def build_initial_world() -> WorldState:
             status="operating",
             description="游客和本地人都可能来这里交易、闲聊和交换消息。",
         ),
+        PropertyAsset(
+            id="property-underground-casino",
+            owner_type="market",
+            owner_id="gray-market",
+            property_type="casino",
+            facility_kind="underground_casino",
+            name="后巷地下赌场",
+            position=Point(x=30, y=8),
+            width=2,
+            height=2,
+            purchase_price=0,
+            estimated_value=220,
+            daily_income=0,
+            daily_maintenance=4,
+            comfort_bonus=-2,
+            social_bonus=3,
+            debt_eligible=False,
+            listed=False,
+            built=True,
+            status="operating",
+            description="藏在果园坡地边上的地下赌场，只有摸到门口才会有人试手气。",
+        ),
     ]
     return WorldState(
-        version=55,
+        version=59,
         world_width=44,
         world_height=26,
         day=1,
@@ -665,6 +687,7 @@ def build_initial_world() -> WorldState:
         market=market,
         bank=bank,
         government=GovernmentState(),
+        casino=CasinoState(),
         archived_tasks=[],
         ambient_dialogues=[],
         dialogue_history=[],
@@ -692,6 +715,18 @@ def build_initial_world() -> WorldState:
                 avg_credit=round(sum(agent.credit_score for agent in agents) / len(agents), 2),
                 active_events=len(events),
                 active_gray_cases=0,
+                casino_heat=18,
+            )
+        ],
+        daily_casino_history=[
+            DailyCasinoPoint(
+                day=1,
+                visits=0,
+                wagers=0,
+                payouts=0,
+                tax=0,
+                big_wins=0,
+                heat=18,
             )
         ],
     )

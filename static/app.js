@@ -57,6 +57,7 @@ const bankBorrowHint = document.getElementById("bankBorrowHint");
 const bankStatusBox = document.getElementById("bankStatusBox");
 const bankLoanList = document.getElementById("bankLoanList");
 const bankInsightBox = document.getElementById("bankInsightBox");
+const casinoRecentBox = document.getElementById("casinoRecentBox");
 const lifestyleSummary = document.getElementById("lifestyleSummary");
 const consumeCatalog = document.getElementById("consumeCatalog");
 const propertyList = document.getElementById("propertyList");
@@ -90,6 +91,9 @@ const socialAnalysisMeta = document.getElementById("socialAnalysisMeta");
 const eventAnalysisCanvas = document.getElementById("eventAnalysisCanvas");
 const eventAnalysisCtx = eventAnalysisCanvas?.getContext("2d");
 const eventAnalysisMeta = document.getElementById("eventAnalysisMeta");
+const casinoAnalysisCanvas = document.getElementById("casinoAnalysisCanvas");
+const casinoAnalysisCtx = casinoAnalysisCanvas?.getContext("2d");
+const casinoAnalysisMeta = document.getElementById("casinoAnalysisMeta");
 const peopleAnalysis = document.getElementById("peopleAnalysis");
 const fiscalSummary = document.getElementById("fiscalSummary");
 const marketIntradayBtn = document.getElementById("marketIntradayBtn");
@@ -104,6 +108,7 @@ const resetCameraBtn = document.getElementById("resetCameraBtn");
 const zoomInBtn = document.getElementById("zoomInBtn");
 const zoomOutBtn = document.getElementById("zoomOutBtn");
 const buildAnchorToggleBtn = document.getElementById("buildAnchorToggleBtn");
+const casinoBtn = document.getElementById("casinoBtn");
 const talkForm = document.getElementById("talkForm");
 const talkInput = document.getElementById("talkInput");
 const talkTarget = document.getElementById("talkTarget");
@@ -139,7 +144,7 @@ const llmApplyBtn = document.getElementById("llmApplyBtn");
 const llmStatusMeta = document.getElementById("llmStatusMeta");
 const llmSwitchStatus = document.getElementById("llmSwitchStatus");
 const llmSwitcherShell = llmToggleBtn?.closest(".llm-switcher-shell") || null;
-const ASSET_VERSION = "20260314n";
+const ASSET_VERSION = "20260314r";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -658,6 +663,50 @@ function recentConsumptionSeries(days = 10) {
       .filter((record) => record.day === day && (record.category === "consume" || record.category === "tourism"))
       .reduce((sum, record) => sum + Math.abs(Number(record.amount || 0)), 0);
     values.push(amount);
+  }
+  return values;
+}
+
+function recentActiveCasinoDays(limit = 10) {
+  const history = (state.daily_casino_history || []).filter((point) => {
+    const total =
+      Number(point.visits || 0)
+      + Number(point.wagers || 0)
+      + Number(point.payouts || 0)
+      + Number(point.tax || 0)
+      + Number(point.big_wins || 0)
+      + Number(point.heat || 0);
+    return total > 0;
+  });
+  return history.slice(-limit);
+}
+
+function recentCasinoSeries(days = 10, key = "wagers") {
+  const activeDays = recentActiveCasinoDays(days);
+  if (activeDays.length) {
+    return activeDays.map((point) => Number(point[key] || 0));
+  }
+  const values = [];
+  const startDay = Math.max(1, (state.day || 1) - days + 1);
+  for (let day = startDay; day <= (state.day || 1); day += 1) {
+    const dayRecords = (state.finance_history || []).filter((record) => record.day === day && record.category === "casino");
+    if (key === "visits") {
+      values.push(new Set(dayRecords.map((record) => `${record.actor_type}:${record.actor_id}`)).size);
+      continue;
+    }
+    if (key === "wagers") {
+      values.push(dayRecords.filter((record) => record.action === "gamble").reduce((sum, record) => sum + Math.abs(Number(record.amount || 0)), 0));
+      continue;
+    }
+    if (key === "payouts") {
+      values.push(dayRecords.reduce((sum, record) => sum + Number(record.metadata?.payout || 0), 0));
+      continue;
+    }
+    if (key === "tax") {
+      values.push(dayRecords.reduce((sum, record) => sum + Number(record.metadata?.tax || 0), 0));
+      continue;
+    }
+    values.push(0);
   }
   return values;
 }
@@ -1321,6 +1370,7 @@ function renderPanels() {
     buildAnchorToggleBtn.textContent = `开发叠层：${showBuildAnchors ? "开" : "关"}`;
     buildAnchorToggleBtn.classList.toggle("active", showBuildAnchors);
   }
+  renderCasinoControl();
   marketIntradayBtn.classList.toggle("active", marketViewMode === "intraday");
   marketDailyBtn.classList.toggle("active", marketViewMode === "daily");
   marketMonthlyBtn?.classList.toggle("active", marketViewMode === "monthly");
@@ -1765,8 +1815,21 @@ function renderFiscalPanel() {
   const applyPolicyToggleAppearance = (element, mode) => {
     if (!element) return;
     const setImportant = (name, value) => element.style.setProperty(name, value, "important");
+    element.dataset.mode = mode;
+    setImportant("background-image", "none");
+    setImportant("background-clip", "padding-box");
+    setImportant("border-style", "solid");
+    setImportant("border-width", "3px");
+    setImportant("font-weight", "700");
+    setImportant("opacity", "1");
+    setImportant("filter", "none");
+    setImportant("background-repeat", "no-repeat");
+    setImportant("background-size", "auto");
+    setImportant("mix-blend-mode", "normal");
+    setImportant("text-shadow", "none");
+    setImportant("box-shadow", "none");
     if (mode === "active") {
-      setImportant("background", "linear-gradient(180deg, #6c8b47, #567336)");
+      setImportant("background", "#5f7c3c");
       setImportant("background-color", "#5f7c3c");
       setImportant("border-color", "#486833");
       setImportant("color", "#fff8df");
@@ -1774,24 +1837,18 @@ function renderFiscalPanel() {
       setImportant("text-shadow", "0 1px 0 rgba(44, 61, 28, 0.45)");
       setImportant("box-shadow", "inset 0 0 0 1px rgba(247, 243, 220, 0.14)");
     } else if (mode === "locked") {
-      setImportant("background", "linear-gradient(180deg, #d5c9ac, #c8bb9f)");
+      setImportant("background", "#cec1a4");
       setImportant("background-color", "#cec1a4");
       setImportant("border-color", "rgba(74, 62, 47, 0.48)");
       setImportant("color", "#6b5d49");
       setImportant("-webkit-text-fill-color", "#6b5d49");
-      setImportant("text-shadow", "none");
-      setImportant("box-shadow", "none");
     } else {
-      setImportant("background", "linear-gradient(180deg, #d89563, #c97f4b)");
+      setImportant("background", "#cf8754");
       setImportant("background-color", "#cf8754");
       setImportant("border-color", "var(--line)");
       setImportant("color", "#fff8ee");
       setImportant("-webkit-text-fill-color", "#fff8ee");
-      setImportant("text-shadow", "none");
-      setImportant("box-shadow", "none");
     }
-    setImportant("opacity", "1");
-    setImportant("filter", "none");
   };
   if (governmentModeBtn) {
     governmentModeBtn.textContent = government.big_mode_enabled ? "大政府模式：开" : "大政府模式：关";
@@ -2142,6 +2199,7 @@ function renderAnalysisPanel() {
     if (fiscalAnalysisMeta) fiscalAnalysisMeta.textContent = "等待分析数据。";
     if (socialAnalysisMeta) socialAnalysisMeta.textContent = "等待分析数据。";
     if (eventAnalysisMeta) eventAnalysisMeta.textContent = "等待分析数据。";
+    if (casinoAnalysisMeta) casinoAnalysisMeta.textContent = "等待分析数据。";
     if (peopleAnalysis) peopleAnalysis.innerHTML = '<article class="analysis-person-card"><strong>暂无人物快照</strong><div class="metric-meta">世界再运行一会儿，这里会开始积累实时走势。</div></article>';
     return;
   }
@@ -2221,6 +2279,23 @@ function renderAnalysisPanel() {
       rightCaption: `${timeLabels[state.time_slot] || state.time_slot}`,
     },
   );
+  drawAnalysisChart(
+    casinoAnalysisCtx,
+    casinoAnalysisCanvas,
+    [
+      { label: "赌场热度", values: history.map((item) => item.casino_heat || 0), color: "#8e5b36", axis: "left" },
+      { label: "今日到场", values: history.map((item) => item.casino_daily_visits || 0), color: "#b08347", axis: "right" },
+      { label: "今日下注", values: history.map((item) => item.casino_daily_wagers || 0), color: "#7f4b8b", axis: "right" },
+    ],
+    {
+      leftTopLabel: "热度高",
+      leftBottomLabel: "热度低",
+      rightTopLabel: "到场/下注高",
+      rightBottomLabel: "到场/下注低",
+      leftCaption: `最近 ${history.length} 段`,
+      rightCaption: `${timeLabels[state.time_slot] || state.time_slot}`,
+    },
+  );
   const latest = history[history.length - 1];
   const previous = history[Math.max(0, history.length - 2)] || latest;
   if (marketAnalysisMeta) {
@@ -2245,6 +2320,11 @@ function renderAnalysisPanel() {
   }
   if (eventAnalysisMeta) {
     eventAnalysisMeta.textContent = `这里只看计数，不再混收入。活跃事件 ${latest.active_events}，地下案件 ${latest.active_gray_cases}，在场游客 ${latest.tourists_active || 0}。`;
+  }
+  if (casinoAnalysisMeta) {
+    const visitsDelta = (latest.casino_daily_visits || 0) - (previous.casino_daily_visits || 0);
+    const wagerDelta = (latest.casino_daily_wagers || 0) - (previous.casino_daily_wagers || 0);
+    casinoAnalysisMeta.textContent = `这里只看赌场。热度 ${latest.casino_heat || 0}，今日到场 ${latest.casino_daily_visits || 0}（${visitsDelta >= 0 ? "+" : ""}${visitsDelta}），今日下注 ${formatCompactCurrency(latest.casino_daily_wagers || 0)}（${wagerDelta >= 0 ? "+" : ""}${formatCompactCurrency(wagerDelta)}）。`;
   }
   const actors = [
     {
@@ -2341,6 +2421,11 @@ function renderMarketModule() {
         <div class="metric-meta">今日外来消息 ${state.tourism?.daily_messages_count || 0} 条</div>
         <div class="metric-meta">${escapeHtml(state.tourism?.latest_signal || state.tourism?.last_note || "旅馆和集市会在这里汇总游客动向。")}</div>
       </article>
+      <article class="market-state-card">
+        <strong>赌场热度</strong>
+        <div class="metric-meta">今日到场 ${state.casino?.daily_visits || 0} · 今日下注 ${formatCompactCurrency(state.casino?.daily_wagers || 0)}</div>
+        <div class="metric-meta">今日赌税 ${formatCompactCurrency(state.casino?.daily_tax || 0)} · 庄家池 ${formatCompactCurrency(state.casino?.house_bankroll || 0)}</div>
+      </article>
     `;
     const quoteCards = quotes
       .map(
@@ -2372,8 +2457,15 @@ function renderMarketModule() {
     const todayTouristConsumption = Math.abs(sumFinanceRecords((record) => record.day === state.day && record.category === "tourism"));
     const trailingConsumption = recentConsumptionSeries(10);
     const trailingGovernmentRevenue = recentGovernmentRevenueSeries(10);
+    const trailingCasinoDays = recentActiveCasinoDays(10);
+    const trailingCasinoWagers = recentCasinoSeries(10, "wagers");
+    const trailingCasinoPayouts = recentCasinoSeries(10, "payouts");
+    const trailingCasinoTax = recentCasinoSeries(10, "tax");
+    const casino = state.casino || {};
     const consumptionWindowLabel = `近 ${Math.max(1, trailingConsumption.length)} 个工作日消费流`;
     const governmentWindowLabel = `近 ${Math.max(1, trailingGovernmentRevenue.length)} 个工作日财政资产曲线`;
+    const casinoWindowLabel = `近 ${Math.max(1, trailingCasinoDays.length || trailingCasinoWagers.length)} 个工作日赌资`;
+    const casinoPayoutLabel = `近 ${Math.max(1, trailingCasinoDays.length || trailingCasinoPayouts.length)} 个工作日返还`;
     const popularItems = topConsumptionItems(3);
     const governmentDailyRevenue = trailingGovernmentRevenue[trailingGovernmentRevenue.length - 1] || 0;
     const latestGovernmentFinance = (state.finance_history || []).find((record) => record.category === "government");
@@ -2407,6 +2499,24 @@ function renderMarketModule() {
         <div class="metric-meta">${governmentAssets.length ? escapeHtml(governmentAssets.slice(0, 3).map((asset) => `${asset.name}${facilityKindLabel(asset.facility_kind) ? `（${facilityKindLabel(asset.facility_kind)}）` : ""}`).join(" · ")) : "财政暂未持有园区资产。"}</div>
         <div class="metric-meta">${escapeHtml(latestGovernmentFinance?.summary || state.government?.last_distribution_note || "下一轮财政动作会从这里体现。")}</div>
         <div class="metric-meta">${escapeHtml((state.government?.known_signals || []).slice(0, 2).join(" · ") || "政府仍在观察游客、市场和住房信号。")}</div>
+      </article>
+    `;
+    const casinoObservation = `
+      <article class="position-card insight-card">
+        <strong>地下赌场</strong>
+        <div class="metric-meta">今日到场 ${casino.daily_visits || 0} · 总到场 ${casino.total_visits || 0} · 热度 ${casino.current_heat || 0}</div>
+        <div class="metric-meta">今日下注 ${formatCompactCurrency(casino.daily_wagers || 0)} · 今日返还 ${formatCompactCurrency(casino.daily_payouts || 0)}</div>
+        <div class="metric-meta">今日赌税 ${formatCompactCurrency(casino.daily_tax || 0)} · 累计赌税 ${formatCompactCurrency(casino.total_tax || 0)}</div>
+        <div class="metric-meta">今日大赢 ${casino.daily_big_wins || 0} 次 · 庄家池 ${formatCompactCurrency(casino.house_bankroll || 0)}</div>
+        <div class="mini-trend-block">
+          <div class="mini-trend-head"><span>${casinoWindowLabel}</span><strong>${formatCompactCurrency(trailingCasinoWagers.reduce((sum, value) => sum + value, 0))}</strong></div>
+          ${buildMiniTrendSvg(trailingCasinoWagers, "#9c5a40", "rgba(156, 90, 64, 0.28)", "bars-sqrt")}
+        </div>
+        <div class="mini-trend-block">
+          <div class="mini-trend-head"><span>${casinoPayoutLabel}</span><strong>返还 ${formatCompactCurrency(trailingCasinoPayouts.reduce((sum, value) => sum + value, 0))} · 赌税 ${formatCompactCurrency(trailingCasinoTax.reduce((sum, value) => sum + value, 0))}</strong></div>
+          ${buildMiniTrendSvg(trailingCasinoPayouts, "#8467b9", "rgba(132, 103, 185, 0.18)", "bars-sqrt")}
+        </div>
+        <div class="metric-meta">${escapeHtml(casino.last_note || "牌桌今晚还没真正热起来。")}</div>
       </article>
     `;
     const playerPosition = `
@@ -2447,7 +2557,26 @@ function renderMarketModule() {
         },
       )
       .join("");
-    marketPositions.innerHTML = `<div class="position-grid">${touristObservation}${governmentObservation}${playerPosition}${teamPosition}${agentPositions}</div>`;
+    marketPositions.innerHTML = `<div class="position-grid">${touristObservation}${governmentObservation}${casinoObservation}${playerPosition}${teamPosition}${agentPositions}</div>`;
+  }
+  if (casinoRecentBox) {
+    const recentCasinoRecords = (state.finance_history || [])
+      .filter((record) => record.category === "casino")
+      .slice(0, 8);
+    casinoRecentBox.innerHTML = recentCasinoRecords.length
+      ? recentCasinoRecords
+          .map((record) => {
+            const sign = Number(record.amount || 0) >= 0 ? "+" : "";
+            return `
+              <article class="position-card">
+                <strong>${escapeHtml(record.actor_name)}</strong>
+                <div class="metric-meta">${escapeHtml(record.summary)}</div>
+                <div class="metric-meta">${record.day} 天 · ${timeLabels[record.time_slot] || record.time_slot} · 净变化 ${sign}${formatCompactCurrency(record.amount || 0)}</div>
+              </article>
+            `;
+          })
+          .join("")
+      : '<article class="position-card"><strong>最近还没有赌局</strong><div class="metric-meta">再运行几轮，最近几笔赌局会显示在这里。</div></article>';
   }
 }
 
@@ -2635,6 +2764,7 @@ function propertyTypeLabel(type) {
     rental_house: "出租屋",
     shop: "小店铺",
     greenhouse: "温室",
+    casino: "地下赌场",
   }[type] || type;
 }
 
@@ -2643,6 +2773,7 @@ function facilityKindLabel(kind) {
     public_housing: "公共住房",
     night_market_stall: "夜市摊位",
     visitor_service_station: "游客服务站",
+    underground_casino: "地下赌场",
   }[kind] || "";
 }
 
@@ -2651,6 +2782,7 @@ function facilityKindBadge(kind) {
     public_housing: "住",
     night_market_stall: "夜",
     visitor_service_station: "服",
+    underground_casino: "赌",
   }[kind] || "公";
 }
 
@@ -2690,6 +2822,7 @@ function financeCategoryLabel(type) {
     loan: "人际借贷",
     work: "公司打工",
     gray: "灰市交易",
+    casino: "地下赌博",
     tax: "税费",
     welfare: "财政保障",
     tourism: "游客经济",
@@ -5056,6 +5189,35 @@ function drawPropertyAssets(now) {
         ctx.strokeRect(px + margin, py + margin, width - margin * 2, height - margin * 2);
         ctx.setLineDash([]);
       }
+    } else if (asset.property_type === "casino" || asset.facility_kind === "underground_casino") {
+      const bodyWidth = Math.max(30, Math.round(width * 0.56));
+      const bodyHeight = Math.max(24, Math.round(height * 0.44));
+      const bodyX = Math.round(px + (width - bodyWidth) / 2);
+      const bodyY = Math.round(py + height - bodyHeight - 14);
+      drawDetailedBuilding(bodyX, bodyY - 4, bodyWidth, bodyHeight + 4, {
+        wall: "#7b6274",
+        wallShade: "#56424f",
+        roof: "#3b2733",
+        roofShade: "#261821",
+        trim: "#f4dfb4",
+        door: "#2c1b14",
+        signText: "赌",
+        signFill: "#f1d18a",
+        pulseKind: "market",
+        windowRows: 1,
+        windowCols: 2,
+      });
+      ctx.fillStyle = "#d86a5e";
+      roundRect(bodyX + 6, bodyY + 12, bodyWidth - 12, 4, 2, true);
+      ctx.strokeStyle = "rgba(241, 209, 138, 0.85)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(bodyX - 4, bodyY - 8, bodyWidth + 8, bodyHeight + 12);
+      ctx.strokeStyle = "rgba(221, 119, 103, 0.7)";
+      ctx.strokeRect(bodyX - 7, bodyY - 11, bodyWidth + 14, bodyHeight + 18);
+      ctx.fillStyle = "rgba(255, 211, 127, 0.92)";
+      ctx.font = '8px "PingFang SC", sans-serif';
+      ctx.fillText("后巷", bodyX + 8, bodyY + 10);
+      drawSignPill(bodyX + 2, bodyY - 18, Math.min(50, bodyWidth), "地下赌场", "#f4dfb4");
     } else {
       const bodyWidth = Math.max(28, Math.round(width * 0.54));
       const bodyHeight = Math.max(22, Math.round(height * 0.42));
@@ -6704,6 +6866,32 @@ function getNearbyAgent() {
   );
 }
 
+function getCasinoProperty() {
+  return (state?.properties || []).find((asset) => asset.id === "property-underground-casino") || null;
+}
+
+function isPlayerNearCasino() {
+  const asset = getCasinoProperty();
+  if (!asset || !state?.player?.position) return false;
+  const left = asset.position.x;
+  const top = asset.position.y;
+  const right = asset.position.x + Math.max(0, asset.width - 1);
+  const bottom = asset.position.y + Math.max(0, asset.height - 1);
+  const px = state.player.position.x;
+  const py = state.player.position.y;
+  const dx = left <= px && px <= right ? 0 : Math.min(Math.abs(px - left), Math.abs(px - right));
+  const dy = top <= py && py <= bottom ? 0 : Math.min(Math.abs(py - top), Math.abs(py - bottom));
+  return dx + dy <= 2;
+}
+
+function suggestedCasinoStake() {
+  const cash = state?.player?.cash || 0;
+  if (cash >= 240) return 60;
+  if (cash >= 120) return 40;
+  if (cash >= 60) return 20;
+  return Math.max(5, Math.min(10, cash));
+}
+
 function trimObserverHistory() {
   while (observerRecentAgents.length > 4) observerRecentAgents.shift();
 }
@@ -6785,6 +6973,24 @@ function updateTalkTarget() {
     return;
   }
   talkTarget.textContent = target ? `当前对象：${target.name}` : "当前对象：未靠近任何可聊天的人";
+}
+
+function renderCasinoControl() {
+  if (!casinoBtn || !state) return;
+  const casino = getCasinoProperty();
+  const nearby = isPlayerNearCasino();
+  const stake = suggestedCasinoStake();
+  casinoBtn.classList.toggle("active", nearby);
+  casinoBtn.disabled = !casino || !nearby || busy;
+  if (!casino) {
+    casinoBtn.textContent = "地下赌场：停业";
+    return;
+  }
+  if (!nearby) {
+    casinoBtn.textContent = "地下赌场：未到场";
+    return;
+  }
+  casinoBtn.textContent = `试一把（$${stake}）`;
 }
 
 function setComposerPending(pending, targetName = "") {
@@ -8245,6 +8451,30 @@ buildAnchorToggleBtn?.addEventListener("click", () => {
   showBuildAnchors = !showBuildAnchors;
   signalStatus.textContent = showBuildAnchors ? "开发叠层已显示：金色建设位、蓝色回家点、橙色工作点、绿色社交点、紫色游客停留。" : "开发叠层已隐藏。";
   renderPanels();
+});
+
+casinoBtn?.addEventListener("click", async () => {
+  if (!state || busy) return;
+  if (!isPlayerNearCasino()) {
+    signalStatus.textContent = "先走到后巷地下赌场门口，再试手气。";
+    return;
+  }
+  busy = true;
+  const stake = suggestedCasinoStake();
+  try {
+    state = await api("/api/casino/play", {
+      method: "POST",
+      body: JSON.stringify({ amount: stake }),
+    });
+    syncSceneEntities();
+    renderPanels();
+    signalStatus.textContent = state.player.last_trade_summary || `你刚在后巷地下赌场试了一把，下注 $${stake}。`;
+  } catch (error) {
+    signalStatus.textContent = error.message;
+  } finally {
+    busy = false;
+    renderPanels();
+  }
 });
 
 Promise.all([loadAssets(), loadState(), loadLlmStatus()])

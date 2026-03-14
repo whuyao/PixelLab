@@ -437,7 +437,7 @@ class PropertyAsset(BaseModel):
     id: str
     owner_type: Literal["player", "agent", "market", "government"]
     owner_id: str
-    property_type: Literal["home_upgrade", "farm_plot", "rental_house", "shop", "greenhouse"]
+    property_type: Literal["home_upgrade", "farm_plot", "rental_house", "shop", "greenhouse", "casino"]
     name: str
     position: Point
     width: int = 2
@@ -466,7 +466,7 @@ class FinanceRecord(BaseModel):
     time_slot: TimeSlot
     actor_id: str
     actor_name: str
-    category: Literal["market", "consume", "property", "bank", "loan", "work", "gray", "tax", "welfare", "tourism", "government"]
+    category: Literal["market", "consume", "property", "bank", "loan", "work", "gray", "tax", "welfare", "tourism", "government", "casino"]
     action: str
     summary: str
     amount: int = 0
@@ -596,6 +596,10 @@ class AnalysisPoint(BaseModel):
     tourists_active: int = 0
     tourist_revenue_daily: int = 0
     government_reserve: int = 0
+    casino_heat: int = 0
+    casino_daily_visits: int = 0
+    casino_daily_wagers: int = 0
+    casino_daily_tax: int = 0
 
 
 class DailyEconomyPoint(BaseModel):
@@ -618,8 +622,35 @@ class DailyBankPoint(BaseModel):
     total_deposits: int = 0
 
 
+class DailyCasinoPoint(BaseModel):
+    day: int
+    visits: int = 0
+    wagers: int = 0
+    payouts: int = 0
+    tax: int = 0
+    big_wins: int = 0
+    heat: int = 0
+
+
+class CasinoState(BaseModel):
+    name: str = "后巷地下赌场"
+    daily_visits: int = 0
+    total_visits: int = 0
+    daily_wagers: int = 0
+    total_wagers: int = 0
+    daily_payouts: int = 0
+    total_payouts: int = 0
+    daily_tax: int = 0
+    total_tax: int = 0
+    daily_big_wins: int = 0
+    total_big_wins: int = 0
+    house_bankroll: int = 6000
+    current_heat: int = 18
+    last_note: str = "后巷牌桌今晚还没真正热起来。"
+
+
 class WorldState(BaseModel):
-    version: int = 51
+    version: int = 59
     world_width: int = 44
     world_height: int = 26
     day: int
@@ -657,6 +688,8 @@ class WorldState(BaseModel):
     analysis_history: list[AnalysisPoint] = Field(default_factory=list)
     daily_economy_history: list[DailyEconomyPoint] = Field(default_factory=list)
     daily_bank_history: list[DailyBankPoint] = Field(default_factory=list)
+    daily_casino_history: list[DailyCasinoPoint] = Field(default_factory=list)
+    casino: CasinoState = Field(default_factory=CasinoState)
     section_signatures: dict[str, str] = Field(default_factory=dict)
 
 
@@ -734,6 +767,10 @@ class BankDepositRequest(BaseModel):
 
 class BankWithdrawRequest(BaseModel):
     amount: int
+
+
+class GambleRequest(BaseModel):
+    amount: int = 20
 
 
 class GrayCaseActionRequest(BaseModel):

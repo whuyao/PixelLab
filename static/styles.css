@@ -7,6 +7,12 @@
   --subtle: #6b604d;
   --accent: #c37a4f;
   --accent-deep: #6f8e4e;
+  --button-green-bg: linear-gradient(180deg, #6c8b47, #567336);
+  --button-green-border: #486833;
+  --button-green-fill: #5f7c3c;
+  --button-lock-bg: linear-gradient(180deg, #d5c9ac, #c8bb9f);
+  --button-lock-border: rgba(74, 62, 47, 0.48);
+  --button-lock-text: #6b5d49;
   --line: #4a3e2f;
   --shadow: rgba(46, 57, 36, 0.26);
 }
@@ -190,8 +196,8 @@ body.llm-dev-visible .llm-switcher-shell,
 }
 
 .journal-layout {
-  grid-template-columns: minmax(0, 1.08fr) minmax(520px, 0.92fr);
-  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) 430px;
+  gap: 18px;
 }
 
 .government-board {
@@ -1345,6 +1351,33 @@ canvas {
   -webkit-text-fill-color: #fff8ee;
 }
 
+.policy-toggle[data-mode="active"],
+.capability-btn[data-mode="active"] {
+  background: #5f7c3c !important;
+  background-color: #5f7c3c !important;
+  border-color: #486833 !important;
+  color: #fff8df !important;
+  -webkit-text-fill-color: #fff8df !important;
+}
+
+.policy-toggle[data-mode="locked"],
+.capability-btn[data-mode="locked"] {
+  background: #cec1a4 !important;
+  background-color: #cec1a4 !important;
+  border-color: rgba(74, 62, 47, 0.48) !important;
+  color: #6b5d49 !important;
+  -webkit-text-fill-color: #6b5d49 !important;
+}
+
+.policy-toggle[data-mode="default"],
+.capability-btn[data-mode="default"] {
+  background: #cf8754 !important;
+  background-color: #cf8754 !important;
+  border-color: var(--line) !important;
+  color: #fff8ee !important;
+  -webkit-text-fill-color: #fff8ee !important;
+}
+
 .policy-toggle:hover {
   filter: brightness(1.06) !important;
 }
@@ -1360,14 +1393,16 @@ canvas {
 }
 
 .capability-btn.is-locked {
-  background: linear-gradient(180deg, #d5c9ac, #c8bb9f) !important;
-  border-color: rgba(74, 62, 47, 0.48);
-  color: #6b5d49 !important;
-  -webkit-text-fill-color: #6b5d49 !important;
+  background: var(--button-lock-bg) !important;
+  background-color: #cec1a4 !important;
+  border-color: var(--button-lock-border) !important;
+  color: var(--button-lock-text) !important;
+  -webkit-text-fill-color: var(--button-lock-text) !important;
 }
 
 .capability-btn.is-active {
   background: var(--button-green-bg);
+  background-color: var(--button-green-fill);
   border-color: var(--button-green-border);
   color: #fffcef !important;
   -webkit-text-fill-color: #fffcef !important;
@@ -1386,6 +1421,7 @@ canvas {
 #governmentModeBtn.is-active,
 #buildAnchorToggleBtn.active {
   background: var(--button-green-bg);
+  background-color: var(--button-green-fill);
   border-color: var(--button-green-border);
   color: #fff8df !important;
   -webkit-text-fill-color: #fff8df !important;
@@ -1403,8 +1439,8 @@ canvas {
 
 .journal-side {
   grid-template-columns: 1fr;
-  max-width: none;
-  width: 100%;
+  max-width: 430px;
+  width: 430px;
   justify-self: stretch;
 }
 

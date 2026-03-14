@@ -22,7 +22,7 @@ from app.engine.social_engine import SocialEngine
 from app.engine.task_system import apply_task_progress
 from app.engine.time_system import advance_time
 from app.engine.world_state import build_initial_world
-from app.models import AnalysisPoint, Agent, BankLoanRecord, ConsumableItem, DailyBankPoint, DailyBriefItem, DailyBriefing, DailyEconomyPoint, DialogueOutcome, DialogueRecord, FeedPost, FinanceRecord, GrayCase, IndexCandle, LabEvent, LoanRecord, MemoryEntry, NewsTimelineItem, Point, PropertyAsset, SocialThread, StateDiffResponse, StoryBeat, Task, TimeSlot, TouristAgent, TourismState, WorldState
+from app.models import AnalysisPoint, Agent, BankLoanRecord, CasinoState, ConsumableItem, DailyBankPoint, DailyBriefItem, DailyBriefing, DailyCasinoPoint, DailyEconomyPoint, DialogueOutcome, DialogueRecord, FeedPost, FinanceRecord, GrayCase, IndexCandle, LabEvent, LoanRecord, MemoryEntry, NewsTimelineItem, Point, PropertyAsset, SocialThread, StateDiffResponse, StoryBeat, Task, TimeSlot, TouristAgent, TourismState, WorldState
 from app.services.activity_logger import ActivityLogger
 
 
@@ -120,6 +120,7 @@ PROPERTY_LAYOUT_ANCHORS: dict[str, list[tuple[int, int]]] = {
     "property-rental-lakeside": [(39, 12)],
     "property-tourist-inn": [(34, 12)],
     "property-tourist-market": [(6, 14)],
+    "property-underground-casino": [(30, 8)],
 }
 
 ACTIVITY_ANCHORS: dict[str, list[tuple[int, int]]] = {
@@ -255,7 +256,7 @@ class GameEngine:
         )
 
     def _refresh_state_signatures(self) -> None:
-        self.state.version = max(self.state.version, 53)
+        self.state.version = max(self.state.version, 59)
         self.state.section_signatures = self._sign_sections(self._build_state_sections())
 
     def _sign_sections(self, sections: dict[str, object]) -> dict[str, str]:
@@ -287,11 +288,13 @@ class GameEngine:
                 "market": dump(state.market),
                 "company": dump(state.company),
                 "tourism": dump(state.tourism),
+                "casino": dump(state.casino),
             },
             "analysis": {
                 "analysis_history": dump(state.analysis_history[-40:]),
                 "daily_economy_history": dump(state.daily_economy_history[-40:]),
                 "daily_bank_history": dump(state.daily_bank_history[-40:]),
+                "daily_casino_history": dump(state.daily_casino_history[-40:]),
                 "agents": dump(state.agents),
                 "player": dump(state.player),
                 "tourists": dump(state.tourists),
@@ -299,11 +302,13 @@ class GameEngine:
                 "events": dump(state.events),
                 "gray_cases": dump(state.gray_cases),
                 "market": dump(state.market),
+                "casino": dump(state.casino),
             },
             "fiscal": {
                 "day": state.day,
                 "government": dump(state.government),
                 "finance_history": dump(state.finance_history[:240]),
+                "casino": dump(state.casino),
             },
             "tasks": {
                 "tasks": dump(state.tasks),
@@ -356,6 +361,7 @@ class GameEngine:
                 "agents": dump(state.agents),
                 "tourists": dump(state.tourists),
                 "tourism": dump(state.tourism),
+                "casino": dump(state.casino),
                 "bank": dump(state.bank),
                 "bank_loans": dump(state.bank_loans),
             },
@@ -364,12 +370,14 @@ class GameEngine:
                 "bank_loans": dump(state.bank_loans),
                 "player": dump(state.player),
                 "agents": dump(state.agents),
+                "casino": dump(state.casino),
             },
             "lifestyle": {
                 "player": dump(state.player),
                 "agents": dump(state.agents),
                 "tourists": dump(state.tourists),
                 "tourism": dump(state.tourism),
+                "casino": dump(state.casino),
                 "properties": dump(state.properties),
                 "lifestyle_catalog": dump(state.lifestyle_catalog),
                 "company": dump(state.company),
@@ -437,6 +445,367 @@ class GameEngine:
 
     def player_sell_property(self, property_id: str) -> WorldState:
         return self.lifestyle_engine.player_sell_property(property_id)
+
+    def player_gamble(self, amount: int = 20) -> WorldState:
+        asset = self._casino_asset()
+        if asset is None:
+            raise ValueError("地下赌场今晚没有开门。")
+        if not self._is_player_near_property(asset, radius=2):
+            raise ValueError("你还没走到地下赌场门口，先靠近后再试手气。")
+        stake = max(5, min(int(amount or 20), 2000))
+        if self.state.player.cash < stake:
+            raise ValueError(f"你手头现金只有 ${self.state.player.cash}，不够下注 ${stake}。")
+        result = self._resolve_casino_round(
+            payer_type="player",
+            payer_id=self.state.player.id,
+            payer_name=self.state.player.name,
+            available_cash=self.state.player.cash,
+            stake=stake,
+            trigger="manual",
+        )
+        gambling_tax = result["tax"]
+        gross_payout = result["payout"]
+        net_delta = result["net"]
+        outcome_text = result["outcome"]
+        if gross_payout > 0:
+            self.state.player.cash += gross_payout
+        self._adjust_player_satisfaction(int(result["satisfaction"]))
+        self.state.player.daily_actions.append(f"casino:{outcome_text}:${stake}")
+        self.state.player.last_trade_summary = f"你在后巷地下赌场下注 ${stake}，{outcome_text}，净变化 ${net_delta}。"
+        self.state.player.current_activity = "刚在后巷地下赌场的牌桌边收手，脑子还在回味上一把。"
+        self.state.player.current_bubble = "再来一把，还是先收手？"
+        event_summary = (
+            f"你在后巷地下赌场下注 ${stake}，{outcome_text}。"
+            f"{' 台面返还了 $' + str(gross_payout) + '。' if gross_payout else ' 这把直接打了水漂。'}"
+            f" 政府顺手抽走了 ${gambling_tax} 的赌税。"
+        )
+        self.state.events.insert(
+            0,
+            build_internal_event(
+                title="后巷地下赌场又亮起了灯",
+                summary=event_summary,
+                slot=self.state.time_slot,
+                category="general",
+            ),
+        )
+        self.state.events = self.state.events[:8]
+        self._append_dialogue_record(
+            DialogueRecord(
+                id=f"dialogue-{uuid4().hex[:8]}",
+                kind="ambient_dialogue",
+                day=self.state.day,
+                time_slot=self.state.time_slot,
+                participants=["player"],
+                participant_names=[self.state.player.name],
+                topic="地下赌场",
+                summary=event_summary,
+                key_point=f"下注 ${stake}，赌税 ${gambling_tax}，牌桌返还 ${gross_payout}，净变化 ${net_delta}。",
+                transcript=[
+                    f"你：今晚试一把，先压 ${stake}。",
+                    f"庄家：{outcome_text}{'，拿走 $' + str(gross_payout) if gross_payout else '。'}",
+                ],
+                desire_labels={self.state.player.name: "试试运气，赌一口气"},
+                mood="warm" if net_delta > 0 else "tense" if net_delta < -stake // 2 else "neutral",
+                financial_note=f"下注 ${stake}，赌税 ${gambling_tax}，牌桌返还 ${gross_payout}。",
+                gray_trade=True,
+                gray_trade_type="地下赌博",
+                gray_trade_severity=2 if gross_payout else 3,
+            )
+        )
+        self._append_finance_record(
+            actor_id=self.state.player.id,
+            actor_name=self.state.player.name,
+            category="casino",
+            action="gamble",
+            summary=f"你在 {asset.name} 下注 ${stake}，{outcome_text}，净变化 ${net_delta}，赌税 ${gambling_tax}。",
+            amount=net_delta,
+            asset_name=asset.name,
+            counterparty="灰市牌桌",
+        )
+        self._record_casino_stats(stake=stake, payout=gross_payout, tax=gambling_tax, actor_name=self.state.player.name, actor_type="player")
+        self._maybe_register_casino_case(
+            actor_id=self.state.player.id,
+            actor_name=self.state.player.name,
+            actor_type="player",
+            stake=stake,
+            net_delta=net_delta,
+            trigger="manual",
+        )
+        self._maybe_publish_casino_buzz(
+            actor_name=self.state.player.name,
+            actor_type="player",
+            stake=stake,
+            outcome_text=outcome_text,
+            net_delta=net_delta,
+            tourist=False,
+        )
+        if net_delta >= max(140, stake):
+            self.state.player.current_bubble = "今晚手气真在我这边。"
+        self._log(
+            "player_gamble",
+            casino={"id": asset.id, "name": asset.name},
+            wager={"stake": stake, "tax": gambling_tax, "payout": gross_payout, "net": net_delta, "outcome": outcome_text},
+        )
+        self._refresh_presence()
+        self._refresh_tasks()
+        self._refresh_memory_streams()
+        return self.state
+
+    def _resolve_casino_round(
+        self,
+        *,
+        payer_type: str,
+        payer_id: str,
+        payer_name: str,
+        available_cash: int,
+        stake: int,
+        trigger: str,
+    ) -> dict[str, int | str]:
+        stake = max(5, min(int(stake), min(1200, max(5, available_cash))))
+        gambling_tax = self._collect_tax(
+            payer_type=payer_type,
+            payer_id=payer_id,
+            payer_name=payer_name,
+            revenue_key="gambling",
+            label="地下赌场下注",
+            base_amount=stake,
+            rate_pct=max(4.0, self.state.government.consumption_tax_rate_pct * 0.9),
+            minimum=1,
+        )
+        roll = self.random.random()
+        if roll < 0.035:
+            gross_payout = int(round(stake * 4.2))
+            outcome_text = "一把摸到大彩头"
+            satisfaction_delta = 12
+            stress_delta = -8
+        elif roll < 0.18:
+            gross_payout = int(round(stake * 2.15))
+            outcome_text = "狠狠赢了一把"
+            satisfaction_delta = 7
+            stress_delta = -5
+        elif roll < 0.37:
+            gross_payout = int(round(stake * 1.28))
+            outcome_text = "小赢一手"
+            satisfaction_delta = 3
+            stress_delta = -2
+        elif roll < 0.49:
+            gross_payout = int(round(stake * 0.92))
+            outcome_text = "差一点回本"
+            satisfaction_delta = -1
+            stress_delta = 1
+        else:
+            gross_payout = 0
+            outcome_text = "把筹码全丢在了牌桌上"
+            satisfaction_delta = -6 if stake >= 80 else -4
+            stress_delta = 5 if trigger != "desperation" else 7
+        net_delta = gross_payout - stake - gambling_tax
+        return {
+            "stake": stake,
+            "tax": gambling_tax,
+            "payout": gross_payout,
+            "net": net_delta,
+            "outcome": outcome_text,
+            "satisfaction": satisfaction_delta,
+            "stress": stress_delta,
+        }
+
+    def _record_casino_stats(self, *, stake: int, payout: int, tax: int, actor_name: str, actor_type: str) -> None:
+        casino = self.state.casino
+        casino.daily_visits += 1
+        casino.total_visits += 1
+        casino.daily_wagers += stake
+        casino.total_wagers += stake
+        casino.daily_payouts += payout
+        casino.total_payouts += payout
+        casino.daily_tax += tax
+        casino.total_tax += tax
+        if payout >= stake * 2:
+            casino.daily_big_wins += 1
+            casino.total_big_wins += 1
+        casino.house_bankroll = max(0, casino.house_bankroll + stake - payout)
+        casino.current_heat = self._bounded(casino.current_heat + (4 if stake >= 80 else 2) + (3 if payout > 0 else 0))
+        actor_label = "游客" if actor_type == "tourist" else "镇上人" if actor_type == "agent" else "你"
+        casino.last_note = f"{actor_name} 这轮在牌桌押了 ${stake}，{actor_label}们又开始谈论今晚赌场手气。"
+
+    def _maybe_register_casino_case(
+        self,
+        *,
+        actor_id: str,
+        actor_name: str,
+        actor_type: str,
+        stake: int,
+        net_delta: int,
+        trigger: str,
+    ) -> None:
+        severity = 3 if stake >= 140 or trigger == "desperation" else 2 if stake >= 60 else 1
+        chance = 0.18 + severity * 0.09 + (0.1 if actor_type == "tourist" else 0.05)
+        if self.random.random() > min(0.62, chance):
+            return
+        case = GrayCase(
+            id=f"gray-{uuid4().hex[:8]}",
+            case_type="underground_gambling",
+            participants=[actor_id, "gray-market"],
+            participant_names=[actor_name, "灰市牌桌"],
+            topic="后巷地下赌场",
+            summary=f"{actor_name} 刚在后巷地下赌场押了 ${stake}，牌桌输赢和税费都开始引来风声。",
+            amount=abs(net_delta) if net_delta != 0 else stake,
+            severity=severity,
+            start_day=self.state.day,
+            due_day=self.state.day + (1 if severity >= 3 else 2),
+            exposure_risk=min(94, 18 + severity * 18 + (12 if stake >= 180 else 0)),
+            status="active",
+        )
+        self.state.gray_cases.insert(0, case)
+        self.state.gray_cases = self.state.gray_cases[:16]
+
+    def _maybe_publish_casino_buzz(
+        self,
+        *,
+        actor_name: str,
+        actor_type: str,
+        stake: int,
+        outcome_text: str,
+        net_delta: int,
+        tourist: bool,
+    ) -> None:
+        if self.random.random() > (0.62 if stake >= 120 or abs(net_delta) >= 120 else 0.44 if stake >= 80 else 0.22):
+            return
+        category = "gossip" if tourist or stake < 100 else "market"
+        hot_line = (
+            f"{actor_name} 今晚在后巷地下赌场{outcome_text}，桌上已经开始传谁又想靠赌桌翻身。"
+            if net_delta >= 0
+            else f"{actor_name} 刚在后巷地下赌场把筹码砸进去了，旁边已经有人拿这事当八卦在传。"
+        )
+        post = FeedPost(
+            id=f"feed-{uuid4().hex[:8]}",
+            author_type="tourist" if tourist else "system",
+            author_id="casino-buzz" if tourist else "system",
+            author_name=actor_name if tourist else "系统新闻台",
+            day=self.state.day,
+            time_slot=self.state.time_slot,
+            category=category,
+            content=hot_line[:160],
+            topic_tags=["赌场", "灰市", "牌桌风声"],
+            desire_tags=["赌一口气", "翻本", "看热闹"],
+            likes=4 + min(20, stake // 20),
+            views=40 + min(240, stake),
+            summary="后巷地下赌场又成了大家嘴里的热议点。",
+            impacts=["影响团队氛围", "影响监管注意力", "影响游客讨论"],
+        )
+        post.credibility = self._feed_credibility_for_post(post)
+        post.heat = self._compute_feed_heat(post)
+        self._append_feed_post(post, remember=True, apply_impacts=True)
+
+    def _append_casino_event(self, actor_name: str, stake: int, outcome_text: str, net_delta: int, *, tourist: bool) -> None:
+        tone = "market" if abs(net_delta) >= 80 or stake >= 100 else "general"
+        label = "游客" if tourist else "镇上人"
+        summary = (
+            f"{actor_name} 刚在后巷地下赌场押了 ${stake}，{outcome_text}，净变化 ${net_delta}。"
+            f" 这一下又把{label}们的注意力拽回了后巷牌桌。"
+        )
+        self.state.events.insert(
+            0,
+            build_internal_event(
+                title=f"{actor_name} 在后巷地下赌场试了手气",
+                summary=summary,
+                slot=self.state.time_slot,
+                category=tone,
+            ),
+        )
+        self.state.events = self.state.events[:8]
+
+    def _pick_casino_relation_target(self, actor: Agent) -> Agent | None:
+        same_area = [
+            other
+            for other in self.state.agents
+            if other.id != actor.id and not other.is_resting and other.current_location == actor.current_location
+        ]
+        if same_area:
+            return self.random.choice(same_area)
+        others = [other for other in self.state.agents if other.id != actor.id and not other.is_resting]
+        if not others:
+            return None
+        return self.random.choice(others)
+
+    def _apply_casino_social_effects(self, actor: Agent, *, stake: int, net_delta: int) -> None:
+        target = self._pick_casino_relation_target(actor)
+        if target is None:
+            return
+        if net_delta <= -max(90, stake // 2):
+            actor.current_bubble = self.random.choice(["别碰我。", "今晚真晦气。", "谁都别来烦我。"])
+            target.current_bubble = self.random.choice(["你先冷静。", "别把火撒我这。"])
+            self._adjust_relation(actor, target, -3, "在后巷地下赌场输钱后把火气带到了人身上")
+            self.state.events.insert(
+                0,
+                build_internal_event(
+                    title=f"{actor.name} 在赌场输钱后和 {target.name} 呛起来",
+                    summary=f"{actor.name} 刚在后巷地下赌场输了 ${abs(net_delta)} 左右，火气没压住，和 {target.name} 顶了几句。",
+                    slot=self.state.time_slot,
+                    category="general",
+                ),
+            )
+            self.state.events = self.state.events[:8]
+            return
+        if net_delta >= max(140, stake):
+            actor.current_bubble = self.random.choice(["今晚手气在我这。", "这把真让我吃到了。", "后巷今晚认我。"])
+            target.current_bubble = self.random.choice(["你别太飘。", "见好就收。"])
+            self._adjust_relation(actor, target, -1, "在后巷地下赌场赢大钱后忍不住当面炫耀")
+            post = FeedPost(
+                id=f"feed-{uuid4().hex[:8]}",
+                author_type="agent",
+                author_id=actor.id,
+                author_name=actor.name,
+                day=self.state.day,
+                time_slot=self.state.time_slot,
+                category="gossip",
+                content=self._clean_feed_text(self._casino_brag_post(actor, stake=stake, net_delta=net_delta)),
+                topic_tags=["后巷赌局", "炫耀", "牌桌"],
+                desire_tags=["赢了想让人看见", "赌桌翻身"],
+                likes=8 + min(18, net_delta // 35),
+                views=80 + min(240, net_delta),
+                summary="有人在微博上炫耀后巷赌局的赢面。",
+                impacts=["影响团队氛围", "影响监管注意力"],
+            )
+            post.credibility = self._feed_credibility_for_post(post)
+            post.heat = self._compute_feed_heat(post)
+            self._append_feed_post(post, remember=True, apply_impacts=True)
+
+    def _casino_brag_post(self, actor: Agent, *, stake: int, net_delta: int) -> str:
+        lines = {
+            "lin": f"后巷这把我拿了 ${net_delta}。别神化手气，我只是在别人上头的时候收手更快。",
+            "mika": f"刚从后巷出来，居然真让我卷走 ${net_delta}。现在心脏还在跳，先别劝我冷静。",
+            "jo": f"后巷这把净进 ${net_delta}。别讲运气，桌上谁先乱，钱就往谁口袋里流。",
+            "rae": f"今晚后巷意外赢了 ${net_delta}。开心归开心，但我已经看见旁边有人输得脸都白了。",
+            "kai": f"后巷这把吃到 ${net_delta}，风就是这么拐过来的。别问，问就是今晚信号站我这边。",
+        }
+        return lines.get(actor.id, f"刚从后巷地下赌场拿到 ${net_delta}，今晚牌桌真偏我。")
+
+    def _publish_tourist_casino_post(self, tourist: TouristAgent, *, stake: int, net_delta: int, outcome_text: str) -> None:
+        tier_style = {
+            "regular": f"后巷那个赌桌居然真有人敢压，我刚试了 ${stake}，{outcome_text}。这地方比白天看起来野多了。",
+            "repeat": f"上次来还没这么吵，这次后巷赌局已经传开了。我刚压了 ${stake}，{outcome_text}，难怪大家都爱围着看。",
+            "vip": f"后巷赌局真不是摆设。我刚扔了 ${stake}，{outcome_text}。花钱这事，至少今晚算有点刺激。",
+            "buyer": f"本来在看房，结果被后巷赌局拽过去了。我压了 ${stake}，{outcome_text}，现在更想知道这里到底是什么地方。",
+        }
+        post = FeedPost(
+            id=f"feed-{uuid4().hex[:8]}",
+            author_type="tourist",
+            author_id=tourist.id,
+            author_name=tourist.name,
+            day=self.state.day,
+            time_slot=self.state.time_slot,
+            category="gossip" if abs(net_delta) >= 30 else "tourism",
+            content=self._clean_feed_text(tier_style.get(tourist.visitor_tier, tier_style["regular"])),
+            topic_tags=["后巷赌局", "地下赌场", "游客见闻"],
+            desire_tags=["看热闹", "试试手气", "逛到真事"],
+            likes=6 + min(12, abs(net_delta) // 18),
+            views=60 + min(180, stake * 2),
+            summary="游客把后巷赌局发到了小镇微博上。",
+            impacts=["影响游客讨论", "影响监管注意力", "影响团队氛围"],
+        )
+        post.credibility = self._feed_credibility_for_post(post)
+        post.heat = self._compute_feed_heat(post)
+        self._append_feed_post(post, remember=True, apply_impacts=True)
 
     def create_player_feed_post(self, content: str, category: str = "daily", reply_to_post_id: str | None = None, quote_post_id: str | None = None) -> WorldState:
         cleaned = (content or "").strip()
@@ -711,6 +1080,7 @@ class GameEngine:
         self._trigger_work_activity()
         self._trigger_bank_activity()
         self._run_tourism_activity()
+        self._trigger_casino_activity()
         self._trigger_gray_market_activity()
         self.lifestyle_engine.run_tick()
         self._trigger_property_market_activity()
@@ -3100,7 +3470,15 @@ class GameEngine:
             rate_pct=self.state.government.securities_tax_rate_pct,
         )
         agent.last_trade_summary = f"{agent.last_trade_summary[:-1]}，另缴税 ${market_tax}。"
-        self._shift_agent_state(agent, mood=1 if side == "buy" else 0, stress=1 if side == "buy" else -1, curiosity=1)
+        realized_joy = 2 if side == "sell" and quote.day_change_pct >= 2.5 else 1 if side == "buy" and quote.change_pct > 0 else 0
+        relief = 2 if side == "sell" else 0
+        self._shift_agent_state(
+            agent,
+            mood=1 + realized_joy if side == "buy" else max(0, realized_joy),
+            stress=1 if side == "buy" and quote.change_pct < 0 else -relief,
+            curiosity=1,
+        )
+        self._adjust_agent_satisfaction(agent, 2 if realized_joy >= 2 else 1 if side == "buy" or side == "sell" else 0)
         self.state.events.insert(
             0,
             build_internal_event(
@@ -4840,6 +5218,169 @@ class GameEngine:
                 return asset
         raise KeyError(property_id)
 
+    def _casino_asset(self) -> PropertyAsset | None:
+        return next((asset for asset in self.state.properties if asset.id == "property-underground-casino"), None)
+
+    def _casino_staging_points(self) -> list[Point]:
+        casino = self._casino_asset()
+        if casino is None:
+            return []
+        candidates = [
+            Point(x=casino.position.x - 1, y=casino.position.y + 1),
+            Point(x=casino.position.x + casino.width, y=casino.position.y + 1),
+            Point(x=casino.position.x, y=casino.position.y + casino.height),
+            Point(x=casino.position.x + casino.width - 1, y=casino.position.y + casino.height),
+        ]
+        points: list[Point] = []
+        for candidate in candidates:
+            safe = self._nearest_walkable(candidate, self._room(self._room_for(candidate.x, candidate.y)))
+            if (safe.x, safe.y) not in {(point.x, point.y) for point in points}:
+                points.append(safe)
+        return points
+
+    def _is_player_near_property(self, asset: PropertyAsset, radius: int = 2) -> bool:
+        left = asset.position.x
+        top = asset.position.y
+        right = asset.position.x + max(0, asset.width - 1)
+        bottom = asset.position.y + max(0, asset.height - 1)
+        px = self.state.player.position.x
+        py = self.state.player.position.y
+        dx = 0 if left <= px <= right else min(abs(px - left), abs(px - right))
+        dy = 0 if top <= py <= bottom else min(abs(py - top), abs(py - bottom))
+        return dx + dy <= radius
+
+    def _trigger_casino_activity(self) -> None:
+        casino = self._casino_asset()
+        if casino is None or casino.status not in {"owned", "operating"}:
+            return
+        self.state.casino.current_heat = max(8, int(self.state.casino.current_heat * 0.96))
+        staging_points = self._casino_staging_points()
+        if not staging_points:
+            return
+        actor_slots = iter(staging_points)
+        triggered = 0
+        tourist_triggered = 0
+        for agent in self.state.agents:
+            if triggered >= 2:
+                break
+            if agent.is_resting:
+                continue
+            total_funds = self._agent_total_funds(agent)
+            high_cash = total_funds >= 2500
+            tight_cash = total_funds <= 90
+            high_mood = agent.state.mood >= 76 or agent.life_satisfaction >= 82
+            if not (high_cash or tight_cash or high_mood):
+                continue
+            chance = 0.022 + (0.032 if tight_cash else 0.0) + (0.022 if high_cash else 0.0) + (0.016 if high_mood else 0.0)
+            if self.random.random() >= min(0.1, chance):
+                continue
+            stake = self._suggest_agent_casino_stake(agent, tight_cash=tight_cash, high_cash=high_cash)
+            if stake <= 0 or agent.cash < stake:
+                continue
+            point = next(actor_slots, staging_points[triggered % len(staging_points)]).model_copy()
+            result = self._resolve_casino_round(
+                payer_type="agent",
+                payer_id=agent.id,
+                payer_name=agent.name,
+                available_cash=agent.cash,
+                stake=stake,
+                trigger="desperation" if tight_cash else "thrill",
+            )
+            agent.cash = max(0, agent.cash - int(result["stake"]))
+            if int(result["payout"]) > 0:
+                agent.cash += int(result["payout"])
+            agent.position = point
+            agent.current_location = self._room_for(point.x, point.y)
+            agent.current_activity = f"刚从后巷地下赌场牌桌边退下来，手心还在冒汗。"
+            agent.current_bubble = "再压一手，还是现在就走？"
+            agent.last_trade_summary = f"刚在后巷地下赌场下注 ${stake}，{result['outcome']}，净变化 ${result['net']}。"
+            self._shift_agent_state(agent, mood=3 if int(result["net"]) > 0 else -2, stress=int(result["stress"]), curiosity=1)
+            self._adjust_agent_satisfaction(agent, int(result["satisfaction"]))
+            self._remember(agent, f"你刚在后巷地下赌场下注 ${stake}，{result['outcome']}。", 2, long_term=stake >= 120)
+            self._append_finance_record(
+                actor_id=agent.id,
+                actor_name=agent.name,
+                category="casino",
+                action="gamble",
+                summary=f"{agent.name} 在 {casino.name} 下注 ${stake}，{result['outcome']}，净变化 ${result['net']}，赌税 ${result['tax']}。",
+                amount=int(result["net"]),
+                asset_name=casino.name,
+                counterparty="灰市牌桌",
+            )
+            self._record_casino_stats(stake=stake, payout=int(result["payout"]), tax=int(result["tax"]), actor_name=agent.name, actor_type="agent")
+            self._maybe_register_casino_case(actor_id=agent.id, actor_name=agent.name, actor_type="agent", stake=stake, net_delta=int(result["net"]), trigger="desperation" if tight_cash else "thrill")
+            self._maybe_publish_casino_buzz(actor_name=agent.name, actor_type="agent", stake=stake, outcome_text=str(result["outcome"]), net_delta=int(result["net"]), tourist=False)
+            self._apply_casino_social_effects(agent, stake=stake, net_delta=int(result["net"]))
+            self._append_casino_event(agent.name, stake, str(result["outcome"]), int(result["net"]), tourist=False)
+            self._log("agent_gamble", agent={"id": agent.id, "name": agent.name}, wager={"stake": stake, "tax": result["tax"], "payout": result["payout"], "net": result["net"]})
+            triggered += 1
+        for tourist in self.state.tourists:
+            if tourist_triggered >= 2:
+                break
+            high_cash = tourist.cash >= 120
+            tight_cash = tourist.cash <= 18
+            high_mood = tourist.mood >= 74
+            if not (high_cash or tight_cash or high_mood):
+                continue
+            chance = 0.016 + (0.02 if tight_cash else 0.0) + (0.016 if high_cash else 0.0) + (0.016 if high_mood else 0.0)
+            if tourist.visitor_tier == "buyer":
+                chance *= 0.65
+            if self.random.random() >= min(0.08, chance):
+                continue
+            stake = self._suggest_tourist_casino_stake(tourist, tight_cash=tight_cash, high_cash=high_cash)
+            if stake <= 0 or tourist.cash < stake:
+                continue
+            point = staging_points[triggered % len(staging_points)].model_copy()
+            result = self._resolve_casino_round(
+                payer_type="tourist",
+                payer_id=tourist.id,
+                payer_name=tourist.name,
+                available_cash=tourist.cash,
+                stake=stake,
+                trigger="tourist",
+            )
+            tourist.cash = max(0, tourist.cash - int(result["stake"]))
+            if int(result["payout"]) > 0:
+                tourist.cash += int(result["payout"])
+            tourist.position = point
+            tourist.current_location = self._room_for(point.x, point.y)
+            tourist.current_activity = "刚在后巷地下赌场围着牌桌试了试手气，还在回味输赢。"
+            tourist.current_bubble = "这地方真敢玩。"
+            tourist.mood = self._bounded(tourist.mood + (4 if int(result["net"]) > 0 else -2))
+            self._remember_tourist(tourist, f"你刚在后巷地下赌场下注 ${stake}，{result['outcome']}。", 2)
+            self._append_finance_record(
+                actor_id=tourist.id,
+                actor_name=tourist.name,
+                category="casino",
+                action="gamble",
+                summary=f"{tourist.name} 在 {casino.name} 下注 ${stake}，{result['outcome']}，净变化 ${result['net']}，赌税 ${result['tax']}。",
+                amount=int(result["net"]),
+                asset_name=casino.name,
+                counterparty="灰市牌桌",
+            )
+            self._record_casino_stats(stake=stake, payout=int(result["payout"]), tax=int(result["tax"]), actor_name=tourist.name, actor_type="tourist")
+            self._maybe_register_casino_case(actor_id=tourist.id, actor_name=tourist.name, actor_type="tourist", stake=stake, net_delta=int(result["net"]), trigger="tourist")
+            self._maybe_publish_casino_buzz(actor_name=tourist.name, actor_type="tourist", stake=stake, outcome_text=str(result["outcome"]), net_delta=int(result["net"]), tourist=True)
+            self._publish_tourist_casino_post(tourist, stake=stake, net_delta=int(result["net"]), outcome_text=str(result["outcome"]))
+            self._append_casino_event(tourist.name, stake, str(result["outcome"]), int(result["net"]), tourist=True)
+            self._log("tourist_gamble", tourist={"id": tourist.id, "name": tourist.name}, wager={"stake": stake, "tax": result["tax"], "payout": result["payout"], "net": result["net"]})
+            tourist_triggered += 1
+
+    def _suggest_agent_casino_stake(self, agent: Agent, *, tight_cash: bool, high_cash: bool) -> int:
+        if tight_cash:
+            return max(8, min(agent.cash, 28 + agent.money_urgency // 5))
+        if high_cash:
+            return max(80, min(agent.cash // 3, 480 + agent.risk_appetite * 4 + agent.money_urgency * 2))
+        return max(15, min(agent.cash // 4, 140 + agent.state.mood + agent.risk_appetite // 2))
+
+    def _suggest_tourist_casino_stake(self, tourist: TouristAgent, *, tight_cash: bool, high_cash: bool) -> int:
+        if tight_cash:
+            return max(6, min(tourist.cash, 18))
+        if high_cash:
+            bonus = 80 if tourist.visitor_tier == "vip" else 40 if tourist.visitor_tier == "buyer" else 0
+            return max(18, min(tourist.cash // 3, 180 + bonus))
+        return max(8, min(tourist.cash // 4, 66))
+
     def _property_owner_name(self, asset: PropertyAsset) -> str:
         if asset.owner_type == "player":
             return self.state.player.name
@@ -5723,6 +6264,7 @@ class GameEngine:
                 tourism_public_income=self.state.tourism.daily_public_operator_income,
             )
             self._record_daily_bank_point(previous_day)
+            self._record_daily_casino_point(previous_day)
             self._refresh_tourism_cycle()
             self.state.tourism.daily_revenue = 0
             self.state.tourism.daily_private_income = 0
@@ -5732,6 +6274,14 @@ class GameEngine:
             self.state.tourism.daily_departures = 0
             self.state.tourism.daily_messages_count = 0
             self.state.tourism.latest_signal = ""
+            self.state.casino.daily_visits = 0
+            self.state.casino.daily_wagers = 0
+            self.state.casino.daily_payouts = 0
+            self.state.casino.daily_tax = 0
+            self.state.casino.daily_big_wins = 0
+            self.state.casino.current_heat = max(12, int(self.state.casino.current_heat * 0.7))
+            if not self.state.casino.last_note:
+                self.state.casino.last_note = "昨晚牌桌已经收声，今晚看谁还会摸进后巷。"
             self.state.market.sentiment = int(self.state.market.sentiment * 0.6)
             self._apply_opening_gap()
             for quote in self.state.market.stocks:
@@ -7303,6 +7853,7 @@ class GameEngine:
                 "rental_house": 5,
                 "shop": 4,
                 "greenhouse": 6,
+                "casino": 5,
             }.get(asset.property_type, max(2, asset.daily_maintenance or 3))
             owner_count = 0
             if asset.owner_type == "player":
@@ -7334,15 +7885,22 @@ class GameEngine:
         wealth, target_type, target_id, target_name = max(wealth_targets, key=lambda item: item[0])
         property_count = len(self.state.player.owned_property_ids or []) if target_type == "player" else len(self._find_agent(target_id).owned_property_ids or [])
         gray_risk = sum(1 for case in self.state.gray_cases if case.status == "active" and target_id in case.participants)
+        casino_risk = sum(
+            1
+            for case in self.state.gray_cases
+            if case.status == "active"
+            and ("gambl" in case.case_type or "casino" in case.case_type or "赌" in case.summary)
+            and (target_id in case.participants or target_type == "player")
+        )
         enforcement_factor = max(0.06, government.enforcement_level / 100)
-        audit_score = max(0.0, wealth / 6500) + property_count * 0.24 + gray_risk * 1.4
-        if wealth < 4500 and property_count < 4 and gray_risk == 0:
+        audit_score = max(0.0, wealth / 6500) + property_count * 0.24 + gray_risk * 1.4 + casino_risk * 1.1 + min(2.6, (self.state.casino.daily_wagers or 0) / 320)
+        if wealth < 4500 and property_count < 4 and gray_risk == 0 and casino_risk == 0:
             return
         trigger_probability = min(0.14, (0.003 + audit_score / 28) * enforcement_factor)
         if self.random.random() > trigger_probability:
             return
         fine_rate = 0.0014 + government.enforcement_level / 22000
-        fine_base = max(3, int(round(wealth * fine_rate))) + property_count + gray_risk * 4
+        fine_base = max(3, int(round(wealth * fine_rate))) + property_count + gray_risk * 4 + casino_risk * 3
         fine = self._collect_tax(
             payer_type=target_type,
             payer_id=target_id,
@@ -7356,13 +7914,13 @@ class GameEngine:
             self._apply_player_intervention_cost("audit", amount=2)
         else:
             agent = self._find_agent(target_id)
-            agent.credit_score = self._bounded(agent.credit_score - 4 - gray_risk * 2)
-            agent.state.stress = self._bounded(agent.state.stress + 6 + gray_risk * 2)
+            agent.credit_score = self._bounded(agent.credit_score - 4 - gray_risk * 2 - casino_risk)
+            agent.state.stress = self._bounded(agent.state.stress + 6 + gray_risk * 2 + casino_risk)
         self.state.lab.reputation = self._bounded(self.state.lab.reputation - min(6, 2 + gray_risk))
         government.last_audit_day = self.state.day
         audit_event = build_internal_event(
             title=f"监管抽查盯上了 {target_name}",
-            summary=f"{target_name} 因资产规模、持有地产或灰线风险被抽查，缴出 ${fine}，大家开始重新估算暴露风险。",
+            summary=f"{target_name} 因资产规模、持有地产、灰线风险或地下赌场风声被抽查，缴出 ${fine}，大家开始重新估算暴露风险。",
             slot=self.state.time_slot,
             category="market",
         )
@@ -7430,6 +7988,10 @@ class GameEngine:
             tourists_active=len(self.state.tourists or []),
             tourist_revenue_daily=self.state.tourism.daily_revenue if self.state.tourism else 0,
             government_reserve=self.state.government.reserve_balance if self.state.government else 0,
+            casino_heat=self.state.casino.current_heat if self.state.casino else 0,
+            casino_daily_visits=self.state.casino.daily_visits if self.state.casino else 0,
+            casino_daily_wagers=self.state.casino.daily_wagers if self.state.casino else 0,
+            casino_daily_tax=self.state.casino.daily_tax if self.state.casino else 0,
         )
 
     def _record_analysis_point(self) -> None:
@@ -7457,6 +8019,10 @@ class GameEngine:
                 and last.tourists_active == point.tourists_active
                 and last.tourist_revenue_daily == point.tourist_revenue_daily
                 and last.government_reserve == point.government_reserve
+                and last.casino_heat == point.casino_heat
+                and last.casino_daily_visits == point.casino_daily_visits
+                and last.casino_daily_wagers == point.casino_daily_wagers
+                and last.casino_daily_tax == point.casino_daily_tax
             )
             if same_frame:
                 return
@@ -7543,6 +8109,25 @@ class GameEngine:
             self.state.daily_bank_history.append(point)
             self.state.daily_bank_history = self.state.daily_bank_history[-90:]
 
+    def _record_daily_casino_point(self, day: int) -> None:
+        if self.state.daily_casino_history is None:
+            self.state.daily_casino_history = []
+        casino = self.state.casino or CasinoState()
+        point = DailyCasinoPoint(
+            day=day,
+            visits=int(casino.daily_visits or 0),
+            wagers=int(casino.daily_wagers or 0),
+            payouts=int(casino.daily_payouts or 0),
+            tax=int(casino.daily_tax or 0),
+            big_wins=int(casino.daily_big_wins or 0),
+            heat=int(casino.current_heat or 0),
+        )
+        if self.state.daily_casino_history and self.state.daily_casino_history[-1].day == day:
+            self.state.daily_casino_history[-1] = point
+        else:
+            self.state.daily_casino_history.append(point)
+            self.state.daily_casino_history = self.state.daily_casino_history[-90:]
+
     def _backfill_daily_economy_history_from_finance(self) -> None:
         if self.state.daily_economy_history:
             return
@@ -7562,6 +8147,38 @@ class GameEngine:
         )
         for day in available_days[-30:]:
             self._record_daily_bank_point(day)
+
+    def _backfill_daily_casino_history_from_finance(self) -> None:
+        if self.state.daily_casino_history:
+            return
+        available_days = sorted(
+            {
+                record.day
+                for record in self.state.finance_history
+                if record.day is not None and record.category == "casino"
+            }
+        )
+        if not available_days:
+            return
+        trailing_days = available_days[-10:]
+        for day in trailing_days:
+            day_records = [record for record in self.state.finance_history if record.day == day and record.category == "casino"]
+            visits = len({record.actor_id for record in day_records})
+            wagers = sum(abs(int(record.amount or 0)) for record in day_records if record.action == "gamble")
+            payouts = 0
+            tax = 0
+            big_wins = 0
+            point = DailyCasinoPoint(
+                day=day,
+                visits=visits,
+                wagers=wagers,
+                payouts=payouts,
+                tax=tax,
+                big_wins=big_wins,
+                heat=0,
+            )
+            self.state.daily_casino_history.append(point)
+        self.state.daily_casino_history = self.state.daily_casino_history[-90:]
 
     def _player_desire_label(self, text: str) -> str:
         normalized = text.strip()
@@ -9017,7 +9634,7 @@ class GameEngine:
 
     def _ensure_agent_runtime_fields(self) -> None:
         previous_version = self.state.version or 0
-        self.state.version = max(self.state.version, 53)
+        self.state.version = max(self.state.version, 58)
         if self.state.loans is None:
             self.state.loans = []
         if self.state.archived_tasks is None:
@@ -9061,6 +9678,10 @@ class GameEngine:
             self.state.lifestyle_catalog = build_initial_world().lifestyle_catalog
         if self.state.properties is None or not self.state.properties:
             self.state.properties = build_initial_world().properties
+        if not any(asset.id == "property-underground-casino" for asset in self.state.properties):
+            self.state.properties.append(
+                next(asset for asset in build_initial_world().properties if asset.id == "property-underground-casino").model_copy(deep=True)
+            )
         for asset in self.state.properties or []:
             if asset.owner_type == "government" and not asset.facility_kind:
                 if "旅馆" in asset.name or asset.property_type == "rental_house":
@@ -9085,6 +9706,8 @@ class GameEngine:
             self.state.tourists = []
         if getattr(self.state, "tourism", None) is None:
             self.state.tourism = TourismState()
+        if getattr(self.state, "casino", None) is None:
+            self.state.casino = CasinoState()
         self.state.tourism.active_visitor_cap = 5
         if not self.state.tourism.season_mode:
             self.state.tourism.season_mode = "normal"
@@ -9114,6 +9737,32 @@ class GameEngine:
             self.state.tourism.daily_messages_count = 0
         if self.state.tourism.latest_signal is None:
             self.state.tourism.latest_signal = ""
+        if self.state.casino.daily_visits is None:
+            self.state.casino.daily_visits = 0
+        if self.state.casino.total_visits is None:
+            self.state.casino.total_visits = 0
+        if self.state.casino.daily_wagers is None:
+            self.state.casino.daily_wagers = 0
+        if self.state.casino.total_wagers is None:
+            self.state.casino.total_wagers = 0
+        if self.state.casino.daily_payouts is None:
+            self.state.casino.daily_payouts = 0
+        if self.state.casino.total_payouts is None:
+            self.state.casino.total_payouts = 0
+        if self.state.casino.daily_tax is None:
+            self.state.casino.daily_tax = 0
+        if self.state.casino.total_tax is None:
+            self.state.casino.total_tax = 0
+        if self.state.casino.daily_big_wins is None:
+            self.state.casino.daily_big_wins = 0
+        if self.state.casino.total_big_wins is None:
+            self.state.casino.total_big_wins = 0
+        if self.state.casino.house_bankroll is None:
+            self.state.casino.house_bankroll = 6000
+        if self.state.casino.current_heat is None:
+            self.state.casino.current_heat = 18
+        if self.state.casino.last_note is None:
+            self.state.casino.last_note = "后巷牌桌今晚还没真正热起来。"
         if previous_version < 33:
             self._refresh_tourism_cycle()
         if self.state.section_signatures is None:
@@ -9393,7 +10042,8 @@ class GameEngine:
         if self.state.government.welfare_bankruptcy_support is None:
             self.state.government.welfare_bankruptcy_support = 22
         if self.state.government.revenues is None:
-            self.state.government.revenues = {"wage": 0, "market": 0, "property": 0, "consumption": 0, "fine": 0, "government_asset": 0, "tourism_public": 0}
+            self.state.government.revenues = {"wage": 0, "market": 0, "property": 0, "consumption": 0, "gambling": 0, "fine": 0, "government_asset": 0, "tourism_public": 0}
+        self.state.government.revenues.setdefault("gambling", 0)
         self.state.government.revenues.setdefault("government_asset", 0)
         self.state.government.revenues.setdefault("tourism_public", 0)
         self._refresh_government_agent_state()
@@ -9463,10 +10113,14 @@ class GameEngine:
             self.state.daily_economy_history = []
         if self.state.daily_bank_history is None:
             self.state.daily_bank_history = []
+        if self.state.daily_casino_history is None:
+            self.state.daily_casino_history = []
         if not self.state.daily_economy_history:
             self._backfill_daily_economy_history_from_finance()
         if not self.state.daily_bank_history:
             self._backfill_daily_bank_history_from_finance()
+        if not self.state.daily_casino_history:
+            self._backfill_daily_casino_history_from_finance()
         if not self.state.daily_economy_history:
             self._record_daily_economy_point(
                 self.state.day,
@@ -9476,6 +10130,8 @@ class GameEngine:
             )
         if not self.state.daily_bank_history:
             self._record_daily_bank_point(self.state.day)
+        if not self.state.daily_casino_history:
+            self._record_daily_casino_point(self.state.day)
         if not self.state.analysis_history:
             self._record_analysis_point()
             record.transcript = [self._localized_text(line) for line in record.transcript or []]

@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import Settings, load_settings
 from app.engine.game_engine import GameEngine
-from app.models import AdvanceRequest, BankBorrowRequest, BankDepositRequest, BankRepayRequest, BankWithdrawRequest, ConsumeRequest, FeedPostRequest, FeedReactionRequest, GovernmentCapabilityRequest, GovernmentModeRequest, GrayCaseActionRequest, LLMProviderRequest, LabEvent, MacroNewsRequest, MoveRequest, NewsRequest, NewsTimelinePolicyRequest, NewsTimelineRequest, PropertyFinanceRequest, SpeakRequest, StateDiffRequest, StateDiffResponse, TaxPolicyRequest, TimeSlot, TradeRequest, WorldState
+from app.models import AdvanceRequest, BankBorrowRequest, BankDepositRequest, BankRepayRequest, BankWithdrawRequest, ConsumeRequest, FeedPostRequest, FeedReactionRequest, GambleRequest, GovernmentCapabilityRequest, GovernmentModeRequest, GrayCaseActionRequest, LLMProviderRequest, LabEvent, MacroNewsRequest, MoveRequest, NewsRequest, NewsTimelinePolicyRequest, NewsTimelineRequest, PropertyFinanceRequest, SpeakRequest, StateDiffRequest, StateDiffResponse, TaxPolicyRequest, TimeSlot, TradeRequest, WorldState
 from app.services.activity_logger import ActivityLogger
 from app.services.openai_dialogue_service import OpenAIDialogueError, OpenAIDialogueService
 from app.services.brave_service import BraveSearchError, BraveService
@@ -568,6 +568,15 @@ async def player_trade(payload: TradeRequest) -> WorldState:
 @app.post("/api/player/auto-trade", response_model=WorldState)
 async def player_auto_trade() -> WorldState:
     context.engine.auto_trade_player()
+    return _persist_and_return_state()
+
+
+@app.post("/api/casino/play", response_model=WorldState)
+async def player_gamble(payload: GambleRequest) -> WorldState:
+    try:
+        context.engine.player_gamble(payload.amount)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _persist_and_return_state()
 
 
