@@ -220,7 +220,7 @@ pip install -e .
 如果你后续每次进入项目，都建议先执行：
 
 ```bash
-cd /Volumes/Yaoy/project/LocalFarmer
+cd PixelLab
 source .venv/bin/activate
 ```
 
@@ -311,7 +311,7 @@ python run_localfarmer.py
 http://127.0.0.1:8765
 ```
 
-启动入口是 [run_localfarmer.py](/Volumes/Yaoy/project/LocalFarmer/run_localfarmer.py)，目前固定使用：
+启动入口是 [run_localfarmer.py](run_localfarmer.py)，目前固定使用：
 
 - Host: `127.0.0.1`
 - Port: `8765`
@@ -333,8 +333,8 @@ Ctrl + C
 ### 7. 首次运行后你会得到什么
 
 - 浏览器前端页面：`http://127.0.0.1:8765`
-- SQLite 存档：[save/localfarmer.db](/Volumes/Yaoy/project/LocalFarmer/save/localfarmer.db)
-- 行为日志：[logs/activity.jsonl](/Volumes/Yaoy/project/LocalFarmer/logs/activity.jsonl)
+- SQLite 存档：[save/localfarmer.db](save/localfarmer.db)
+- 行为日志：[logs/activity.jsonl](logs/activity.jsonl)
 
 ### 8. 升级与卸载
 
@@ -416,19 +416,19 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 
 ### 9. 文档索引
 
-核心技术文档都在 [docs](/Volumes/Yaoy/project/LocalFarmer/docs)：
+核心技术文档都在 [docs](docs)：
 
 - 当前系统设计与实现：
-  - [architecture_report.md](/Volumes/Yaoy/project/LocalFarmer/docs/architecture_report.md)：完整技术架构
-  - [big_government_mode_guide.md](/Volumes/Yaoy/project/LocalFarmer/docs/big_government_mode_guide.md)：大政府模式玩法与制度机制说明
-  - [consumption_real_estate_design.md](/Volumes/Yaoy/project/LocalFarmer/docs/consumption_real_estate_design.md)：消费、地产与生活满意度系统设计
-  - [undergrad_system_explainer.md](/Volumes/Yaoy/project/LocalFarmer/docs/undergrad_system_explainer.md)：面向本科生的系统解释
-  - [system_development_retrospective.md](/Volumes/Yaoy/project/LocalFarmer/docs/system_development_retrospective.md)：系统发展过程复盘
+  - [architecture_report.md](docs/architecture_report.md)：完整技术架构
+  - [big_government_mode_guide.md](docs/big_government_mode_guide.md)：大政府模式玩法与制度机制说明
+  - [consumption_real_estate_design.md](docs/consumption_real_estate_design.md)：消费、地产与生活满意度系统设计
+  - [undergrad_system_explainer.md](docs/undergrad_system_explainer.md)：面向本科生的系统解释
+  - [system_development_retrospective.md](docs/system_development_retrospective.md)：系统发展过程复盘
 - 运行分析与历史案例：
-  - [recent_100day_emergence_report.md](/Volumes/Yaoy/project/LocalFarmer/docs/recent_100day_emergence_report.md)：最近 100 天系统与智能体涌现报告
-  - [emergent_behavior_casebook.md](/Volumes/Yaoy/project/LocalFarmer/docs/emergent_behavior_casebook.md)：10 个涌现行为案例
-  - [simulation_day312_review.md](/Volumes/Yaoy/project/LocalFarmer/docs/simulation_day312_review.md)：第 312 天阶段的历史运行复盘
-  - [simulation_day312_academic_analysis.md](/Volumes/Yaoy/project/LocalFarmer/docs/simulation_day312_academic_analysis.md)：第 312 天阶段的历史学术分析版
+  - [recent_100day_emergence_report.md](docs/recent_100day_emergence_report.md)：最近 100 天系统与智能体涌现报告
+  - [emergent_behavior_casebook.md](docs/emergent_behavior_casebook.md)：10 个涌现行为案例
+  - [simulation_day312_review.md](docs/simulation_day312_review.md)：第 312 天阶段的历史运行复盘
+  - [simulation_day312_academic_analysis.md](docs/simulation_day312_academic_analysis.md)：第 312 天阶段的历史学术分析版
 
 ## 主要交互
 
@@ -1018,8 +1018,8 @@ LLM 在微博系统里的作用不是“把帖子写长”，而是：
 
 ## 数据与日志
 
-- 快照数据库：[save/localfarmer.db](/Volumes/Yaoy/project/LocalFarmer/save/localfarmer.db)
-- 行为日志：[logs/activity.jsonl](/Volumes/Yaoy/project/LocalFarmer/logs/activity.jsonl)
+- 快照数据库：[save/localfarmer.db](save/localfarmer.db)
+- 行为日志：[logs/activity.jsonl](logs/activity.jsonl)
 
 日志记录包括：
 
@@ -1068,6 +1068,6 @@ LLM 在微博系统里的作用不是“把帖子写长”，而是：
 - 服务默认监听 `127.0.0.1:8765`
 - 当前世界状态版本为 `51`
 - 旧存档如果版本落后会被自动丢弃，这是正常行为
-- 当前内部已经拆出 [market_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/market_engine.py)、[social_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/social_engine.py) 和 [lifestyle_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/lifestyle_engine.py)，`GameEngine` 主要负责总编排
+- 当前内部已经拆出 [market_engine.py](app/engine/market_engine.py)、[social_engine.py](app/engine/social_engine.py) 和 [lifestyle_engine.py](app/engine/lifestyle_engine.py)，`GameEngine` 主要负责总编排
 - 当前后端已经支持 section-diff 增量状态同步，前端会优先做模块级增量更新，而不是每轮整页重绘
 - `event_history` 会保留最近 `200` 条事件，右侧“最近事件”面板展示的是可滚动历史流而不只是瞬时事件卡

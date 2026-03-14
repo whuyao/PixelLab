@@ -15,11 +15,11 @@
 
 分析基于两类数据：
 
-- SQLite 快照库 [save/localfarmer.db](/Volumes/Yaoy/project/LocalFarmer/save/localfarmer.db)
+- SQLite 快照库 [save/localfarmer.db](../save/localfarmer.db)
   - `snapshots` 表共 `40442` 条记录
   - 覆盖第 `1` 天到第 `311/312` 天
   - 本文按“每天最后一个快照”聚合，得到 `312` 个日级状态样本
-- 活动日志 [logs/activity.jsonl](/Volumes/Yaoy/project/LocalFarmer/logs/activity.jsonl)
+- 活动日志 [logs/activity.jsonl](../logs/activity.jsonl)
   - 共 `75994` 条结构化日志
 
 分析时采用的原则：

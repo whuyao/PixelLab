@@ -44,10 +44,10 @@
 
 本研究使用两类运行数据：
 
-- 快照库 [save/localfarmer.db](/Volumes/Yaoy/project/LocalFarmer/save/localfarmer.db)
+- 快照库 [save/localfarmer.db](../save/localfarmer.db)
   - `snapshots` 表共 `40442` 条记录
   - 覆盖第 `1` 天到第 `311/312` 天
-- 活动日志 [logs/activity.jsonl](/Volumes/Yaoy/project/LocalFarmer/logs/activity.jsonl)
+- 活动日志 [logs/activity.jsonl](../logs/activity.jsonl)
   - 共 `75994` 条事件级记录
 
 同时参考了运行态世界状态：

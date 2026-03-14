@@ -24,7 +24,7 @@
 
 数据范围：
 
-- 日志文件：[activity.jsonl](/Volumes/Yaoy/project/LocalFarmer/logs/activity.jsonl)
+- 日志文件：[activity.jsonl](../logs/activity.jsonl)
 - 时间窗口：第 `299` 天到第 `398` 天，共最近 `100` 天
 - 样本量：`20,585` 条日志
 - 当前在线状态：第 `399` 天上午
@@ -622,6 +622,6 @@
 
 ## 12. 延伸阅读
 
-- [undergrad_system_explainer.md](/Volumes/Yaoy/project/LocalFarmer/docs/undergrad_system_explainer.md)
-- [emergent_behavior_casebook.md](/Volumes/Yaoy/project/LocalFarmer/docs/emergent_behavior_casebook.md)
-- [simulation_day312_academic_analysis.md](/Volumes/Yaoy/project/LocalFarmer/docs/simulation_day312_academic_analysis.md)
+- [undergrad_system_explainer.md](undergrad_system_explainer.md)
+- [emergent_behavior_casebook.md](emergent_behavior_casebook.md)
+- [simulation_day312_academic_analysis.md](simulation_day312_academic_analysis.md)

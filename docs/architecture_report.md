@@ -55,7 +55,7 @@ flowchart LR
 
 ### 3.1 接入层
 
-[app/main.py](/Volumes/Yaoy/project/LocalFarmer/app/main.py)
+[app/main.py](../app/main.py)
 
 职责：
 
@@ -89,7 +89,7 @@ flowchart LR
 
 ### 3.2 领域模型层
 
-[app/models.py](/Volumes/Yaoy/project/LocalFarmer/app/models.py)
+[app/models.py](../app/models.py)
 
 核心模型包括：
 
@@ -122,7 +122,7 @@ flowchart LR
 
 ### 3.3 世界引擎
 
-[app/engine/game_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/game_engine.py)
+[app/engine/game_engine.py](../app/engine/game_engine.py)
 
 `GameEngine` 是系统实际运行的核心，负责：
 
@@ -142,19 +142,19 @@ flowchart LR
 
 当前 `GameEngine` 已不再独占所有业务逻辑，而是主要承担编排职责，并把两块高频子域拆给：
 
-- [app/engine/market_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/market_engine.py)
+- [app/engine/market_engine.py](../app/engine/market_engine.py)
   - 市场视图准备
   - 盘中 tick
   - 玩家交易与自动交易
   - 市场事件冲击
 
-- [app/engine/social_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/social_engine.py)
+- [app/engine/social_engine.py](../app/engine/social_engine.py)
   - 玩家对话
   - NPC 互聊
   - 社交视图准备
   - 晨报与记忆同步
 
-- [app/engine/lifestyle_engine.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/lifestyle_engine.py)
+- [app/engine/lifestyle_engine.py](../app/engine/lifestyle_engine.py)
   - 生活与地产视图准备
   - 日常消费 tick
   - 新一天的住房与满意度结算
@@ -162,11 +162,11 @@ flowchart LR
 
 ### 3.4 对话层
 
-- [app/engine/dialogue_system.py](/Volumes/Yaoy/project/LocalFarmer/app/engine/dialogue_system.py)
+- [app/engine/dialogue_system.py](../app/engine/dialogue_system.py)
   - 本地 fallback
   - 欲望驱动式短对话
 
-- [app/services/openai_dialogue_service.py](/Volumes/Yaoy/project/LocalFarmer/app/services/openai_dialogue_service.py)
+- [app/services/openai_dialogue_service.py](../app/services/openai_dialogue_service.py)
   - 通过 OpenAI-compatible 协议接 OpenAI 或 Qwen
   - OpenAI 默认模型是 `gpt-5-mini`
   - Qwen 默认示例模型是 `qwen3.5-flash`
@@ -175,11 +175,11 @@ flowchart LR
 
 ### 3.5 外部事件层
 
-- [app/services/brave_service.py](/Volumes/Yaoy/project/LocalFarmer/app/services/brave_service.py)
+- [app/services/brave_service.py](../app/services/brave_service.py)
   - 搜索外部新闻
   - 如果未配置 Brave，则由系统新闻 fallback 补足时间线
 
-- [app/services/event_mapper.py](/Volumes/Yaoy/project/LocalFarmer/app/services/event_mapper.py)
+- [app/services/event_mapper.py](../app/services/event_mapper.py)
   - 把 Brave 结果映射成市场事件
   - 把外部新闻映射成方向、强度、板块明确的事件
 
@@ -228,17 +228,17 @@ flowchart LR
 
 除了结构设计文档，当前项目还维护了几份基于真实运行日志的分析报告：
 
-- [undergrad_system_explainer.md](/Volumes/Yaoy/project/LocalFarmer/docs/undergrad_system_explainer.md)
+- [undergrad_system_explainer.md](undergrad_system_explainer.md)
   面向本科生的系统解释，重点讲智能体、GeoAI、经济约束和涌现。
-- [emergent_behavior_casebook.md](/Volumes/Yaoy/project/LocalFarmer/docs/emergent_behavior_casebook.md)
+- [emergent_behavior_casebook.md](emergent_behavior_casebook.md)
   从日志里抽出的典型涌现案例。
-- [recent_100day_emergence_report.md](/Volumes/Yaoy/project/LocalFarmer/docs/recent_100day_emergence_report.md)
+- [recent_100day_emergence_report.md](recent_100day_emergence_report.md)
   基于最近 100 天模拟时间的系统阶段演化与角色分化分析。
-- [system_development_retrospective.md](/Volumes/Yaoy/project/LocalFarmer/docs/system_development_retrospective.md)
+- [system_development_retrospective.md](system_development_retrospective.md)
   从原型到当前复合系统的整体发展复盘。
-- [big_government_mode_guide.md](/Volumes/Yaoy/project/LocalFarmer/docs/big_government_mode_guide.md)
+- [big_government_mode_guide.md](big_government_mode_guide.md)
   面向演示与教学的大政府模式独立说明，聚焦权限、工期、锚点与制度影响。
-- [simulation_day312_academic_analysis.md](/Volumes/Yaoy/project/LocalFarmer/docs/simulation_day312_academic_analysis.md)
+- [simulation_day312_academic_analysis.md](simulation_day312_academic_analysis.md)
   更偏学术分析写法的长期运行报告。
 
 ## 5. 智能体架构
@@ -1311,7 +1311,7 @@ GeoAI / 空间智能进度不再封顶，而是持续累加。
 
 ### 10.1 快照
 
-[app/storage/repository.py](/Volumes/Yaoy/project/LocalFarmer/app/storage/repository.py)
+[app/storage/repository.py](../app/storage/repository.py)
 
 使用 SQLite 保存整包 `WorldState`。
 
@@ -1328,9 +1328,9 @@ GeoAI / 空间智能进度不再封顶，而是持续累加。
 
 ### 10.2 行为日志
 
-[app/services/activity_logger.py](/Volumes/Yaoy/project/LocalFarmer/app/services/activity_logger.py)
+[app/services/activity_logger.py](../app/services/activity_logger.py)
 
-日志写入 [logs/activity.jsonl](/Volumes/Yaoy/project/LocalFarmer/logs/activity.jsonl)，包括：
+日志写入 [logs/activity.jsonl](../logs/activity.jsonl)，包括：
 
 - 玩家移动
 - NPC 自主移动
@@ -1402,7 +1402,7 @@ GeoAI / 空间智能进度不再封顶，而是持续累加。
 
 ### 13.2 前端单文件仍然过大
 
-[static/app.js](/Volumes/Yaoy/project/LocalFarmer/static/app.js) 依然承担过多职责，后续更适合拆为：
+[static/app.js](../static/app.js) 依然承担过多职责，后续更适合拆为：
 
 - `renderer`
 - `market-panels`
