@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GeoAI Pixel Lab Test (UrbanComp Lab)</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260313am" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260314n" />
   </head>
   <body>
     <div class="project-banner">
@@ -64,6 +64,7 @@
                 <span>滚轮缩放 / 拖拽平移</span>
                 <button id="zoomInBtn" type="button">放大地图</button>
                 <button id="zoomOutBtn" type="button">缩小地图</button>
+                <button id="buildAnchorToggleBtn" type="button">开发叠层：关</button>
                 <button id="systemRunBtn" type="button">系统运行：开</button>
                 <button id="observerModeBtn" type="button">观察模式：开</button>
                 <button id="autoExploreBtn" type="button">自动漫游：开</button>
@@ -275,6 +276,21 @@
               <div class="panel-head">
                 <h2>税率与保障调节</h2>
                 <span class="panel-tag">政策控制台</span>
+              </div>
+              <div class="policy-mode-box">
+                <div id="governmentModeSummary" class="policy-mode-summary">当前仍采用常规政府模式。</div>
+                <div id="governmentModeBtn" class="policy-toggle" role="button" tabindex="0" aria-disabled="false">大政府模式：关</div>
+              </div>
+              <div class="policy-capability-box">
+                <p class="policy-group-title">大政府权限</p>
+                <div class="capability-grid">
+                  <div id="govCapabilityTaxesBtn" class="capability-btn policy-toggle" role="button" tabindex="0" aria-disabled="false">调税：开</div>
+                  <div id="govCapabilityRatesBtn" class="capability-btn policy-toggle" role="button" tabindex="0" aria-disabled="false">调息：开</div>
+                  <div id="govCapabilityBuildBtn" class="capability-btn policy-toggle" role="button" tabindex="0" aria-disabled="false">建设拆除：开</div>
+                  <div id="govCapabilityTradeBtn" class="capability-btn policy-toggle" role="button" tabindex="0" aria-disabled="false">收购出售：开</div>
+                  <div id="govCapabilityPriceBtn" class="capability-btn policy-toggle" role="button" tabindex="0" aria-disabled="false">价格干预：开</div>
+                </div>
+                <p id="governmentCapabilityStatus" class="signal-status"></p>
               </div>
               <form id="taxPolicyForm" class="signal-form tax-form">
                 <div class="policy-group">
@@ -795,6 +811,6 @@
       <span>UrbanComp Lab (<a href="https://urbancomp.net" target="_blank" rel="noreferrer">https://urbancomp.net</a>) 开发</span>
       <span>GitHub：<a href="https://github.com/whuyao/PixelLab" target="_blank" rel="noreferrer">https://github.com/whuyao/PixelLab</a></span>
     </footer>
-    <script src="/static/app.js?v=20260313am" type="module"></script>
+    <script src="/static/app.js?v=20260314n" type="module"></script>
   </body>
 </html>

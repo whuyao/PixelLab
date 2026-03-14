@@ -9,13 +9,14 @@ DEFAULT_ENV_FILE="/tmp/localfarmer.env"
 ENV_FILE="${LOCALFARMER_ENV_FILE:-$DEFAULT_ENV_FILE}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 PORT="${PORT:-8765}"
+LLM_PROVIDER_CHOICE="${LLM_PROVIDER_CHOICE:-}"
 
 usage() {
   cat <<'EOF'
 PixelLab installer / upgrader / uninstaller
 
 Usage:
-  ./scripts/pixellab.sh install [--env-file PATH]
+  ./scripts/pixellab.sh install [--env-file PATH] [--provider openai|qwen]
   ./scripts/pixellab.sh upgrade [--env-file PATH] [--pull]
   ./scripts/pixellab.sh uninstall [--env-file PATH] [--purge-data] [--purge-env]
   ./scripts/pixellab.sh run
@@ -30,6 +31,7 @@ Commands:
 
 Options:
   --env-file PATH   Use a custom env file instead of /tmp/localfarmer.env.
+  --provider NAME   Preselect openai or qwen during install bootstrap.
   --pull            For upgrade: run git pull --ff-only before reinstalling.
   --purge-data      For uninstall: also remove save/ and logs/.
   --purge-env       For uninstall: also remove the selected env file.
@@ -57,6 +59,11 @@ parse_common_args() {
         ENV_FILE="$2"
         shift 2
         ;;
+      --provider)
+        [[ $# -ge 2 ]] || die "--provider requires a value"
+        LLM_PROVIDER_CHOICE="$2"
+        shift 2
+        ;;
       *)
         break
         ;;
@@ -80,10 +87,89 @@ ensure_git_repo() {
   [[ -d "$ROOT_DIR/.git" ]] || die "This directory is not a git clone: $ROOT_DIR"
 }
 
+port_owner() {
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | tail -n +2 || true
+  fi
+}
+
+warn_port_in_use() {
+  local owner
+  owner="$(port_owner)"
+  if [[ -n "$owner" ]]; then
+    log "Port $PORT is already in use."
+    printf '%s\n' "$owner"
+    log "Stop the existing process or change PORT before running PixelLab."
+  fi
+}
+
+normalize_provider_choice() {
+  local choice="${1:-}"
+  choice="$(printf '%s' "$choice" | tr '[:upper:]' '[:lower:]')"
+  case "$choice" in
+    openai|1) printf 'openai' ;;
+    qwen|2) printf 'qwen' ;;
+    *) printf '' ;;
+  esac
+}
+
+prompt_llm_provider() {
+  local choice=""
+  choice="$(normalize_provider_choice "$LLM_PROVIDER_CHOICE")"
+  if [[ -n "$choice" ]]; then
+    printf '%s' "$choice"
+    return 0
+  fi
+  if [[ -t 0 && -t 1 ]]; then
+    printf '\nChoose LLM provider for the bootstrap env file:\n'
+    printf '  1) OpenAI (default: gpt-5-mini)\n'
+    printf '  2) Qwen   (default: qwen3.5-flash)\n'
+    printf 'Select [1/2, default 1]: '
+    read -r choice || true
+    choice="$(normalize_provider_choice "${choice:-openai}")"
+  else
+    choice="openai"
+  fi
+  [[ -n "$choice" ]] || choice="openai"
+  printf '%s' "$choice"
+}
+
+write_annotated_env_file() {
+  local provider="$1"
+  cat >"$ENV_FILE" <<EOF
+# PixelLab runtime configuration
+# This file is intentionally stored outside the git repo.
+# Add at least one LLM API key before starting the app.
+
+# Optional: Brave Search key for real external news ingestion.
+# Leave empty to use internal hotspot generation.
+BRAVE_API_KEY=
+
+# LLM provider: openai or qwen
+LLM_PROVIDER=$provider
+
+# OpenAI-compatible configuration
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-5-mini
+OPENAI_BASE_URL=https://api.openai.com/v1
+
+# Qwen OpenAI-compatible configuration
+QWEN_API_KEY=
+QWEN_MODEL=qwen3.5-flash
+QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+
+# Runtime paths (relative to project root unless absolute)
+SAVE_PATH=save/localfarmer.db
+LOG_PATH=logs/activity.jsonl
+EOF
+}
+
 ensure_env_file() {
   mkdir -p "$(dirname "$ENV_FILE")"
   if [[ ! -f "$ENV_FILE" ]]; then
-    cp "$ENV_TEMPLATE" "$ENV_FILE"
+    local provider
+    provider="$(prompt_llm_provider)"
+    write_annotated_env_file "$provider"
     log "Created env file: $ENV_FILE"
   fi
 }
@@ -116,6 +202,7 @@ install_cmd() {
   install_python_deps
   ensure_runtime_dirs
   ensure_env_file
+  warn_port_in_use
   check_llm_hint
   cat <<EOF
 
@@ -126,8 +213,9 @@ Virtualenv:    $VENV_DIR
 Env file:      $ENV_FILE
 
 Next steps:
-  1. Edit the env file and add either OPENAI_API_KEY or QWEN_API_KEY.
-  2. Start the app:
+  1. Edit the env file and add a matching API key for the selected provider.
+  2. Check whether port $PORT is free if you plan to run locally.
+  3. Start the app:
      ./scripts/pixellab.sh run
 EOF
 }
@@ -209,6 +297,11 @@ uninstall_cmd() {
 
 run_cmd() {
   [[ -d "$VENV_DIR" ]] || die ".venv not found. Run install first."
+  local owner
+  owner="$(port_owner)"
+  if [[ -n "$owner" ]]; then
+    die "Port $PORT is already in use. Stop the existing process first:\n$owner"
+  fi
   export LOCALFARMER_ENV_FILE="$ENV_FILE"
   # shellcheck disable=SC1091
   source "$VENV_DIR/bin/activate"
@@ -222,6 +315,9 @@ status_cmd() {
   printf 'Env file:    %s (%s)\n' "$ENV_FILE" "$( [[ -f "$ENV_FILE" ]] && echo present || echo missing )"
   if command -v lsof >/dev/null 2>&1 && lsof -ti tcp:"$PORT" >/dev/null 2>&1; then
     printf 'Service:     running on 127.0.0.1:%s\n' "$PORT"
+    local owner
+    owner="$(port_owner)"
+    [[ -n "$owner" ]] && printf 'Port owner:   %s\n' "$owner"
   else
     printf 'Service:     stopped\n'
   fi

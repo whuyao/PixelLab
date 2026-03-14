@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 TimeSlot = Literal["morning", "noon", "afternoon", "evening", "night"]
 TaskCategory = Literal["main", "daily", "social", "external"]
-EventCategory = Literal["geoai", "tech", "market", "gaming", "general"]
+EventCategory = Literal["geoai", "tech", "market", "gaming", "general", "policy"]
 WeatherKind = Literal["sunny", "breezy", "cloudy", "drizzle"]
 
 
@@ -319,10 +319,10 @@ class TouristAgent(BaseModel):
 
 class TourismState(BaseModel):
     inn_name: str = "湖畔旅馆"
-    inn_position: Point = Field(default_factory=lambda: Point(x=36, y=22))
+    inn_position: Point = Field(default_factory=lambda: Point(x=35, y=14))
     inn_location: str = "lounge"
     market_name: str = "林间集市"
-    market_position: Point = Field(default_factory=lambda: Point(x=6, y=14))
+    market_position: Point = Field(default_factory=lambda: Point(x=7, y=16))
     market_location: str = "foyer"
     active_visitor_cap: int = 5
     season_mode: Literal["off", "normal", "peak", "festival"] = "normal"
@@ -349,6 +349,12 @@ class TourismState(BaseModel):
 
 class GovernmentState(BaseModel):
     name: str = "园区财政与监管局"
+    big_mode_enabled: bool = False
+    can_tune_taxes: bool = True
+    can_tune_rates: bool = True
+    can_manage_construction: bool = True
+    can_trade_assets: bool = True
+    can_intervene_prices: bool = True
     wage_tax_rate_pct: float = 8.0
     securities_tax_rate_pct: float = 1.2
     property_transfer_tax_rate_pct: float = 4.0
@@ -384,6 +390,7 @@ class GovernmentState(BaseModel):
     current_agenda: str = "观察税收、游客和住房压力。"
     last_agent_action: str = "财政周期还没有触发新的建设动作。"
     last_agent_reason: str = "系统会根据游客、住房、储备和资产收益决定下一步。"
+    last_macro_action: str = "当前仍采用常规政府模式。"
     known_signals: list[str] = Field(default_factory=list)
     last_agent_action_day: int = 0
     daily_asset_revenue: int = 0
@@ -447,6 +454,9 @@ class PropertyAsset(BaseModel):
     built: bool = True
     status: str = "owned"
     facility_kind: str = ""
+    anchor_slot: str = ""
+    project_stage: str = ""
+    project_due_day: int = 0
     description: str = ""
 
 
@@ -742,6 +752,18 @@ class TaxPolicyRequest(BaseModel):
     welfare_base_support: int | None = None
     welfare_bankruptcy_support: int | None = None
     note: str = ""
+
+
+class GovernmentModeRequest(BaseModel):
+    enabled: bool
+
+
+class GovernmentCapabilityRequest(BaseModel):
+    can_tune_taxes: bool | None = None
+    can_tune_rates: bool | None = None
+    can_manage_construction: bool | None = None
+    can_trade_assets: bool | None = None
+    can_intervene_prices: bool | None = None
 
 
 class StateDiffRequest(BaseModel):

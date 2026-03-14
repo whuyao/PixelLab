@@ -103,6 +103,7 @@ const systemRunBtn = document.getElementById("systemRunBtn");
 const resetCameraBtn = document.getElementById("resetCameraBtn");
 const zoomInBtn = document.getElementById("zoomInBtn");
 const zoomOutBtn = document.getElementById("zoomOutBtn");
+const buildAnchorToggleBtn = document.getElementById("buildAnchorToggleBtn");
 const talkForm = document.getElementById("talkForm");
 const talkInput = document.getElementById("talkInput");
 const talkTarget = document.getElementById("talkTarget");
@@ -122,6 +123,14 @@ const welfareBankruptcyInput = document.getElementById("welfareBankruptcyInput")
 const taxPolicyNoteInput = document.getElementById("taxPolicyNoteInput");
 const taxPolicySubmitBtn = document.getElementById("taxPolicySubmitBtn");
 const taxPolicyStatus = document.getElementById("taxPolicyStatus");
+const governmentModeBtn = document.getElementById("governmentModeBtn");
+const governmentModeSummary = document.getElementById("governmentModeSummary");
+const govCapabilityTaxesBtn = document.getElementById("govCapabilityTaxesBtn");
+const govCapabilityRatesBtn = document.getElementById("govCapabilityRatesBtn");
+const govCapabilityBuildBtn = document.getElementById("govCapabilityBuildBtn");
+const govCapabilityTradeBtn = document.getElementById("govCapabilityTradeBtn");
+const govCapabilityPriceBtn = document.getElementById("govCapabilityPriceBtn");
+const governmentCapabilityStatus = document.getElementById("governmentCapabilityStatus");
 const llmToggleBtn = document.getElementById("llmToggleBtn");
 const llmPanel = document.getElementById("llmPanel");
 const llmProviderSelect = document.getElementById("llmProviderSelect");
@@ -130,7 +139,7 @@ const llmApplyBtn = document.getElementById("llmApplyBtn");
 const llmStatusMeta = document.getElementById("llmStatusMeta");
 const llmSwitchStatus = document.getElementById("llmSwitchStatus");
 const llmSwitcherShell = llmToggleBtn?.closest(".llm-switcher-shell") || null;
-const ASSET_VERSION = "20260313am";
+const ASSET_VERSION = "20260314n";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -850,7 +859,7 @@ const obstacles = [
   { type: "trees", x: 32, y: 3, w: 2, h: 2 },
   { type: "trees", x: 36, y: 4, w: 2, h: 2 },
   { type: "trees", x: 40, y: 6, w: 2, h: 2 },
-  { type: "pond", x: 30, y: 15, w: 5, h: 4 },
+  { type: "lake_water", x: 28, y: 15, w: 15, h: 10 },
   { type: "hay", x: 16, y: 18, w: 2, h: 2 },
   { type: "shrub", x: 22, y: 14, w: 2, h: 2 },
   { type: "logs", x: 38, y: 16, w: 2, h: 2 },
@@ -932,6 +941,9 @@ let llmStatus = null;
 let llmPanelOpen = false;
 let llmSwitchPending = false;
 let llmRevealHeld = false;
+let showBuildAnchors = false;
+let governmentModePending = false;
+let governmentCapabilityPending = false;
 const cameraState = {
   zoom: 1,
   manual: false,
@@ -966,6 +978,45 @@ const artAssets = {
   bgTiles: null,
 };
 
+const buildAnchors = [
+  { id: "player-cottage", x: 6, y: 22, kind: "build", label: "玩家小屋" },
+  { id: "lin-cottage", x: 9, y: 2, kind: "build", label: "林澈小屋" },
+  { id: "mika-cottage", x: 14, y: 22, kind: "build", label: "米遥小屋" },
+  { id: "jo-cottage", x: 21, y: 2, kind: "build", label: "周铖小屋" },
+  { id: "rae-cottage", x: 24, y: 22, kind: "build", label: "芮宁小屋" },
+  { id: "kai-cottage", x: 38, y: 2, kind: "build", label: "凯川小屋" },
+  { id: "farm-north", x: 14, y: 14, kind: "build", label: "农田地块" },
+  { id: "greenhouse-lot", x: 23, y: 18, kind: "build", label: "温室地块" },
+  { id: "shop-orchard", x: 35, y: 8, kind: "build", label: "商铺地块" },
+  { id: "rental-lakeside", x: 39, y: 12, kind: "build", label: "出租屋地块" },
+  { id: "tourist-inn", x: 34, y: 12, kind: "build", label: "旅馆地块" },
+  { id: "tourist-market", x: 6, y: 14, kind: "build", label: "集市地块" },
+];
+
+const activityAnchors = [
+  { id: "market-chat-a", x: 7, y: 16, kind: "activity", label: "集市闲聊" },
+  { id: "market-chat-b", x: 9, y: 15, kind: "activity", label: "集市闲聊" },
+  { id: "market-watch-a", x: 8, y: 14, kind: "activity", label: "集市围观" },
+  { id: "inn-forecourt-a", x: 35, y: 14, kind: "activity", label: "旅馆门口" },
+  { id: "workshop-huddle-a", x: 24, y: 7, kind: "activity", label: "工坊讨论" },
+  { id: "workshop-huddle-b", x: 26, y: 6, kind: "activity", label: "工坊讨论" },
+  { id: "foyer-gossip-a", x: 13, y: 8, kind: "activity", label: "入口八卦" },
+  { id: "lakeside-pause-a", x: 29, y: 20, kind: "activity", label: "湖边停留" },
+  { id: "lakeside-pause-b", x: 33, y: 20, kind: "activity", label: "湖边停留" },
+  { id: "buyer-tour-a", x: 34, y: 19, kind: "activity", label: "看房点" },
+  { id: "buyer-tour-b", x: 23, y: 18, kind: "activity", label: "看房点" },
+  { id: "noon-social-a", x: 17, y: 18, kind: "activity", label: "午间社交" },
+  { id: "noon-social-b", x: 24, y: 18, kind: "activity", label: "午间社交" },
+];
+
+const anchorOverlayPalette = {
+  build: { fill: "rgba(255, 211, 125, 0.24)", stroke: "rgba(214, 158, 63, 0.9)", labelBg: "rgba(255, 250, 236, 0.94)" },
+  home: { fill: "rgba(136, 186, 255, 0.18)", stroke: "rgba(88, 128, 198, 0.95)", labelBg: "rgba(239, 246, 255, 0.94)" },
+  work: { fill: "rgba(255, 166, 119, 0.2)", stroke: "rgba(197, 111, 54, 0.95)", labelBg: "rgba(255, 245, 236, 0.94)" },
+  social: { fill: "rgba(98, 191, 168, 0.22)", stroke: "rgba(54, 133, 115, 0.9)", labelBg: "rgba(236, 251, 245, 0.94)" },
+  tourist: { fill: "rgba(189, 151, 244, 0.18)", stroke: "rgba(132, 92, 199, 0.9)", labelBg: "rgba(246, 239, 255, 0.94)" },
+};
+
 const spriteSheetMeta = {
   frameWidth: 32,
   frameHeight: 48,
@@ -997,6 +1048,35 @@ const scenicTreeAnchors = [
   { x: 27.2, y: 22.5, variant: 0, scale: 0.82 },
   { x: 29.3, y: 22.4, variant: 1, scale: 0.88 },
   { x: 31.8, y: 22.7, variant: 0, scale: 0.84 },
+];
+
+const shorelineProps = [
+  { x: 27.8, y: 20.7, kind: "foam" },
+  { x: 29.2, y: 21.1, kind: "foam" },
+  { x: 31.1, y: 21.4, kind: "foam" },
+  { x: 33.7, y: 21.6, kind: "foam" },
+  { x: 35.4, y: 21.2, kind: "shell" },
+  { x: 37.1, y: 20.9, kind: "shell" },
+  { x: 39.2, y: 20.6, kind: "shell" },
+  { x: 41.4, y: 20.5, kind: "driftwood" },
+];
+
+const villageProps = [
+  { x: 9.4, y: 3.3, kind: "bench" },
+  { x: 12.5, y: 3.4, kind: "crate" },
+  { x: 19.8, y: 3.6, kind: "workbench" },
+  { x: 22.4, y: 3.8, kind: "barrel" },
+  { x: 32.7, y: 3.3, kind: "orchard_box" },
+  { x: 34.9, y: 4.1, kind: "signpost" },
+  { x: 11.5, y: 18.6, kind: "bench" },
+  { x: 21.6, y: 18.7, kind: "crate" },
+  { x: 36.7, y: 18.3, kind: "signpost" },
+];
+
+const marketStallAnchors = [
+  { x: 11.9, y: 19.2, tint: "#d28a64" },
+  { x: 15.4, y: 19.4, tint: "#6fa06d" },
+  { x: 19.1, y: 19.1, tint: "#7e81c3" },
 ];
 
 let foregroundNature = [];
@@ -1237,6 +1317,10 @@ function renderPanels() {
   systemRunBtn.textContent = `系统运行：${systemRunning ? "开" : "暂停"}`;
   observerModeBtn.textContent = `观察模式：${observerMode ? "开" : "关"}`;
   autoExploreBtn.textContent = `自动漫游：${autoExplore ? "开" : "关"}`;
+  if (buildAnchorToggleBtn) {
+    buildAnchorToggleBtn.textContent = `开发叠层：${showBuildAnchors ? "开" : "关"}`;
+    buildAnchorToggleBtn.classList.toggle("active", showBuildAnchors);
+  }
   marketIntradayBtn.classList.toggle("active", marketViewMode === "intraday");
   marketDailyBtn.classList.toggle("active", marketViewMode === "daily");
   marketMonthlyBtn?.classList.toggle("active", marketViewMode === "monthly");
@@ -1678,6 +1762,73 @@ function renderHomeCockpit() {
 function renderFiscalPanel() {
   if (!state || !fiscalSummary) return;
   const government = state.government || {};
+  const applyPolicyToggleAppearance = (element, mode) => {
+    if (!element) return;
+    const setImportant = (name, value) => element.style.setProperty(name, value, "important");
+    if (mode === "active") {
+      setImportant("background", "linear-gradient(180deg, #6c8b47, #567336)");
+      setImportant("background-color", "#5f7c3c");
+      setImportant("border-color", "#486833");
+      setImportant("color", "#fff8df");
+      setImportant("-webkit-text-fill-color", "#fff8df");
+      setImportant("text-shadow", "0 1px 0 rgba(44, 61, 28, 0.45)");
+      setImportant("box-shadow", "inset 0 0 0 1px rgba(247, 243, 220, 0.14)");
+    } else if (mode === "locked") {
+      setImportant("background", "linear-gradient(180deg, #d5c9ac, #c8bb9f)");
+      setImportant("background-color", "#cec1a4");
+      setImportant("border-color", "rgba(74, 62, 47, 0.48)");
+      setImportant("color", "#6b5d49");
+      setImportant("-webkit-text-fill-color", "#6b5d49");
+      setImportant("text-shadow", "none");
+      setImportant("box-shadow", "none");
+    } else {
+      setImportant("background", "linear-gradient(180deg, #d89563, #c97f4b)");
+      setImportant("background-color", "#cf8754");
+      setImportant("border-color", "var(--line)");
+      setImportant("color", "#fff8ee");
+      setImportant("-webkit-text-fill-color", "#fff8ee");
+      setImportant("text-shadow", "none");
+      setImportant("box-shadow", "none");
+    }
+    setImportant("opacity", "1");
+    setImportant("filter", "none");
+  };
+  if (governmentModeBtn) {
+    governmentModeBtn.textContent = government.big_mode_enabled ? "大政府模式：开" : "大政府模式：关";
+    governmentModeBtn.classList.toggle("is-active", Boolean(government.big_mode_enabled));
+    governmentModeBtn.classList.toggle("is-busy", governmentModePending);
+    governmentModeBtn.setAttribute("aria-disabled", governmentModePending ? "true" : "false");
+    applyPolicyToggleAppearance(governmentModeBtn, government.big_mode_enabled ? "active" : "default");
+  }
+  if (governmentModeSummary) {
+    governmentModeSummary.textContent = government.big_mode_enabled
+      ? `强干预模式：${government.last_macro_action || "政府会主动调税、调息、建设、拆除和收购公共资产。"}`
+      : `常规模式：${government.last_macro_action || "当前仍采用常规政府模式。"}`
+  }
+  const capabilityButtons = [
+    [govCapabilityTaxesBtn, "调税", government.can_tune_taxes],
+    [govCapabilityRatesBtn, "调息", government.can_tune_rates],
+    [govCapabilityBuildBtn, "建设拆除", government.can_manage_construction],
+    [govCapabilityTradeBtn, "收购出售", government.can_trade_assets],
+    [govCapabilityPriceBtn, "价格干预", government.can_intervene_prices],
+  ];
+  capabilityButtons.forEach(([button, label, enabled]) => {
+    if (!button) return;
+    button.textContent = `${label}：${enabled ? "开" : "关"}`;
+    button.classList.toggle("is-active", Boolean(enabled));
+    button.classList.toggle("is-busy", governmentCapabilityPending);
+    button.classList.toggle("is-locked", !government.big_mode_enabled);
+    button.setAttribute("aria-disabled", governmentCapabilityPending || !government.big_mode_enabled ? "true" : "false");
+    applyPolicyToggleAppearance(button, !government.big_mode_enabled ? "locked" : enabled ? "active" : "default");
+  });
+  if (governmentCapabilityStatus) {
+    if (!government.big_mode_enabled) {
+      governmentCapabilityStatus.textContent = "当前是常规政府模式，细权限只展示不生效。";
+    } else if (!governmentCapabilityPending) {
+      const active = capabilityButtons.filter(([, , enabled]) => enabled).map(([, label]) => label);
+      governmentCapabilityStatus.textContent = `当前已开放：${active.join(" / ") || "无"}`;
+    }
+  }
   ensureTaxPolicyDraft(government);
   const governmentAssets = (state.properties || []).filter((asset) => asset.owner_type === "government" && asset.status === "owned");
   const todayTaxes = (state.finance_history || [])
@@ -1761,9 +1912,16 @@ function renderFiscalPanel() {
     <section class="metric-group fiscal-dashboard-card fiscal-governance-card">
       <h3 class="metric-group-title">策 · 政府运营智能体</h3>
       <div class="tax-rate-grid">
+        <article class="tax-rate-item"><strong>运行模式</strong><span>${government.big_mode_enabled ? "大政府模式" : "常规模式"}</span></article>
         <article class="tax-rate-item"><strong>当前议程</strong><span>${escapeHtml(government.current_agenda || "观察游客、住房和财政储备。")}</span></article>
         <article class="tax-rate-item"><strong>最近动作</strong><span>${escapeHtml(government.last_agent_action || "还没有新的建设动作。")}</span></article>
         <article class="tax-rate-item"><strong>判断依据</strong><span>${escapeHtml(government.last_agent_reason || "会根据游客、住房和储备继续决策。")}</span></article>
+        <article class="tax-rate-item"><strong>宏观动作</strong><span>${escapeHtml(government.last_macro_action || "当前仍采用常规政府模式。")}</span></article>
+        <article class="tax-rate-item"><strong>调税权限</strong><span>${government.can_tune_taxes ? "开" : "关"}</span></article>
+        <article class="tax-rate-item"><strong>调息权限</strong><span>${government.can_tune_rates ? "开" : "关"}</span></article>
+        <article class="tax-rate-item"><strong>建设拆除</strong><span>${government.can_manage_construction ? "开" : "关"}</span></article>
+        <article class="tax-rate-item"><strong>收购出售</strong><span>${government.can_trade_assets ? "开" : "关"}</span></article>
+        <article class="tax-rate-item"><strong>价格干预</strong><span>${government.can_intervene_prices ? "开" : "关"}</span></article>
         <article class="tax-rate-item"><strong>今日设施收入</strong><span>$${government.daily_asset_revenue || 0}</span></article>
         <article class="tax-rate-item"><strong>今日维护</strong><span>$${government.daily_asset_maintenance || 0}</span></article>
         <article class="tax-rate-item"><strong>今日净额</strong><span>$${government.daily_asset_net || 0}</span></article>
@@ -1857,6 +2015,15 @@ function bindTaxPolicyDraftInputs() {
       taxPolicyDraftDirty = true;
       taxPolicyDraft[key] = input.value;
     });
+  });
+}
+
+function bindPseudoButtonKeyActivation(element, handler) {
+  if (!element) return;
+  element.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    handler();
   });
 }
 
@@ -3909,6 +4076,7 @@ function drawWorld(now) {
   drawTourismFacilities(now);
   drawCottages(now);
   drawPropertyAssets(now);
+  drawAnchorOverlay();
   drawSceneReactions(now);
   drawCharacters(now);
   drawForegroundNature(now);
@@ -3918,6 +4086,132 @@ function drawWorld(now) {
   drawWeatherOverlay(now);
   ctx.fillStyle = lightingBySlot[state.time_slot];
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+function anchorPixel(x, y) {
+  return { x: (x - 1) * tile + tile / 2, y: (y - 1) * tile + tile / 2 };
+}
+
+function propertyById(propertyId) {
+  return (state?.properties || []).find((asset) => asset.id === propertyId) || null;
+}
+
+function buildDevelopmentAnchors() {
+  if (!state) return [];
+  const overlays = [];
+  buildAnchors.forEach((anchor) => {
+    overlays.push({ ...anchor, overlayKind: "build" });
+  });
+  const playerHomeProperty = (state.properties || []).find(
+    (asset) => asset.owner_type === "player" && asset.owner_id === state.player?.id && ["cottage", "rental_house"].includes(asset.property_type),
+  );
+  if (playerHomeProperty) {
+    overlays.push({
+      id: "player-home-live",
+      x: playerHomeProperty.position.x,
+      y: playerHomeProperty.position.y,
+      overlayKind: "home",
+      label: "玩家回家点",
+    });
+  }
+  (state.agents || []).forEach((agent) => {
+    if (agent.home_position) {
+      overlays.push({
+        id: `${agent.id}-home-live`,
+        x: agent.home_position.x,
+        y: agent.home_position.y,
+        overlayKind: "home",
+        label: `${agent.name}回家点`,
+      });
+    }
+  });
+  if (state.company?.position) {
+    overlays.push({
+      id: "company-work-live",
+      x: state.company.position.x,
+      y: state.company.position.y,
+      overlayKind: "work",
+      label: "工作点",
+    });
+  }
+  activityAnchors.forEach((anchor) => {
+    overlays.push({
+      ...anchor,
+      overlayKind: anchor.id.includes("buyer-tour") ? "tourist" : "social",
+    });
+  });
+  if (state.tourism?.inn_position) {
+    overlays.push({
+      id: "tourist-inn-live",
+      x: state.tourism.inn_position.x,
+      y: state.tourism.inn_position.y,
+      overlayKind: "tourist",
+      label: "游客停留",
+    });
+  }
+  if (state.tourism?.market_position) {
+    overlays.push({
+      id: "tourist-market-live",
+      x: state.tourism.market_position.x,
+      y: state.tourism.market_position.y,
+      overlayKind: "tourist",
+      label: "游客停留",
+    });
+  }
+  return overlays;
+}
+
+function pickActivityAnchorCenter(prefix, fallbackPoint) {
+  const anchor = activityAnchors.find((item) => item.id.startsWith(prefix));
+  if (anchor) return anchorPixel(anchor.x, anchor.y);
+  return gridToPixels(fallbackPoint);
+}
+
+function drawAnchorOverlay() {
+  if (!showBuildAnchors) return;
+  const points = buildDevelopmentAnchors();
+  const legend = [
+    { label: "建设位", kind: "build" },
+    { label: "回家点", kind: "home" },
+    { label: "工作点", kind: "work" },
+    { label: "社交点", kind: "social" },
+    { label: "游客停留", kind: "tourist" },
+  ];
+  points.forEach((anchor) => {
+    const point = anchorPixel(anchor.x, anchor.y);
+    const palette = anchorOverlayPalette[anchor.overlayKind || "social"] || anchorOverlayPalette.social;
+    ctx.fillStyle = palette.fill;
+    ctx.strokeStyle = palette.stroke;
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, anchor.overlayKind === "build" ? 10 : 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = palette.labelBg;
+    roundRect(point.x - 24, point.y - 18, 48, 10, 4, true);
+    ctx.fillStyle = "#5c4a35";
+    ctx.font = '8px "PingFang SC", sans-serif';
+    ctx.fillText(anchor.label, point.x - 20, point.y - 10);
+  });
+  const legendX = 12;
+  const legendY = 14;
+  ctx.fillStyle = "rgba(255, 251, 242, 0.88)";
+  roundRect(legendX, legendY, 132, 58, 8, true);
+  ctx.fillStyle = "rgba(66, 58, 48, 0.9)";
+  ctx.font = '9px "PingFang SC", sans-serif';
+  ctx.fillText("开发叠层", legendX + 8, legendY + 11);
+  legend.forEach((item, index) => {
+    const palette = anchorOverlayPalette[item.kind];
+    const y = legendY + 21 + index * 9;
+    ctx.fillStyle = palette.fill;
+    ctx.strokeStyle = palette.stroke;
+    ctx.beginPath();
+    ctx.arc(legendX + 11, y, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#5c4a35";
+    ctx.fillText(item.label, legendX + 19, y + 2);
+  });
 }
 
 function getCamera() {
@@ -4007,15 +4301,15 @@ function drawRooms(now) {
     const py = room.y * tile;
     drawTerrainZone(room, now);
 
-    ctx.strokeStyle = "rgba(69, 57, 38, 0.16)";
+    ctx.strokeStyle = "rgba(69, 57, 38, 0.08)";
     ctx.lineWidth = 1;
     ctx.strokeRect(px + 6, py + 6, room.w * tile - 12, room.h * tile - 12);
 
-    ctx.fillStyle = "rgba(74, 55, 34, 0.46)";
-    roundRect(px + 14, py + 12, 118, 22, 7, true);
-    ctx.fillStyle = "#fff7e2";
-    ctx.font = '14px "PingFang SC", sans-serif';
-    ctx.fillText(roomNames[room.key], px + 20, py + 27);
+    ctx.fillStyle = "rgba(74, 55, 34, 0.22)";
+    roundRect(px + 16, py + 14, 102, 18, 7, true);
+    ctx.fillStyle = "rgba(255, 247, 226, 0.9)";
+    ctx.font = '12px "PingFang SC", sans-serif';
+    ctx.fillText(roomNames[room.key], px + 22, py + 27);
   });
 }
 
@@ -4135,6 +4429,109 @@ function drawDownloadedScenery(now) {
     drawAssetSprite(artAssets.farmTiles, 0, 112, 16, 16, 6 * tile + 12, 20 * tile + 6, 30, 30, 0.88);
     drawAssetSprite(artAssets.farmTiles, 112, 48, 16, 16, 33 * tile + 16, 10 * tile + 10, 28, 28, 0.88);
   }
+
+  drawAmbientWorldDetails(now);
+}
+
+function drawAmbientWorldDetails(now) {
+  drawBoardwalkAndShore(now);
+  drawVillageProps(now);
+  drawMarketStallCluster(now);
+}
+
+function drawBoardwalkAndShore(now) {
+  const lounge = rooms.find((room) => room.key === "lounge");
+  if (!lounge) return;
+  const baseX = lounge.x * tile + 18;
+  const baseY = lounge.y * tile + lounge.h * tile - 52;
+  for (let i = 0; i < 9; i += 1) {
+    const x = baseX + i * 28;
+    ctx.fillStyle = i % 2 ? "#c4ad77" : "#d8c189";
+    ctx.fillRect(x, baseY, 22, 14);
+    ctx.fillStyle = "rgba(98, 70, 44, 0.18)";
+    ctx.fillRect(x + 10, baseY, 2, 14);
+  }
+  ctx.fillStyle = "#7b5d3e";
+  ctx.fillRect(baseX + 28, baseY + 12, 8, 34);
+  ctx.fillRect(baseX + 84, baseY + 12, 8, 34);
+  ctx.fillRect(baseX + 140, baseY + 12, 8, 34);
+
+  shorelineProps.forEach((item, index) => {
+    const px = item.x * tile;
+    const py = item.y * tile + Math.sin(now / 280 + index) * 1.5;
+    if (item.kind === "foam") {
+      ctx.fillStyle = "rgba(241, 248, 245, 0.7)";
+      ctx.fillRect(px, py, 14, 2);
+      ctx.fillRect(px + 5, py + 4, 11, 2);
+    } else if (item.kind === "shell") {
+      ctx.fillStyle = "#f6e2cd";
+      ctx.fillRect(px + 2, py + 2, 4, 3);
+      ctx.fillStyle = "#e8c59a";
+      ctx.fillRect(px + 4, py + 5, 2, 2);
+    } else if (item.kind === "driftwood") {
+      ctx.fillStyle = "#86674b";
+      ctx.fillRect(px, py + 2, 16, 3);
+      ctx.fillRect(px + 3, py, 10, 2);
+    }
+  });
+}
+
+function drawVillageProps(now) {
+  villageProps.forEach((prop, index) => {
+    const x = prop.x * tile;
+    const y = prop.y * tile + Math.sin(now / 450 + index * 1.7) * 0.8;
+    if (prop.kind === "bench") {
+      ctx.fillStyle = "#865f3e";
+      ctx.fillRect(x, y + 8, 20, 4);
+      ctx.fillRect(x + 2, y + 4, 16, 3);
+      ctx.fillRect(x + 2, y + 12, 2, 6);
+      ctx.fillRect(x + 16, y + 12, 2, 6);
+    } else if (prop.kind === "crate" || prop.kind === "orchard_box") {
+      ctx.fillStyle = prop.kind === "orchard_box" ? "#b68d52" : "#9d7248";
+      ctx.fillRect(x, y + 4, 13, 11);
+      ctx.fillStyle = "rgba(255,255,255,0.12)";
+      ctx.fillRect(x + 2, y + 6, 9, 2);
+    } else if (prop.kind === "workbench") {
+      ctx.fillStyle = "#765338";
+      ctx.fillRect(x, y + 7, 18, 4);
+      ctx.fillRect(x + 2, y + 11, 2, 8);
+      ctx.fillRect(x + 14, y + 11, 2, 8);
+      ctx.fillStyle = "#cdb48f";
+      ctx.fillRect(x + 4, y + 4, 4, 2);
+      ctx.fillRect(x + 10, y + 3, 3, 2);
+    } else if (prop.kind === "barrel") {
+      ctx.fillStyle = "#8f6946";
+      roundRect(x, y + 4, 10, 14, 4, true);
+      ctx.fillStyle = "#5d4330";
+      ctx.fillRect(x, y + 8, 10, 2);
+    } else if (prop.kind === "signpost") {
+      ctx.fillStyle = "#79593e";
+      ctx.fillRect(x + 6, y + 6, 3, 13);
+      ctx.fillStyle = "#e7dbbe";
+      roundRect(x, y, 16, 8, 3, true);
+    }
+  });
+}
+
+function drawMarketStallCluster(now) {
+  const market = state?.tourism?.market_position;
+  if (!market) return;
+  marketStallAnchors.forEach((stall, index) => {
+    const x = stall.x * tile;
+    const y = stall.y * tile + Math.sin(now / 360 + index) * 1.2;
+    ctx.fillStyle = stall.tint;
+    ctx.beginPath();
+    ctx.moveTo(x, y + 8);
+    ctx.lineTo(x + 9, y);
+    ctx.lineTo(x + 18, y + 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#f0e3c7";
+    ctx.fillRect(x + 2, y + 8, 14, 9);
+    ctx.fillStyle = "#77573f";
+    ctx.fillRect(x + 3, y + 17, 2, 5);
+    ctx.fillRect(x + 13, y + 17, 2, 5);
+  });
 }
 
 function latestWorldSignalText() {
@@ -4543,7 +4940,95 @@ function propertyOwnerColor(asset) {
   return "#8a8a70";
 }
 
+function drawGovernmentFacilityShell(asset, x, y, width, height, now) {
+  if (asset.facility_kind === "public_housing") {
+    drawDetailedBuilding(x, y, width, height, {
+      wall: "#8fc3b8",
+      wallShade: "#5e8f87",
+      roof: "#4f857d",
+      roofShade: "#376760",
+      trim: "#eef7f3",
+      door: "#5a4a39",
+      signText: "公住",
+      signFill: "#dff5ee",
+      pulseKind: "government",
+      windowRows: 2,
+      windowCols: width >= 40 ? 3 : 2,
+    });
+    ctx.fillStyle = "rgba(247, 250, 244, 0.95)";
+    ctx.fillRect(x + 6, y + 13, width - 12, 2);
+    ctx.fillRect(x + 6, y + 21, width - 12, 2);
+    return;
+  }
+  if (asset.facility_kind === "night_market_stall") {
+    drawBuildingShadow(x + 2, y + 14, width - 4, height - 8, 0.16);
+    ctx.fillStyle = "#8b6447";
+    ctx.fillRect(x + 5, y + 16, width - 10, height - 8);
+    ctx.fillStyle = "#d8c49d";
+    ctx.fillRect(x + 7, y + 18, width - 14, height - 12);
+    ctx.fillStyle = "#c96b4f";
+    ctx.beginPath();
+    ctx.moveTo(x + 2, y + 18);
+    ctx.lineTo(x + Math.round(width * 0.33), y + 8 + Math.sin(now / 280) * 1.2);
+    ctx.lineTo(x + Math.round(width * 0.55), y + 18);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x + Math.round(width * 0.45), y + 18);
+    ctx.lineTo(x + Math.round(width * 0.7), y + 8 - Math.sin(now / 280) * 1.2);
+    ctx.lineTo(x + width - 2, y + 18);
+    ctx.closePath();
+    ctx.fill();
+    drawLanternString(x + 6, y + 6, 3, 12);
+    ctx.fillStyle = "#f2d7ab";
+    ctx.fillRect(x + 10, y + 23, 7, 5);
+    ctx.fillStyle = "#b46747";
+    ctx.fillRect(x + Math.round(width * 0.45), y + 23, 7, 5);
+    ctx.fillStyle = "#84a76b";
+    ctx.fillRect(x + width - 17, y + 23, 7, 5);
+    drawSignPill(x + 2, y - 8, Math.min(48, width - 2), "夜市", "#f7e8c8");
+    return;
+  }
+  if (asset.facility_kind === "visitor_service_station") {
+    drawDetailedBuilding(x + 2, y + 2, width - 4, height - 2, {
+      wall: "#a9d4cf",
+      wallShade: "#6fa09b",
+      roof: "#5e948d",
+      roofShade: "#436f6a",
+      trim: "#eef8f6",
+      door: "#5b4b38",
+      signText: "服务",
+      signFill: "#e7faf5",
+      pulseKind: "tourism",
+      windowRows: 1,
+      windowCols: 2,
+    });
+    ctx.fillStyle = "rgba(255,245,220,0.9)";
+    roundRect(x + width - 18, y + 10, 12, 10, 4, true);
+    ctx.fillStyle = "#487f77";
+    ctx.font = '8px "PingFang SC", sans-serif';
+    ctx.fillText("咨", x + width - 14, y + 18);
+    ctx.fillStyle = "#5e8f87";
+    ctx.fillRect(x + 8, y + height - 3, width - 16, 2);
+    return;
+  }
+  drawDetailedBuilding(x, y, width, height, {
+    wall: "#8fc3b8",
+    wallShade: "#5e8f87",
+    roof: "#538c83",
+    roofShade: "#3e6e66",
+    trim: "#f6ebd6",
+    door: "#6b4b34",
+    signText: "公产",
+    signFill: "#dff5ee",
+    pulseKind: "government",
+    windowRows: 1,
+    windowCols: width >= 44 ? 3 : 2,
+  });
+}
+
 function drawPropertyAssets(now) {
+  const governmentPlan = getGovernmentVisualPlan();
   (state.properties || []).forEach((asset) => {
     if (asset.id === "property-tourist-inn" || asset.id === "property-tourist-market") return;
     const px = (asset.position.x - 1) * tile;
@@ -4581,19 +5066,23 @@ function drawPropertyAssets(now) {
         night_market_stall: "夜市",
         visitor_service_station: "服务",
       })[asset.facility_kind] || "";
-      drawDetailedBuilding(bodyX, bodyY - 4, bodyWidth, bodyHeight + 4, {
-        wall: asset.owner_type === "government" ? "#8fc3b8" : shadeColor(ownerColor, 28),
-        wallShade: asset.owner_type === "government" ? "#5e8f87" : shadeColor(ownerColor, -10),
-        roof: asset.owner_type === "government" ? "#538c83" : shadeColor(ownerColor, -18),
-        roofShade: asset.owner_type === "government" ? "#3e6e66" : shadeColor(ownerColor, -34),
-        trim: "#f6ebd6",
-        door: "#6b4b34",
-        signText: asset.owner_type === "government" ? (facilityKindLabel || "公产") : asset.name.slice(0, 4),
-        signFill: asset.owner_type === "government" ? "#dff5ee" : "#f2e1bf",
-        pulseKind: asset.owner_type === "government" ? "government" : asset.property_type === "shop" ? "tourism" : "market",
-        windowRows: 1,
-        windowCols: bodyWidth >= 44 ? 3 : 2,
-      });
+      if (asset.owner_type === "government") {
+        drawGovernmentFacilityShell(asset, bodyX, bodyY - 4, bodyWidth, bodyHeight + 4, now);
+      } else {
+        drawDetailedBuilding(bodyX, bodyY - 4, bodyWidth, bodyHeight + 4, {
+          wall: shadeColor(ownerColor, 28),
+          wallShade: shadeColor(ownerColor, -10),
+          roof: shadeColor(ownerColor, -18),
+          roofShade: shadeColor(ownerColor, -34),
+          trim: "#f6ebd6",
+          door: "#6b4b34",
+          signText: asset.name.slice(0, 4),
+          signFill: "#f2e1bf",
+          pulseKind: asset.property_type === "shop" ? "tourism" : "market",
+          windowRows: 1,
+          windowCols: bodyWidth >= 44 ? 3 : 2,
+        });
+      }
       if (asset.property_type === "shop") {
         ctx.fillStyle = "#f4d48a";
         ctx.fillRect(bodyX + 5, bodyY + 11, bodyWidth - 10, 3);
@@ -4629,6 +5118,7 @@ function drawPropertyAssets(now) {
       ctx.fillStyle = "#3a746c";
       ctx.font = '8px "PingFang SC", sans-serif';
       ctx.fillText(badgeLabel, px + 10, py + height - 7);
+      drawGovernmentActionOverlay(asset, now, governmentPlan);
     }
     if (asset.listed) {
       ctx.fillStyle = "#f7e8bf";
@@ -4638,6 +5128,93 @@ function drawPropertyAssets(now) {
       ctx.fillText("售", px + width - 12, py + 17);
     }
   });
+}
+
+function getGovernmentVisualPlan() {
+  const government = state?.government || {};
+  const action = `${government.last_agent_action || ""} ${government.current_agenda || ""} ${government.last_agent_reason || ""}`;
+  const owned = (state?.properties || []).filter((asset) => asset.owner_type === "government" && asset.status === "owned");
+  const listed = (state?.properties || []).filter((asset) => asset.owner_type === "government" && asset.listed);
+  const matchAsset =
+    owned.find((asset) => action.includes(asset.name)) ||
+    listed.find((asset) => action.includes(asset.name)) ||
+    owned[owned.length - 1] ||
+    null;
+  return {
+    construction: /新建|扩建|建设|加盖/.test(action),
+    selling: /出售|挂牌|出让|卖掉/.test(action),
+    service: /服务|游客服务|承接游客/.test(action),
+    housing: /住房|公房|公共住房/.test(action),
+    market: /夜市|摊位|集市/.test(action),
+    focusAssetId: matchAsset?.id || "",
+  };
+}
+
+function drawGovernmentActionOverlay(asset, now, plan) {
+  const px = (asset.position.x - 1) * tile;
+  const py = (asset.position.y - 1) * tile;
+  const width = asset.width * tile;
+  const height = asset.height * tile;
+  const focused = plan.focusAssetId && plan.focusAssetId === asset.id;
+
+  if (asset.facility_kind === "public_housing") {
+    ctx.fillStyle = "rgba(255, 248, 235, 0.88)";
+    ctx.fillRect(px + 18, py + height - 26, 18, 2);
+    ctx.fillRect(px + 21, py + height - 20, 3, 7);
+    ctx.fillRect(px + 30, py + height - 20, 3, 7);
+  }
+  if (asset.facility_kind === "night_market_stall") {
+    drawLanternString(px + 8, py + 10, 3, 14);
+  }
+  if (asset.facility_kind === "visitor_service_station") {
+    ctx.fillStyle = "rgba(255,245,220,0.86)";
+    roundRect(px + width - 28, py + 14, 18, 10, 4, true);
+    ctx.fillStyle = "#487f77";
+    ctx.font = '8px "PingFang SC", sans-serif';
+    ctx.fillText("咨", px + width - 22, py + 22);
+  }
+
+  const inConstruction = asset.project_stage === "build" || (focused && plan.construction);
+  const inDemolish = asset.project_stage === "demolish";
+  if (!focused && !inConstruction && !inDemolish) return;
+  if (inConstruction) {
+    ctx.strokeStyle = "rgba(245, 222, 169, 0.92)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(px + 10, py + 12, width - 20, height - 20);
+    ctx.beginPath();
+    ctx.moveTo(px + 12, py + height - 12);
+    ctx.lineTo(px + 26, py + 18);
+    ctx.moveTo(px + width - 12, py + height - 12);
+    ctx.lineTo(px + width - 26, py + 18);
+    ctx.stroke();
+    drawSparkPulse(px + width - 18, py + 18 + Math.sin(now / 180) * 2, 3, "rgba(255,214,125,0.95)");
+    ctx.fillStyle = "rgba(255, 245, 220, 0.92)";
+    roundRect(px + 12, py - 10, 34, 9, 4, true);
+    ctx.fillStyle = "#7d5a2f";
+    ctx.font = '8px "PingFang SC", sans-serif';
+    ctx.fillText("施工中", px + 18, py - 3);
+  } else if (inDemolish) {
+    ctx.strokeStyle = "rgba(214, 120, 110, 0.88)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 4]);
+    ctx.strokeRect(px + 10, py + 12, width - 20, height - 20);
+    ctx.setLineDash([]);
+    ctx.fillStyle = "rgba(255, 242, 226, 0.92)";
+    roundRect(px + 12, py - 10, 34, 9, 4, true);
+    ctx.fillStyle = "#8d4a3c";
+    ctx.font = '8px "PingFang SC", sans-serif';
+    ctx.fillText("拆除中", px + 18, py - 3);
+  } else if (plan.selling) {
+    ctx.fillStyle = "#f7e3b8";
+    roundRect(px + width - 34, py + 10, 22, 10, 4, true);
+    ctx.fillStyle = "#7d5a2f";
+    ctx.font = '8px "PingFang SC", sans-serif';
+    ctx.fillText("出售", px + width - 29, py + 18);
+  } else if (plan.service || plan.market || plan.housing) {
+    ctx.fillStyle = "rgba(93, 150, 133, 0.14)";
+    roundRect(px + 8, py + 8, width - 16, height - 16, 8, true);
+    drawSparkPulse(px + width - 18, py + 14 + Math.sin(now / 260) * 2, 3, "rgba(120,220,188,0.9)");
+  }
 }
 
 function drawSceneReactions(now) {
@@ -4702,7 +5279,7 @@ function buildVisualGroupPlan(now) {
   const markUsed = (ids) => ids.forEach((id) => used.add(id));
 
   if (flags.researchHot && state.company?.position) {
-    const center = gridToPixels(state.company.position);
+    const center = pickActivityAnchorCenter("workshop-huddle", state.company.position);
     const ids = unusedAgents((agent) => /GeoAI|研究|工坊|样本|训练|讨论/.test(`${agent.current_activity || ""} ${agent.current_plan || ""}`)).slice(0, 2);
     if (ids.length >= 2) {
       pushVisualCluster(plan, ids, { x: center.x + 8, y: center.y - 2 }, "研究讨论 GeoAI", 22, -Math.PI * 1.08);
@@ -4711,7 +5288,7 @@ function buildVisualGroupPlan(now) {
   }
 
   if (!freshHotFeed && (flags.festivalMode || flags.tourismHot) && state.tourism?.market_position) {
-    const center = gridToPixels(state.tourism.market_position);
+    const center = pickActivityAnchorCenter("market-chat", state.tourism.market_position);
     const ids = [
       ...unusedTourists((tourist) => tourist.visitor_tier === "vip" || tourist.visitor_tier === "repeat").slice(0, 1),
       ...unusedAgents((agent) => /游客|集市|消费|营业|旅馆|服务/.test(`${agent.current_activity || ""} ${agent.current_plan || ""}`)).slice(0, 1),
@@ -4723,7 +5300,7 @@ function buildVisualGroupPlan(now) {
   }
 
   if (flags.housingInterest && state.tourism?.inn_position) {
-    const center = gridToPixels(state.tourism.inn_position);
+    const center = pickActivityAnchorCenter("buyer-tour", state.tourism.inn_position);
     const ids = [
       ...unusedTourists((tourist) => tourist.visitor_tier === "buyer").slice(0, 1),
       ...unusedAgents((agent) => /住房|地产|租住|看房/.test(`${agent.current_activity || ""} ${agent.current_plan || ""}`)).slice(0, 1),
@@ -4735,7 +5312,7 @@ function buildVisualGroupPlan(now) {
   }
 
   if (!freshHotFeed && (flags.marketBusy || flags.regulationWave) && state.tourism?.market_position) {
-    const center = gridToPixels(state.tourism.market_position);
+    const center = pickActivityAnchorCenter("market-watch", state.tourism.market_position);
     const ids = [
       ...unusedAgents((agent) => /围观|争|和解|调停|讨论|消息/.test(`${agent.current_activity || ""} ${agent.current_plan || ""}`)).slice(0, 1),
       ...unusedTourists(() => true).slice(0, 1),
@@ -4747,7 +5324,7 @@ function buildVisualGroupPlan(now) {
   }
 
   if (freshHotFeed && state.tourism?.market_position) {
-    const center = gridToPixels(state.tourism.market_position);
+    const center = pickActivityAnchorCenter("market-chat", state.tourism.market_position);
     const hotIds = (freshHotFeed.participants || [])
       .filter((item) => item.type !== "player")
       .map((item) => item.id)
@@ -4770,9 +5347,9 @@ function buildVisualGroupPlan(now) {
   }
 
   if (flags.governmentReplyHot && state.government?.government_asset_ids?.length) {
-    const facility = (state.properties || []).find((asset) => asset.owner_type === "government" && asset.status === "owned");
-    if (facility) {
-      const center = gridToPixels({ x: facility.position.x, y: facility.position.y });
+      const facility = (state.properties || []).find((asset) => asset.owner_type === "government" && asset.status === "owned");
+      if (facility) {
+      const center = pickActivityAnchorCenter("workshop-huddle", { x: facility.position.x, y: facility.position.y });
       const ids = unusedAgents((agent) => /财政|政府|监管|政策/.test(`${agent.current_activity || ""} ${agent.current_plan || ""}`)).slice(0, 2);
       if (ids.length >= 1) {
         pushVisualCluster(plan, ids, { x: center.x + 10, y: center.y + 8 }, "政府回应 政策讨论", 16, -Math.PI * 0.64);
@@ -4782,7 +5359,7 @@ function buildVisualGroupPlan(now) {
   }
 
   if (freshHotFeed?.hot && state.tourism?.market_position) {
-    const center = gridToPixels(state.tourism.market_position);
+    const center = pickActivityAnchorCenter("market-watch", state.tourism.market_position);
     const chainIds = (freshHotFeed.participants || [])
       .filter((item) => item.type !== "player")
       .map((item) => item.id)
@@ -4795,7 +5372,7 @@ function buildVisualGroupPlan(now) {
   }
 
   if (state.company?.position) {
-    const center = gridToPixels(state.company.position);
+    const center = pickActivityAnchorCenter("workshop-huddle", state.company.position);
     const ids = unusedAgents((agent) => /打工|工作|服务|工坊/.test(`${agent.current_activity || ""} ${agent.current_plan || ""}`)).slice(0, 2);
     if (ids.length >= 2) {
       pushVisualCluster(plan, ids, { x: center.x + 28, y: center.y + 18 }, "打工中 工坊忙碌", 14, -Math.PI * 0.25);
@@ -4818,7 +5395,7 @@ function getDisplayEntity(id, fallbackEntity) {
 }
 
 function drawWorkshopReaction(now, point, flags) {
-  const center = gridToPixels(point);
+  const center = pickActivityAnchorCenter("workshop-huddle", point);
   if (flags.researchHot) {
     ctx.fillStyle = "rgba(105, 139, 218, 0.16)";
     roundRect(center.x - 58, center.y - 24, 116, 42, 12, true);
@@ -4844,7 +5421,7 @@ function drawWorkshopReaction(now, point, flags) {
 }
 
 function drawMarketReaction(now, point, flags) {
-  const center = gridToPixels(point);
+  const center = pickActivityAnchorCenter("market-chat", point);
   const activeVisitors = Math.min(6, state?.tourists?.length || 0);
   const hotFeedFocus = getHotFeedFocus();
   if (flags.tourismHot || flags.festivalMode) {
@@ -4868,7 +5445,7 @@ function drawMarketReaction(now, point, flags) {
 }
 
 function drawInnReaction(now, point, flags) {
-  const center = gridToPixels(point);
+  const center = pickActivityAnchorCenter("inn-forecourt", point);
   const hotFeedFocus = getHotFeedFocus();
   if (flags.tourismHot) {
     ctx.fillStyle = "rgba(255, 231, 180, 0.16)";
@@ -5918,6 +6495,10 @@ function drawObstacle(obstacle, now) {
   const py = (obstacle.y - 1) * tile;
   const width = obstacle.w * tile;
   const height = obstacle.h * tile;
+
+  if (obstacle.type === "lake_water") {
+    return;
+  }
 
   if (obstacle.type === "pond") {
     ctx.fillStyle = "#8fd0c9";
@@ -6983,6 +7564,67 @@ if (taxPolicyForm) {
   });
 }
 
+governmentModeBtn?.addEventListener("click", async () => {
+  if (!state || governmentModePending) return;
+  governmentModePending = true;
+  renderPanels();
+  try {
+    state = await api("/api/government/mode", {
+      method: "POST",
+      body: JSON.stringify({ enabled: !(state.government?.big_mode_enabled) }),
+    });
+    syncSceneEntities();
+    renderPanels();
+    if (taxPolicyStatus) {
+      taxPolicyStatus.textContent = state.government?.big_mode_enabled
+        ? "大政府模式已开启：政府会更积极调税、调息、建设、拆除和收购公共资产。"
+        : "大政府模式已关闭：政府恢复为温和干预的常规模式。";
+    }
+  } catch (error) {
+    if (taxPolicyStatus) taxPolicyStatus.textContent = error.message;
+  } finally {
+    governmentModePending = false;
+    renderPanels();
+  }
+});
+bindPseudoButtonKeyActivation(governmentModeBtn, () => governmentModeBtn?.click());
+
+async function toggleGovernmentCapability(field, label) {
+  if (!state || governmentCapabilityPending || !state.government?.big_mode_enabled) return;
+  governmentCapabilityPending = true;
+  if (governmentCapabilityStatus) {
+    governmentCapabilityStatus.textContent = `正在更新${label}权限...`;
+  }
+  renderPanels();
+  try {
+    state = await api("/api/government/capabilities", {
+      method: "POST",
+      body: JSON.stringify({ [field]: !Boolean(state.government?.[field]) }),
+    });
+    syncSceneEntities();
+    renderPanels();
+    if (governmentCapabilityStatus) {
+      governmentCapabilityStatus.textContent = `${label}权限已${state.government?.[field] ? "开启" : "关闭"}。`;
+    }
+  } catch (error) {
+    if (governmentCapabilityStatus) governmentCapabilityStatus.textContent = error.message;
+  } finally {
+    governmentCapabilityPending = false;
+    renderPanels();
+  }
+}
+
+govCapabilityTaxesBtn?.addEventListener("click", () => toggleGovernmentCapability("can_tune_taxes", "调税"));
+govCapabilityRatesBtn?.addEventListener("click", () => toggleGovernmentCapability("can_tune_rates", "调息"));
+govCapabilityBuildBtn?.addEventListener("click", () => toggleGovernmentCapability("can_manage_construction", "建设拆除"));
+govCapabilityTradeBtn?.addEventListener("click", () => toggleGovernmentCapability("can_trade_assets", "收购出售"));
+govCapabilityPriceBtn?.addEventListener("click", () => toggleGovernmentCapability("can_intervene_prices", "价格干预"));
+bindPseudoButtonKeyActivation(govCapabilityTaxesBtn, () => govCapabilityTaxesBtn?.click());
+bindPseudoButtonKeyActivation(govCapabilityRatesBtn, () => govCapabilityRatesBtn?.click());
+bindPseudoButtonKeyActivation(govCapabilityBuildBtn, () => govCapabilityBuildBtn?.click());
+bindPseudoButtonKeyActivation(govCapabilityTradeBtn, () => govCapabilityTradeBtn?.click());
+bindPseudoButtonKeyActivation(govCapabilityPriceBtn, () => govCapabilityPriceBtn?.click());
+
 if (newsWindowSubmitBtn) {
   newsWindowSubmitBtn.addEventListener("click", async () => {
     if (!state) return;
@@ -7597,6 +8239,12 @@ zoomOutBtn?.addEventListener("click", () => {
   cameraState.zoom = clamp(cameraState.zoom - 0.14, 0.7, 2.2);
   cameraState.manual = true;
   signalStatus.textContent = `地图已缩小到 ${cameraState.zoom.toFixed(2)}x。`;
+});
+
+buildAnchorToggleBtn?.addEventListener("click", () => {
+  showBuildAnchors = !showBuildAnchors;
+  signalStatus.textContent = showBuildAnchors ? "开发叠层已显示：金色建设位、蓝色回家点、橙色工作点、绿色社交点、紫色游客停留。" : "开发叠层已隐藏。";
+  renderPanels();
 });
 
 Promise.all([loadAssets(), loadState(), loadLlmStatus()])

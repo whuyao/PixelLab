@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import Settings, load_settings
 from app.engine.game_engine import GameEngine
-from app.models import AdvanceRequest, BankBorrowRequest, BankDepositRequest, BankRepayRequest, BankWithdrawRequest, ConsumeRequest, FeedPostRequest, FeedReactionRequest, GrayCaseActionRequest, LLMProviderRequest, LabEvent, MacroNewsRequest, MoveRequest, NewsRequest, NewsTimelinePolicyRequest, NewsTimelineRequest, PropertyFinanceRequest, SpeakRequest, StateDiffRequest, StateDiffResponse, TaxPolicyRequest, TimeSlot, TradeRequest, WorldState
+from app.models import AdvanceRequest, BankBorrowRequest, BankDepositRequest, BankRepayRequest, BankWithdrawRequest, ConsumeRequest, FeedPostRequest, FeedReactionRequest, GovernmentCapabilityRequest, GovernmentModeRequest, GrayCaseActionRequest, LLMProviderRequest, LabEvent, MacroNewsRequest, MoveRequest, NewsRequest, NewsTimelinePolicyRequest, NewsTimelineRequest, PropertyFinanceRequest, SpeakRequest, StateDiffRequest, StateDiffResponse, TaxPolicyRequest, TimeSlot, TradeRequest, WorldState
 from app.services.activity_logger import ActivityLogger
 from app.services.openai_dialogue_service import OpenAIDialogueError, OpenAIDialogueService
 from app.services.brave_service import BraveSearchError, BraveService
@@ -541,6 +541,18 @@ async def inject_macro_news(payload: MacroNewsRequest) -> WorldState:
 @app.post("/api/government/policy", response_model=WorldState)
 async def update_tax_policy(payload: TaxPolicyRequest) -> WorldState:
     context.engine.update_tax_policy(payload.model_dump())
+    return _persist_and_return_state()
+
+
+@app.post("/api/government/mode", response_model=WorldState)
+async def update_government_mode(payload: GovernmentModeRequest) -> WorldState:
+    context.engine.set_big_government_mode(payload.enabled)
+    return _persist_and_return_state()
+
+
+@app.post("/api/government/capabilities", response_model=WorldState)
+async def update_government_capabilities(payload: GovernmentCapabilityRequest) -> WorldState:
+    context.engine.update_government_capabilities(payload.model_dump(exclude_none=True))
     return _persist_and_return_state()
 
 
