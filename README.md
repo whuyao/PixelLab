@@ -22,6 +22,7 @@
 - 智能体有长期记忆、短期记忆、关系、欲望、信用、口碑、体力和小屋作息
 - 当前角色信息下方带有玩家与 5 个核心智能体的关系矩阵，用颜色区分关系状态
 - 当前世界还包含轻量游客、旅馆、集市、政府财政与监管、公司打工、银行存款与公共资产
+- 地图里新增了 `后巷地下赌场`，赌局、赌税、赌局热度和赌场灰案已经进入市场、微博、监管和财政链路
 - 市场中心已经带有银行监控台，可观察授信、存贷比、放贷/还款曲线和高杠杆借款人
 - 税务与财政页的调税表单使用前端草稿态，用户输入过程中不会被自动刷新覆盖
 - 顶部提供隐藏式模型切换控件：按住 `Alt` 才会显示，可在运行中切换 `OpenAI / Qwen`
@@ -58,6 +59,10 @@
 小镇微博页：
 
 ![PixelLab 小镇微博页](docs/images/feed-overview.png)
+
+赌场与市场观察：
+
+![PixelLab 地下赌场与市场观察](docs/images/casino-market.png)
 
 手机窄屏观察：
 
@@ -421,6 +426,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 - 当前系统设计与实现：
   - [architecture_report.md](docs/architecture_report.md)：完整技术架构
   - [big_government_mode_guide.md](docs/big_government_mode_guide.md)：大政府模式玩法与制度机制说明
+  - [casino_system_guide.md](docs/casino_system_guide.md)：地下赌场玩法、赌税、灰案与监管联动说明
   - [consumption_real_estate_design.md](docs/consumption_real_estate_design.md)：消费、地产与生活满意度系统设计
   - [undergrad_system_explainer.md](docs/undergrad_system_explainer.md)：面向本科生的系统解释
   - [system_development_retrospective.md](docs/system_development_retrospective.md)：系统发展过程复盘
@@ -540,6 +546,18 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 - 没有 Brave 时，系统仍会通过公共热点抓取或系统新闻台生成社会热点供大家讨论
 - 自动发帖和自动回帖不再只靠规则模板，而是会先按角色身份生成草稿，再经过当前 LLM provider 精修
 - 微博内容与私聊对话分开调优：公开帖子允许更公开、更尖锐、更情绪化，不再是“谨慎回答器”
+
+### 地下赌场
+
+- 地图中有固定资产 `后巷地下赌场`
+- 玩家走到门口后可直接触发赌局
+- 智能体和游客会在资金紧张、资金充裕或情绪高涨时低频自主赌博
+- 赌场会产生日级热度、庄家池、赌税和大赢记录
+- 输钱可能导致吵架、压力上升和关系下降
+- 赢大钱会触发炫耀与微博发帖
+- 游客会在 `小镇微博` 发布“后巷赌局”类帖子
+- 赌场是灰色经济节点，会进入灰案、监管抽查和财政收入
+- 市场页和日志页都已经带赌场观察卡和下注热度图
 
 当前 5 个核心角色在微博上的公开人格已经刻意拉开：
 

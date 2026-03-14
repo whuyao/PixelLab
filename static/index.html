@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GeoAI Pixel Lab Test (UrbanComp Lab)</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260314n" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260314s" />
   </head>
   <body>
     <div class="project-banner">
@@ -65,6 +65,7 @@
                 <button id="zoomInBtn" type="button">放大地图</button>
                 <button id="zoomOutBtn" type="button">缩小地图</button>
                 <button id="buildAnchorToggleBtn" type="button">开发叠层：关</button>
+                <button id="casinoBtn" type="button">地下赌场：未到场</button>
                 <button id="systemRunBtn" type="button">系统运行：开</button>
                 <button id="observerModeBtn" type="button">观察模式：开</button>
                 <button id="autoExploreBtn" type="button">自动漫游：开</button>
@@ -217,6 +218,13 @@
                 </form>
                 <p id="bankBorrowHint" class="composer-tip">按当前信用，银行会动态调整利率和额度。</p>
                 <div id="bankLoanList" class="stack"></div>
+              </section>
+              <section class="market-subpanel market-group" data-market-tab-group="trading flow">
+                <div class="panel-head compact-head">
+                  <h3>赌场观察卡</h3>
+                  <span class="panel-tag">后巷赌局</span>
+                </div>
+                <div id="casinoRecentBox" class="stack"></div>
               </section>
             </div>
           </div>
@@ -461,6 +469,11 @@
                   <canvas id="eventAnalysisCanvas" width="640" height="220"></canvas>
                   <p id="eventAnalysisMeta" class="market-meta">等待分析数据。</p>
                 </section>
+                <section class="analysis-block">
+                  <h3>赌场热度与下注</h3>
+                  <canvas id="casinoAnalysisCanvas" width="640" height="220"></canvas>
+                  <p id="casinoAnalysisMeta" class="market-meta">等待分析数据。</p>
+                </section>
                 <section class="analysis-block analysis-people-block">
                   <h3>人物剖面</h3>
                   <div id="peopleAnalysis" class="analysis-people-grid"></div>
@@ -613,6 +626,7 @@
                 <span class="memory-chip">行为涌现</span>
                 <span class="memory-chip">经济底层机制</span>
                 <span class="memory-chip">制度与公共服务</span>
+                <span class="memory-chip">地下赌场</span>
               </div>
             </div>
           </section>
@@ -721,6 +735,10 @@
                   <strong>公开舆论系统</strong>
                   <div>小镇微博把私人想法变成公开信号，再把热度、可信度和围观传播回市场、游客、政府和关系网络。</div>
                 </article>
+                <article class="event-card">
+                  <strong>灰色经济系统</strong>
+                  <div>后巷地下赌场把私人赌局、赌税、公开炫耀、灰案注册和监管抽查看成同一个反馈回路。</div>
+                </article>
               </div>
             </section>
 
@@ -770,7 +788,26 @@
 
             <section class="panel teaching-panel">
               <div class="panel-head">
-                <h2>8. 本项目适合怎么学</h2>
+                <h2>8. 地下赌场为什么值得观察</h2>
+                <span class="panel-tag">灰色经济节点</span>
+              </div>
+              <div class="teaching-block">
+                <p>地下赌场不是单独小游戏，而是一个把冒险冲动、现金波动、公开炫耀、赌税和监管绑在一起的灰色经济节点。</p>
+                <ul class="teaching-list">
+                  <li>玩家走到门口后可以手动触发赌局</li>
+                  <li>智能体和游客会在资金紧张、资金很多或情绪高涨时低频自主赌博</li>
+                  <li>赢大钱会引发炫耀和微博传播，输钱则可能导致争执与压力上升</li>
+                  <li>赌税进入财政，赌场热度又会提高灰案和监管抽查风险</li>
+                </ul>
+                <div class="teaching-mini-formula">
+                  <code>赌局 -> 现金波动 / 情绪变化 -> 微博扩散 -> 赌税 / 灰案 / 抽查</code>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel teaching-panel">
+              <div class="panel-head">
+                <h2>9. 本项目适合怎么学</h2>
                 <span class="panel-tag">课堂路径</span>
               </div>
               <div class="teaching-block">
@@ -811,6 +848,6 @@
       <span>UrbanComp Lab (<a href="https://urbancomp.net" target="_blank" rel="noreferrer">https://urbancomp.net</a>) 开发</span>
       <span>GitHub：<a href="https://github.com/whuyao/PixelLab" target="_blank" rel="noreferrer">https://github.com/whuyao/PixelLab</a></span>
     </footer>
-    <script src="/static/app.js?v=20260314n" type="module"></script>
+    <script src="/static/app.js?v=20260314s" type="module"></script>
   </body>
 </html>
