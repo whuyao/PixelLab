@@ -992,7 +992,7 @@ class GameEngine:
                 participant_names=[self.state.player.name, tourist.name],
                 topic=tourist.favorite_topic or "旅途见闻",
                 summary=self._natural_player_tourist_summary(tourist.name, tourist.favorite_topic or "旅途见闻"),
-                key_point=f"{tourist.name} 主要在意“{tourist.favorite_topic or '旅途体验'}”，你的回应让他更愿意继续停留和消费。",
+                key_point=self._natural_player_tourist_key_point(tourist.name, tourist.favorite_topic or "旅途体验"),
                 transcript=[f"你：{cleaned}", f"{tourist.name}：{line}"],
                 desire_labels={self.state.player.name: self._player_desire_label(cleaned), tourist.name: "想把这趟行程过得舒服一点"},
                 mood="warm",
@@ -2306,7 +2306,7 @@ class GameEngine:
                 participants=[first.id, second.id],
                 participant_names=[first.name, second.name],
                 topic=topic,
-                summary=self._natural_dialogue_summary(first, second, topic, mood),
+                summary=self._natural_gray_trade_summary(first.name, second.name, topic) if financial_outcome and financial_outcome.get("gray_trade") else self._natural_dialogue_summary(first, second, topic, mood),
                 key_point=self._ambient_dialogue_key_point(
                     first.name,
                     second.name,
@@ -2350,6 +2350,7 @@ class GameEngine:
 
     def _natural_dialogue_summary(self, first: Agent, second: Agent, topic: str, mood: str) -> str:
         location = ROOM_LABELS.get(first.current_location, first.current_location)
+        topic = self._humanize_dialogue_topic(topic)
         mood_tail_options = {
             "warm": [
                 "两个人越说越顺，气氛慢慢松下来。",
@@ -2365,11 +2366,15 @@ class GameEngine:
                 "两边都没真让着对方。",
                 "这几句说下来，谁也没打算先退。",
                 "听得出来，两边都还绷着。",
+                "这几句下来，谁都没把心里的那口气放下。",
+                "表面没吵起来，但谁都没想先软下来。",
             ],
             "neutral": [
                 "彼此都还在试探对方到底在意什么。",
                 "这轮话没闹大，但大家都还留着一点判断。",
                 "面上还算平稳，心里各有各的盘算。",
+                "这话题先放在这儿了，谁也没把话说死。",
+                "先聊到这里，各自心里都还在往下掂量。",
             ],
         }
         mood_tail = self.random.choice(mood_tail_options.get(mood, mood_tail_options["neutral"]))
@@ -2379,6 +2384,19 @@ class GameEngine:
             f"{first.name} 和 {second.name} 在{location}把话题拐到了“{topic}”上。",
         ]
         return f"{self.random.choice(openers)} {mood_tail}"
+
+    def _humanize_dialogue_topic(self, topic: str) -> str:
+        replacements = {
+            "刚刚路过听到的话": "刚才听进耳朵里的那几句",
+            "昨晚没说完的话": "昨晚没说完的那点事",
+            "谁该先退一步": "谁该先缓一下",
+            "今晚到底要不要回屋": "今晚要不要早点回去歇着",
+            "今天要不要看一眼股票": "今天要不要看一眼盘面",
+            "有风天气": "今天这阵风和人的心气",
+            "要不要晚点一起坐会儿": "晚点要不要一起坐坐",
+            "证明自己和把事情说清之间的拉扯": "到底是要证明自己，还是先把事情说清",
+        }
+        return replacements.get(topic, topic)
 
     def _pick_fresh_summary_variant(self, candidates: list[str], *, recent_window: int = 18) -> str:
         recent_summaries = [item.summary for item in self.state.dialogue_history[:recent_window] if item.summary]
@@ -2419,21 +2437,46 @@ class GameEngine:
             f"{tourist_name} 在{location}跟 {agent_name} 聊到“{topic}”，原本走马观花的心思慢慢沉了下来。",
             f"{tourist_name} 在{location}和 {agent_name} 说起“{topic}”，对这里的印象一下立体了不少。",
             f"{tourist_name} 在{location}问了 {agent_name} 几句“{topic}”，听完以后觉得这里比想象中更有烟火气。",
+            f"{tourist_name} 在{location}和 {agent_name} 聊到“{topic}”，原本只是路过的心思慢慢放慢了。",
+            f"{tourist_name} 在{location}被 {agent_name} 这几句“{topic}”说得停下了脚，开始认真打量这里。",
         ]
         return self._pick_fresh_summary_variant(variants)
 
     def _natural_player_tourist_summary(self, tourist_name: str, topic: str) -> str:
         variants = [
             f"你和 {tourist_name} 聊了聊“{topic}”，对方明显更愿意继续逛下去。",
-            f"你和 {tourist_name} 说到“{topic}”，这趟行程对他来说一下具体了起来。",
-            f"你陪 {tourist_name} 聊了几句“{topic}”，他对这里的印象又暖了一点。",
+            f"你和 {tourist_name} 说到“{topic}”，他这趟路忽然就没那么像随便走走了。",
+            f"你陪 {tourist_name} 聊了几句“{topic}”，他对这里又多上了一层心。",
             f"你跟 {tourist_name} 提了提“{topic}”，他原本有点散的注意力一下收回来了。",
-            f"你和 {tourist_name} 顺着“{topic}”多聊了几句，对方明显更愿意在这里多停一会儿。",
+            f"你和 {tourist_name} 顺着“{topic}”多聊了几句，对方看样子愿意在这里多待一阵。",
             f"你陪 {tourist_name} 扯到“{topic}”，他看这里的眼神慢慢从路过变成了认真打量。",
+            f"你和 {tourist_name} 接着聊“{topic}”，他原本只想看看就走，现在明显想再多转一圈。",
+            f"你跟 {tourist_name} 多说了几句“{topic}”，他一下不急着走了，像是想把这里再看清一点。",
         ]
         return self._pick_fresh_summary_variant(variants)
 
+    def _natural_player_tourist_key_point(self, tourist_name: str, topic: str) -> str:
+        topic = self._humanize_dialogue_topic(topic)
+        variants = [
+            f"{tourist_name} 一直绕着“{topic}”问，说明他现在最挂心的就是这件事。",
+            f"看得出来，{tourist_name} 真正在意的是“{topic}”，你这几句正好接住了他。",
+            f"{tourist_name} 聊来聊去还是绕回“{topic}”，这说明他心里最放不下的就是这条线。",
+            f"{tourist_name} 其实就是想把“{topic}”问明白，你这一接，他整个人都松下来了一点。",
+        ]
+        return self.random.choice(variants)
+
+    def _natural_tourist_agent_key_point(self, tourist_name: str, agent_name: str, topic: str) -> str:
+        topic = self._humanize_dialogue_topic(topic)
+        variants = [
+            f"{tourist_name} 一直追着“{topic}”问，{agent_name} 也顺手把这里的日子讲得更具体了。",
+            f"{tourist_name} 真正在意的是“{topic}”，{agent_name} 这几句正好把这层意思接住了。",
+            f"这轮话里，{tourist_name} 更想弄明白“{topic}”，而 {agent_name} 则是在把这里的生活感慢慢说给他听。",
+            f"{tourist_name} 抓着“{topic}”不放，{agent_name} 也没敷衍，反而把细节往前递了几句。",
+        ]
+        return self.random.choice(variants)
+
     def _natural_gray_trade_summary(self, requester_name: str, donor_name: str, topic: str) -> str:
+        topic = self._humanize_dialogue_topic(topic)
         variants = [
             f"{requester_name} 和 {donor_name} 背着人做了一笔和“{topic}”有关的灰市交易。",
             f"{requester_name} 和 {donor_name} 私下把“{topic}”这件事谈成了一笔见不得光的买卖。",
@@ -2478,6 +2521,24 @@ class GameEngine:
                 item.summary = summary.replace("园区", "小镇")
             if item.key_point:
                 item.key_point = item.key_point.replace("园区", "小镇")
+                if "更受“" in item.key_point and "驱动" in item.key_point:
+                    names = item.participant_names or ["有人", "另一个人"]
+                    first_name = names[0]
+                    second_name = names[1] if len(names) > 1 else "另一个人"
+                    item.key_point = self._ambient_dialogue_key_point(
+                        first_name,
+                        second_name,
+                        item.topic or "眼前这件事",
+                        item.mood or "neutral",
+                        item.desire_labels.get(first_name, "眼前这件事") if item.desire_labels else "眼前这件事",
+                        item.desire_labels.get(second_name, "眼前这件事") if item.desire_labels else "眼前这件事",
+                        item.financial_note or "",
+                    )
+                elif "主要在意“" in item.key_point and "更愿意继续停留和消费" in item.key_point and item.participant_names:
+                    tourist_name = item.participant_names[-1]
+                    item.key_point = self._natural_player_tourist_key_point(tourist_name, item.topic or "旅途体验")
+                elif "主要在问“" in item.key_point and "顺手把小镇的节奏讲给他听" in item.key_point and len(item.participant_names) >= 2:
+                    item.key_point = self._natural_tourist_agent_key_point(item.participant_names[0], item.participant_names[1], item.topic or "这里值得看什么")
             if item.topic:
                 item.topic = item.topic.replace("园区", "小镇")
             if "围绕“" in summary and "接了一轮，整体气氛偏" in summary and len(item.participant_names) >= 2:
@@ -2495,6 +2556,9 @@ class GameEngine:
             if "短聊了一轮，游客视角给了园区一点新鲜感" in summary and len(item.participant_names) >= 2:
                 tourist_name, agent_name = item.participant_names[0], item.participant_names[1]
                 item.summary = self._natural_tourist_dialogue_summary(tourist_name, agent_name, ROOM_LABELS.get("foyer", "小镇里"), item.topic or "旅途见闻")
+                continue
+            if item.gray_trade and item.gray_trade_type and len(item.participant_names) >= 2:
+                item.summary = self._natural_gray_trade_summary(item.participant_names[0], item.participant_names[1], item.topic or "眼前这件事")
                 continue
         for post in self.state.feed_timeline[:300]:
             if post.content:
@@ -5510,7 +5574,7 @@ class GameEngine:
                     ROOM_LABELS.get(tourist.current_location, tourist.current_location),
                     tourist.favorite_topic or "旅途见闻",
                 ),
-                key_point=f"{tourist.name} 主要在问“{tourist.favorite_topic or '这里值得看什么'}”，{agent.name} 顺手把小镇的节奏讲给他听。",
+                key_point=self._natural_tourist_agent_key_point(tourist.name, agent.name, tourist.favorite_topic or "这里值得看什么"),
                 transcript=[f"{tourist.name}：{tourist_line}", f"{agent.name}：{agent_line}"],
                 desire_labels={tourist.name: "想把旅途过得有意思一点", agent.name: DESIRE_LABELS.get(dominant_desire_for_agent(self.state, agent)[0], "想先观察局势")},
                 mood="warm",
@@ -9242,15 +9306,36 @@ class GameEngine:
         second_desire: str,
         financial_note: str,
     ) -> str:
+        topic = self._humanize_dialogue_topic(topic)
         if financial_note:
-            return f"这轮话已经落成了资源动作：{financial_note}"
+            return f"这几句没白说，最后已经落成了一笔实实在在的动作：{financial_note}"
         if mood == "tense":
-            return f"{first_name} 更受“{first_desire}”驱动，{second_name} 更受“{second_desire}”驱动，分歧已经摆到明面上。"
+            variants = [
+                f"{first_name} 惦记的是“{first_desire}”，{second_name} 更在意“{second_desire}”，所以这几句越说越顶。",
+                f"{first_name} 盯着“{first_desire}”，{second_name} 放不下“{second_desire}”，谁都没肯先让一步。",
+                f"{first_name} 想先顾“{first_desire}”，{second_name} 偏要把“{second_desire}”摆在前面，话自然就拧起来了。",
+            ]
+            return self.random.choice(variants)
         if mood in {"warm", "spark"} and first_desire == second_desire:
-            return f"两个人都在惦记“{first_desire}”，所以这轮更容易迅速站到一边。"
+            variants = [
+                f"两个人这会儿都惦记着“{first_desire}”，所以很快就站到了一边。",
+                f"他们心里想的其实差不多，都是“{first_desire}”，这轮自然更容易说到一起。",
+                f"因为都在顾“{first_desire}”，这几句反而让他们更容易接上彼此。",
+            ]
+            return self.random.choice(variants)
         if mood in {"warm", "spark"}:
-            return f"他们虽然各有侧重，但都愿意继续接“{topic}”这条线。"
-        return f"这轮主要是在摸彼此对“{topic}”的真实取向。"
+            variants = [
+                f"虽然各有各的心思，但他们都愿意顺着“{topic}”继续往下说。",
+                f"这轮没有谁急着把话掐掉，反而都想顺着“{topic}”再往前探一步。",
+                f"他们看重的点不完全一样，但都愿意把“{topic}”继续接下去。",
+            ]
+            return self.random.choice(variants)
+        variants = [
+            f"这几句主要是在摸彼此到底怎么看“{topic}”。",
+            f"这轮话还在试探阶段，谁也在看对方会怎么接“{topic}”。",
+            f"他们嘴上没把话挑明，但都在试探对方对“{topic}”到底是什么态度。",
+        ]
+        return self.random.choice(variants)
 
     def _propagate_shared_signal_relationships(self, event: LabEvent) -> None:
         if event.category not in {"geoai", "tech", "market"}:
@@ -9732,6 +9817,38 @@ class GameEngine:
             self._remember(requester, f"{donor.name} 刚私下塞给你 ${amount}，算一笔不公开的资源交换。", 2)
             self._remember(donor, f"你刚私下给了 {requester.name} ${amount}，这笔没有摆到公开台面上。", 2)
             self._adjust_relation(requester, donor, 1, f"围绕“{topic}”完成了一次不公开的资源交换。")
+            asset_name = self._gray_case_label("under_table_exchange")
+            self._append_finance_record(
+                actor_id=requester.id,
+                actor_name=requester.name,
+                category="gray",
+                action="receive",
+                summary=f"{requester.name} 通过“{asset_name}”从 {donor.name} 手里拿到 ${amount}。",
+                amount=amount,
+                asset_name=asset_name,
+                counterparty=donor.name,
+            )
+            self._append_finance_record(
+                actor_id=donor.id,
+                actor_name=donor.name,
+                category="gray",
+                action="pay",
+                summary=f"{donor.name} 在“{asset_name}”里把 ${amount} 递给了 {requester.name}。",
+                amount=-amount,
+                asset_name=asset_name,
+                counterparty=requester.name,
+            )
+            self._register_gray_case(
+                requester,
+                donor,
+                topic,
+                {
+                    "type": "under_table_exchange",
+                    "severity": 1,
+                    "note": f"{requester.name} 和 {donor.name} 私下围着“{self._humanize_dialogue_topic(topic)}”做了一笔见不得光的交换。",
+                },
+                amount,
+            )
             self._log(
                 "agent_gray_trade",
                 trade={"from": donor.id, "to": requester.id, "amount": amount, "topic": topic},
