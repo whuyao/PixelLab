@@ -20,6 +20,7 @@ const dialogueFilterCasino = document.getElementById("dialogueFilterCasino");
 const dialogueFilterDesire = document.getElementById("dialogueFilterDesire");
 const signalStatus = document.getElementById("signalStatus");
 const newsWindowSelect = document.getElementById("newsWindowSelect");
+const timelineFilterKind = document.getElementById("timelineFilterKind");
 const newsWindowSubmitBtn = document.getElementById("newsWindowSubmitBtn");
 const macroStatus = document.getElementById("macroStatus");
 const dailyBriefBox = document.getElementById("dailyBriefBox");
@@ -37,6 +38,8 @@ const viewTabs = Array.from(document.querySelectorAll(".view-tab"));
 const viewPanels = Array.from(document.querySelectorAll(".view"));
 const marketTabs = Array.from(document.querySelectorAll(".market-tab"));
 const marketGroups = Array.from(document.querySelectorAll("[data-market-tab-group]"));
+const journalTabBtns = Array.from(document.querySelectorAll(".journal-tab-btn"));
+const journalTabPanes = Array.from(document.querySelectorAll("[data-journal-tab-pane]"));
 const journalNavBtns = Array.from(document.querySelectorAll(".journal-nav-btn"));
 const macroNewsForm = document.getElementById("macroNewsForm");
 const tradeForm = document.getElementById("tradeForm");
@@ -66,6 +69,11 @@ const lifestyleStatus = document.getElementById("lifestyleStatus");
 const feedForm = document.getElementById("feedForm");
 const feedInput = document.getElementById("feedInput");
 const feedCategory = document.getElementById("feedCategory");
+const feedMood = document.getElementById("feedMood");
+const feedFilterKind = document.getElementById("feedFilterKind");
+const feedFilterMood = document.getElementById("feedFilterMood");
+const feedLockBtn = document.getElementById("feedLockBtn");
+const feedLockNote = document.getElementById("feedLockNote");
 const feedSubmitBtn = document.getElementById("feedSubmitBtn");
 const feedStatus = document.getElementById("feedStatus");
 const feedTimelineBox = document.getElementById("feedTimelineBox");
@@ -101,6 +109,12 @@ const casinoAnalysisMeta = document.getElementById("casinoAnalysisMeta");
 const casinoActivityAnalysisCanvas = document.getElementById("casinoActivityAnalysisCanvas");
 const casinoActivityAnalysisCtx = casinoActivityAnalysisCanvas?.getContext("2d");
 const casinoActivityAnalysisMeta = document.getElementById("casinoActivityAnalysisMeta");
+const consumptionAnalysisCanvas = document.getElementById("consumptionAnalysisCanvas");
+const consumptionAnalysisCtx = consumptionAnalysisCanvas?.getContext("2d");
+const consumptionAnalysisMeta = document.getElementById("consumptionAnalysisMeta");
+const bankAnalysisCanvas = document.getElementById("bankAnalysisCanvas");
+const bankAnalysisCtx = bankAnalysisCanvas?.getContext("2d");
+const bankAnalysisMeta = document.getElementById("bankAnalysisMeta");
 const peopleAnalysis = document.getElementById("peopleAnalysis");
 const fiscalSummary = document.getElementById("fiscalSummary");
 const marketIntradayBtn = document.getElementById("marketIntradayBtn");
@@ -151,7 +165,7 @@ const llmApplyBtn = document.getElementById("llmApplyBtn");
 const llmStatusMeta = document.getElementById("llmStatusMeta");
 const llmSwitchStatus = document.getElementById("llmSwitchStatus");
 const llmSwitcherShell = llmToggleBtn?.closest(".llm-switcher-shell") || null;
-const ASSET_VERSION = "20260314r";
+const ASSET_VERSION = "20260315h";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -171,12 +185,13 @@ const weatherLabels = {
   drizzle: "小雨",
 };
 
-const availableViews = new Set(["home", "market", "life", "government", "journal", "feed", "teaching"]);
+const availableViews = new Set(["home", "market", "life", "government", "journal", "bulletin", "feed", "teaching"]);
 
 function routeForTargetKind(targetKind) {
   if (["market", "stock"].includes(targetKind)) return "market";
   if (["feed", "post"].includes(targetKind)) return "feed";
-  if (["gray_case", "dialogue", "event", "story"].includes(targetKind)) return "journal";
+  if (["gray_case", "event", "story"].includes(targetKind)) return "bulletin";
+  if (["dialogue"].includes(targetKind)) return "journal";
   return "journal";
 }
 
@@ -216,6 +231,17 @@ function setCurrentFeedSideTab(tab) {
   const normalized = ["overview", "leaderboard", "propagation"].includes(tab) ? tab : "overview";
   currentFeedSideTab = normalized;
   feedSideTabs.forEach((button) => button.classList.toggle("is-active", button.dataset.feedSideTab === normalized));
+}
+
+function journalTabForSection(section) {
+  return ["daily", "events", "timeline", "gray-cases"].includes(section) ? "bulletin" : "overview";
+}
+
+function setCurrentJournalTab(tab) {
+  const normalized = ["overview", "bulletin"].includes(tab) ? tab : "overview";
+  currentJournalTab = normalized;
+  journalTabBtns.forEach((button) => button.classList.toggle("is-active", button.dataset.journalTab === normalized));
+  journalTabPanes.forEach((pane) => pane.classList.toggle("is-active", pane.dataset.journalTabPane === normalized));
 }
 
 function openActorModal() {
@@ -980,11 +1006,17 @@ let bankActionPending = false;
 let tradePending = false;
 let lifestylePending = false;
 let grayCasePending = false;
+let retainedGrayCaseIds = [];
 let macroPending = false;
 let feedPending = false;
 let feedReplyTargetId = "";
 let feedQuoteTargetId = "";
+let timelineFilterKindValue = "all";
+let feedFilterKindValue = "all";
+let feedFilterMoodValue = "all";
+let feedReadingLock = false;
 let currentFeedSideTab = "overview";
+let currentJournalTab = "overview";
 let selectedConsumeItemId = "";
 let selectedOwnedPropertyId = "";
 let selectedListedPropertyId = "";
@@ -1366,6 +1398,7 @@ function renderPanels() {
   setCurrentView(currentView, { updateHash: false });
   setCurrentMarketTab(currentMarketTab);
   setCurrentFeedSideTab(currentFeedSideTab);
+  setCurrentJournalTab(currentJournalTab);
   renderLlmPanel();
   dayLabel.textContent = `第 ${state.day} 天`;
   timeLabel.textContent = timeLabels[state.time_slot];
@@ -1451,7 +1484,7 @@ function renderPanels() {
     );
     renderIfChanged(
       "signals",
-      serverSignature("signals", [state.news_timeline?.slice(0, 40), state.event_history?.[0], state.tourism?.latest_signal], [busy]),
+      serverSignature("signals", [state.news_timeline?.slice(0, 40), state.event_history?.[0], state.tourism?.latest_signal], [busy, timelineFilterKindValue]),
       () => renderNewsTimeline(),
     );
     renderIfChanged(
@@ -1462,16 +1495,21 @@ function renderPanels() {
   }
   if (isViewVisible("feed")) {
     renderFeedComposerMeta();
-    renderIfChanged(
-      "feed-timeline",
-      serverSignature("feed", [state.feed_timeline?.slice(0, 1000)]),
-      () => renderFeedTimeline(),
-    );
-    renderIfChanged(
-      "feed-summary",
-      serverSignature("feed", [state.feed_timeline?.slice(0, 180)], [currentFeedSideTab]),
-      () => renderFeedSummary(),
-    );
+    renderFeedControlState();
+    if (!feedReadingLock || !renderCache.has("feed-timeline")) {
+      renderIfChanged(
+        "feed-timeline",
+        serverSignature("feed", [state.feed_timeline?.slice(0, 1000)], [feedFilterMoodValue, feedFilterKindValue]),
+        () => renderFeedTimeline(),
+      );
+    }
+    if (!feedReadingLock || !renderCache.has("feed-summary")) {
+      renderIfChanged(
+        "feed-summary",
+        serverSignature("feed", [state.feed_timeline?.slice(0, 180)], [currentFeedSideTab, feedFilterMoodValue, feedFilterKindValue]),
+        () => renderFeedSummary(),
+      );
+    }
   }
   renderIfChanged(
     "memory",
@@ -1565,15 +1603,26 @@ function renderDailyBrief() {
 
 function renderNewsTimeline() {
   if (!newsTimelineBox) return;
-  const items = (state?.news_timeline || []).slice(0, 40);
+  const items = (state?.news_timeline || []).filter((item) => timelineMatchesFilter(item)).slice(0, 40);
   if (newsWindowSelect && document.activeElement !== newsWindowSelect) {
     newsWindowSelect.value = String(state?.news_window_days || 7);
   }
+  if (timelineFilterKind && document.activeElement !== timelineFilterKind) {
+    timelineFilterKind.value = timelineFilterKindValue;
+  }
   if (!items.length) {
+    const filterLabel =
+      timelineFilterKindValue === "market"
+        ? "市场类主线"
+        : timelineFilterKindValue === "policy"
+          ? "政策类主线"
+          : timelineFilterKindValue === "social"
+            ? "社会热点"
+            : "主线";
     newsTimelineBox.innerHTML = `
       <div class="daily-brief-empty">
         <strong>时间线还没排好</strong>
-        <p>系统会自动在未来 ${state?.news_window_days || 7} 天窗口内，从 Brave 拉宏观、监管、地产、游客、GeoAI 和就业类消息；如果没有 Brave，就会自动编造市场新闻补足时间线。</p>
+        <p>当前筛选下还没有${filterLabel}。系统会自动在未来 ${state?.news_window_days || 7} 天窗口内，从 Brave 拉宏观、监管、地产、游客、GeoAI 和就业类消息；如果没有 Brave，就会自动编造市场新闻补足时间线。</p>
       </div>
     `;
     return;
@@ -1582,8 +1631,9 @@ function renderNewsTimeline() {
     const statusLabel = item.status === "scheduled" ? "待触发" : item.status === "triggered" ? "已落地" : "已过期";
     const slotLabel = `${item.scheduled_day} 天 · ${timeLabels[item.scheduled_time_slot] || item.scheduled_time_slot}`;
     const isStrongShock = (item.market_strength || 0) >= 4;
+    const mood = inferTimelineMood(item);
     return `
-      <article class="timeline-card timeline-${escapeHtml(item.status || "scheduled")} ${isStrongShock ? "timeline-strong-shock" : ""}">
+      <article class="timeline-card timeline-${escapeHtml(item.status || "scheduled")} timeline-category-${escapeHtml(item.category || "general")} timeline-mood-${escapeHtml(mood)} ${isStrongShock ? "timeline-strong-shock" : ""}">
         <div class="daily-brief-head">
           <div>
             <strong>${escapeHtml(item.title || item.theme || "主线新闻")}</strong>
@@ -1591,7 +1641,7 @@ function renderNewsTimeline() {
           </div>
           <span class="panel-tag">${escapeHtml(statusLabel)}</span>
         </div>
-        <div class="metric-meta">${escapeHtml(item.source || "系统新闻台")} · ${escapeHtml(categoryLabels[item.category] || item.category || "综合")} · ${escapeHtml(item.market_target || "broad")} · 波动强度 ${item.market_strength || 0}${isStrongShock ? " · 强波动预警" : ""}</div>
+        <div class="metric-meta">${escapeHtml(item.source || "系统新闻台")} · ${escapeHtml(categoryLabels[item.category] || item.category || "综合")} · ${escapeHtml(feedMoodLabel(mood))} · ${escapeHtml(item.market_target || "broad")} · 波动强度 ${item.market_strength || 0}${isStrongShock ? " · 强波动预警" : ""}</div>
         <div class="dialogue-summary">${escapeHtml(item.summary || "一条可能影响主线推进的外部新闻。")}</div>
       </article>
     `;
@@ -1600,8 +1650,18 @@ function renderNewsTimeline() {
 
 function renderGrayCaseActions() {
   if (!grayCaseActionBox) return;
-  const activeCases = (state?.gray_cases || []).filter((item) => item.status === "active").slice(0, 3);
-  if (!activeCases.length) {
+  const allCases = state?.gray_cases || [];
+  const activeCases = allCases.filter((item) => item.status === "active").slice(0, 3);
+  if (activeCases.length) {
+    retainedGrayCaseIds = activeCases.map((item) => item.id);
+  }
+  const retainedCases = activeCases.length
+    ? activeCases
+    : retainedGrayCaseIds
+        .map((id) => allCases.find((item) => item.id === id))
+        .filter(Boolean)
+        .slice(0, 3);
+  if (!retainedCases.length) {
     grayCaseActionBox.innerHTML = `
       <div class="daily-brief-empty">
         <strong>当前没有活跃地下案件</strong>
@@ -1610,26 +1670,72 @@ function renderGrayCaseActions() {
     `;
     return;
   }
-  grayCaseActionBox.innerHTML = activeCases
+  grayCaseActionBox.innerHTML = retainedCases
     .map(
-      (item) => `
-        <article class="gray-case-card ${highlightedGrayCaseId === item.id ? "is-highlighted" : ""}" data-gray-case-id="${escapeHtml(item.id)}">
+      (item) => {
+        const resolutionAction = item.resolution_action || "";
+        const resolutionIcon = resolutionAction === "report"
+          ? "举"
+          : resolutionAction === "mediate"
+            ? "和"
+            : resolutionAction === "suppress"
+              ? "压"
+              : resolutionAction === "short"
+                ? "空"
+                : "案";
+        const resolutionImpactChips = item.resolution_exposed
+          ? resolutionAction === "report"
+            ? ['<span class="gray-impact-chip impact-gov">政府调查</span>', '<span class="gray-impact-chip impact-tourism">游客围观</span>', '<span class="gray-impact-chip impact-market">市场避险</span>']
+            : resolutionAction === "mediate"
+              ? ['<span class="gray-impact-chip impact-tourism">游客八卦</span>', '<span class="gray-impact-chip impact-gov">政府观察</span>']
+              : resolutionAction === "suppress"
+                ? ['<span class="gray-impact-chip impact-tourism">游客议论</span>', '<span class="gray-impact-chip impact-gov">政府怀疑</span>']
+                : resolutionAction === "short"
+                  ? ['<span class="gray-impact-chip impact-market">市场讨论</span>', '<span class="gray-impact-chip impact-tourism">游客围观</span>', '<span class="gray-impact-chip impact-gov">政府审视</span>']
+                  : ['<span class="gray-impact-chip impact-gov">公开舆论</span>']
+          : ['<span class="gray-impact-chip impact-local">仅在线下发酵</span>'];
+        const resolutionImpact = item.resolution_exposed
+          ? resolutionAction === "report"
+            ? "微博曝光后：游客围观、市场避险和政府调查讨论都会升高。"
+            : resolutionAction === "mediate"
+              ? "微博曝光后：外界更容易把它理解成私下摆平，游客八卦和政府观察都会升温。"
+              : resolutionAction === "suppress"
+                ? "微博曝光后：更容易形成“有人在压消息”的传闻，游客围观和政府怀疑都会抬头。"
+                : resolutionAction === "short"
+                  ? "微博曝光后：更容易被理解成借风向套利，市场讨论、游客围观和政府审视都会变强。"
+                  : "微博曝光后：这条案件已经进入公开舆论层。"
+          : resolutionAction
+            ? "这次处理暂时还停留在线下，没有进一步外溢到公开舆论场。"
+            : "";
+        return `
+        <article class="gray-case-card ${highlightedGrayCaseId === item.id ? "is-highlighted" : ""}" data-gray-case-id="${escapeHtml(item.id)}" data-gray-resolution="${escapeHtml(item.resolution_action || "")}">
           <div class="daily-brief-head">
             <div>
-              <strong>${escapeHtml(grayTradeTypeLabels[item.case_type] || item.case_type)}</strong>
-              <div class="daily-brief-meta">${escapeHtml((item.participant_names || []).join(" × "))} · 风险 ${item.exposure_risk}/100</div>
+              <strong class="gray-case-title"><span class="gray-case-icon" aria-hidden="true">${escapeHtml(resolutionIcon)}</span>${escapeHtml(grayTradeTypeLabels[item.case_type] || item.case_type)}</strong>
+              <div class="daily-brief-meta">${escapeHtml((item.participant_names || []).join(" × "))} · 风险 ${item.exposure_risk}/100 · ${item.status === "active" ? "处理中" : item.status === "settled" ? "已处理" : "已曝光"}</div>
             </div>
-            <span class="panel-tag">等级 ${item.severity}</span>
+            <span class="panel-tag">${item.status === "active" ? `等级 ${item.severity}` : item.resolution_label || "结果保留"}</span>
           </div>
           <div class="dialogue-summary">${escapeHtml(item.summary || "一条正在发酵的地下案件。")}</div>
-          <div class="gray-case-actions">
-            <button type="button" class="gray-action-btn" data-gray-case-id="${escapeHtml(item.id)}" data-gray-action="suppress">压消息</button>
-            <button type="button" class="gray-action-btn" data-gray-case-id="${escapeHtml(item.id)}" data-gray-action="report">举报</button>
-            <button type="button" class="gray-action-btn" data-gray-case-id="${escapeHtml(item.id)}" data-gray-action="mediate">和解</button>
-            <button type="button" class="gray-action-btn" data-gray-case-id="${escapeHtml(item.id)}" data-gray-action="short">借机做空</button>
-          </div>
+          ${
+            item.status === "active"
+              ? `
+                <div class="gray-case-actions">
+                  <button type="button" class="gray-action-btn" data-gray-case-id="${escapeHtml(item.id)}" data-gray-action="suppress">压消息</button>
+                  <button type="button" class="gray-action-btn" data-gray-case-id="${escapeHtml(item.id)}" data-gray-action="report">举报</button>
+                  <button type="button" class="gray-action-btn" data-gray-case-id="${escapeHtml(item.id)}" data-gray-action="mediate">和解</button>
+                  <button type="button" class="gray-action-btn" data-gray-case-id="${escapeHtml(item.id)}" data-gray-action="short">借机做空</button>
+                </div>
+              `
+              : `
+                <div class="mini-note">${escapeHtml(item.resolution_note || "这条案件结果会保留在这里，直到下一条新地下案件出现。")}${item.resolution_exposed ? " 这次处理已经传到小镇微博。" : ""}</div>
+                <div class="gray-case-impact-chips">${resolutionImpactChips.join("")}</div>
+                <div class="mini-note gray-case-impact-note">${escapeHtml(resolutionImpact)}</div>
+              `
+          }
         </article>
-      `,
+      `;
+      },
     )
     .join("");
 }
@@ -2211,6 +2317,8 @@ function renderAnalysisPanel() {
     if (eventAnalysisMeta) eventAnalysisMeta.textContent = "等待分析数据。";
     if (casinoAnalysisMeta) casinoAnalysisMeta.textContent = "等待分析数据。";
     if (casinoActivityAnalysisMeta) casinoActivityAnalysisMeta.textContent = "等待分析数据。";
+    if (consumptionAnalysisMeta) consumptionAnalysisMeta.textContent = "等待分析数据。";
+    if (bankAnalysisMeta) bankAnalysisMeta.textContent = "等待分析数据。";
     if (peopleAnalysis) peopleAnalysis.innerHTML = '<article class="analysis-person-card"><strong>暂无人物快照</strong><div class="metric-meta">世界再运行一会儿，这里会开始积累实时走势。</div></article>';
     return;
   }
@@ -2331,6 +2439,45 @@ function renderAnalysisPanel() {
       rightCaption: `${timeLabels[state.time_slot] || state.time_slot}`,
     },
   );
+  const economyHistory = (state.daily_economy_history || []).slice(-12);
+  if (economyHistory.length) {
+    drawAnalysisChart(
+      consumptionAnalysisCtx,
+      consumptionAnalysisCanvas,
+      [
+        { label: "居民消费", values: economyHistory.map((item) => item.resident_consumption || 0), color: "#b07a43", axis: "left" },
+        { label: "游客消费", values: economyHistory.map((item) => item.tourist_consumption || 0), color: "#5b93b0", axis: "right" },
+      ],
+      {
+        leftTopLabel: "居民消费高",
+        leftBottomLabel: "居民消费低",
+        rightTopLabel: "游客消费高",
+        rightBottomLabel: "游客消费低",
+        leftCaption: `近 ${economyHistory.length} 个工作日`,
+        rightCaption: `第 ${economyHistory[economyHistory.length - 1].day} 天`,
+      },
+    );
+  }
+  const bankHistory = (state.daily_bank_history || []).slice(-12);
+  if (bankHistory.length) {
+    drawAnalysisChart(
+      bankAnalysisCtx,
+      bankAnalysisCanvas,
+      [
+        { label: "放贷", values: bankHistory.map((item) => item.loans_issued || 0), color: "#99643e", axis: "left" },
+        { label: "还款", values: bankHistory.map((item) => item.loans_repaid || 0), color: "#6a8d56", axis: "left" },
+        { label: "净存款", values: bankHistory.map((item) => (item.deposits_in || 0) - (item.deposits_out || 0)), color: "#5f7fc0", axis: "right" },
+      ],
+      {
+        leftTopLabel: "放贷/还款高",
+        leftBottomLabel: "放贷/还款低",
+        rightTopLabel: "净存款高",
+        rightBottomLabel: "净存款低",
+        leftCaption: `近 ${bankHistory.length} 个工作日`,
+        rightCaption: `第 ${bankHistory[bankHistory.length - 1].day} 天`,
+      },
+    );
+  }
   const latest = history[history.length - 1];
   const previous = history[Math.max(0, history.length - 2)] || latest;
   if (marketAnalysisMeta) {
@@ -2412,6 +2559,26 @@ function renderAnalysisPanel() {
       </div>
       <div class="mini-note">这张图只看赌场热度、到场人数和大赢次数，不再和赌资金额混画。</div>
     `;
+  }
+  if (consumptionAnalysisMeta) {
+    if (!economyHistory.length) {
+      consumptionAnalysisMeta.textContent = "等待消费流数据。";
+    } else {
+      const latestEconomy = economyHistory[economyHistory.length - 1];
+      const prevEconomy = economyHistory[Math.max(0, economyHistory.length - 2)] || latestEconomy;
+      const residentDelta = (latestEconomy.resident_consumption || 0) - (prevEconomy.resident_consumption || 0);
+      const touristDelta = (latestEconomy.tourist_consumption || 0) - (prevEconomy.tourist_consumption || 0);
+      consumptionAnalysisMeta.textContent = `把居民消费和游客消费拆成双轴。居民消费 ${formatCompactCurrency(latestEconomy.resident_consumption || 0)}（${residentDelta >= 0 ? "+" : ""}${formatCompactCurrency(residentDelta)}），游客消费 ${formatCompactCurrency(latestEconomy.tourist_consumption || 0)}（${touristDelta >= 0 ? "+" : ""}${formatCompactCurrency(touristDelta)}）。`;
+    }
+  }
+  if (bankAnalysisMeta) {
+    if (!bankHistory.length) {
+      bankAnalysisMeta.textContent = "等待银行存贷数据。";
+    } else {
+      const latestBank = bankHistory[bankHistory.length - 1];
+      const netDeposit = (latestBank.deposits_in || 0) - (latestBank.deposits_out || 0);
+      bankAnalysisMeta.textContent = `把放贷、还款和净存款拆开。放贷 ${formatCompactCurrency(latestBank.loans_issued || 0)}，还款 ${formatCompactCurrency(latestBank.loans_repaid || 0)}，净存款 ${formatCompactCurrency(netDeposit)}。`;
+    }
   }
   const actors = [
     {
@@ -3311,7 +3478,8 @@ function renderTradeMeta() {
 }
 
 function jumpToJournalSection(section) {
-  setCurrentView("journal");
+  const targetView = journalTabForSection(section) === "bulletin" ? "bulletin" : "journal";
+  setCurrentView(targetView);
   renderPanels();
   document.querySelector(`[data-journal-section="${CSS.escape(section)}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -3497,6 +3665,82 @@ function feedCategoryLabel(category) {
   }[category] || "动态";
 }
 
+function normalizeFeedMood(mood) {
+  return ["neutral", "warm", "spark", "tense", "cool"].includes(mood) ? mood : "neutral";
+}
+
+function feedMoodLabel(mood) {
+  return {
+    neutral: "中性",
+    warm: "温和",
+    spark: "兴奋",
+    tense: "紧张",
+    cool: "冷静",
+  }[normalizeFeedMood(mood)] || "中性";
+}
+
+function timelineMatchesFilter(item) {
+  const theme = String(item?.theme || "");
+  const title = String(item?.title || "");
+  const summary = String(item?.summary || "");
+  const haystack = `${theme} ${title} ${summary}`;
+  const isSocial = /社会热点|生活成本|viral|social/i.test(haystack);
+  const isPolicy = /央行|利率|监管|税|政策|财政|降息|加息/.test(haystack);
+  if (timelineFilterKindValue === "social") return isSocial;
+  if (timelineFilterKindValue === "policy") return isPolicy;
+  if (timelineFilterKindValue === "market") return !isSocial && !isPolicy;
+  return true;
+}
+
+function postMatchesFeedMood(post) {
+  if (feedFilterMoodValue === "all") return true;
+  return normalizeFeedMood(post?.mood || "neutral") === feedFilterMoodValue;
+}
+
+function postMatchesFeedKind(post) {
+  if (feedFilterKindValue === "all") return true;
+  const content = String(post?.content || "");
+  const summary = String(post?.summary || "");
+  const tags = (post?.topic_tags || []).join(" ");
+  const text = `${content} ${summary} ${tags}`;
+  if (feedFilterKindValue === "tourist-invest") {
+    return (
+      post?.author_type === "tourist" &&
+      (/投资|买入|试水|砸进|小仓位|股票|SIG|GEO|AGR|地产/.test(text) || /游客投机|场外小仓位/.test(tags))
+    );
+  }
+  if (feedFilterKindValue === "government") {
+    return post?.author_type === "government" || /园区财政与监管局|政府|公告|说明|回应|政策/.test(text);
+  }
+  if (feedFilterKindValue === "casino") {
+    return /赌场|赌局|地下赌博|后巷|牌桌|筹码|赌税/.test(text);
+  }
+  return true;
+}
+
+function postMatchesFeedFilters(post) {
+  return postMatchesFeedMood(post) && postMatchesFeedKind(post);
+}
+
+function inferTimelineMood(item) {
+  const explicit = normalizeFeedMood(item?.mood || "neutral");
+  if (explicit !== "neutral") return explicit;
+  const tone = Number(item?.tone_hint || 0);
+  const category = item?.category || "general";
+  const strength = Number(item?.market_strength || 0);
+  if (category === "geoai") return tone > 0 ? "spark" : "cool";
+  if (category === "market") {
+    if (tone < 0) return "tense";
+    if (tone > 0) return "spark";
+    return strength >= 4 ? "cool" : "neutral";
+  }
+  if (category === "general") {
+    if (tone < 0) return "tense";
+    if (tone > 0) return "warm";
+  }
+  return "neutral";
+}
+
 function feedAuthorLabel(post) {
   return {
     player: "玩家",
@@ -3543,9 +3787,10 @@ function renderFeedCard(post) {
   const desireTags = (post.desire_tags || []).slice(0, 3).map((tag) => `<span class="feed-chip desire">${escapeHtml(tag)}</span>`).join("");
   const impacts = (post.impacts || []).slice(0, 3).map((tag) => `<span class="feed-impact">${escapeHtml(tag)}</span>`).join("");
   const heatClass = post.heat >= 18 ? "hot" : post.heat >= 10 ? "warm" : "";
+  const mood = normalizeFeedMood(post.mood || "neutral");
   const threadMarkup = renderFeedThread(post);
   return `
-    <article class="feed-card ${heatClass}">
+    <article class="feed-card ${heatClass} category-${escapeHtml(post.category || "daily")} mood-${escapeHtml(mood)}">
       <div class="feed-card-head">
         <div>
           <strong>${escapeHtml(post.author_name)}</strong>
@@ -3553,6 +3798,7 @@ function renderFeedCard(post) {
         </div>
         <div class="feed-meta-group">
           <span>${escapeHtml(feedCategoryLabel(post.category))}</span>
+          <span class="feed-mood-badge">${escapeHtml(feedMoodLabel(mood))}</span>
           <span>第 ${post.day} 天 · ${escapeHtml(timeLabels[post.time_slot] || post.time_slot)}</span>
         </div>
       </div>
@@ -3583,9 +3829,25 @@ function renderFeedCard(post) {
 
 function renderFeedTimeline() {
   if (!feedTimelineBox) return;
-  const posts = (state.feed_timeline || []).slice(0, 1000);
+  renderFeedControlState();
+  if (feedFilterMood && document.activeElement !== feedFilterMood) {
+    feedFilterMood.value = feedFilterMoodValue;
+  }
+  if (feedFilterKind && document.activeElement !== feedFilterKind) {
+    feedFilterKind.value = feedFilterKindValue;
+  }
+  const posts = (state.feed_timeline || []).filter((post) => postMatchesFeedFilters(post)).slice(0, 1000);
   if (!posts.length) {
-    feedTimelineBox.innerHTML = '<div class="feed-empty">这里会出现玩家、智能体、游客和政府在小镇微博上的公开帖子。</div>';
+    const moodLabel = feedFilterMoodValue === "all" ? "" : `${feedMoodLabel(feedFilterMoodValue)} / `;
+    const kindLabel =
+      feedFilterKindValue === "tourist-invest"
+        ? "游客投资"
+        : feedFilterKindValue === "government"
+          ? "政府回应"
+          : feedFilterKindValue === "casino"
+            ? "赌场传闻"
+            : "公开帖子";
+    feedTimelineBox.innerHTML = `<div class="feed-empty">当前筛选下没有${moodLabel}${kindLabel}。换个主题、情绪，或者推进几轮让新的公开发言长出来。</div>`;
     return;
   }
   feedTimelineBox.innerHTML = posts.map((post) => renderFeedCard(post)).join("");
@@ -3593,9 +3855,10 @@ function renderFeedTimeline() {
 
 function renderFeedSummary() {
   if (!feedSummaryBox) return;
-  const posts = (state.feed_timeline || []).slice(0, 180);
+  renderFeedControlState();
+  const posts = (state.feed_timeline || []).filter((post) => postMatchesFeedFilters(post)).slice(0, 180);
   if (!posts.length) {
-    feedSummaryBox.innerHTML = '<div class="memory-meta">等第一批公开帖子出现后，这里会显示热帖、热门话题和高热角色。</div>';
+    feedSummaryBox.innerHTML = '<div class="memory-meta">当前筛选下还没有足够帖子形成热榜或传播链。</div>';
     return;
   }
   const hotPosts = [...posts].sort((left, right) => (right.heat || 0) - (left.heat || 0)).slice(0, 12);
@@ -3731,6 +3994,24 @@ function renderFeedSummary() {
       : currentFeedSideTab === "propagation"
         ? propagationCards
         : overviewCards;
+}
+
+function renderFeedControlState() {
+  if (feedFilterMood && document.activeElement !== feedFilterMood) {
+    feedFilterMood.value = feedFilterMoodValue;
+  }
+  if (feedFilterKind && document.activeElement !== feedFilterKind) {
+    feedFilterKind.value = feedFilterKindValue;
+  }
+  if (feedLockBtn) {
+    feedLockBtn.textContent = `阅读锁定：${feedReadingLock ? "开" : "关"}`;
+    feedLockBtn.classList.toggle("active", feedReadingLock);
+  }
+  if (feedLockNote) {
+    feedLockNote.textContent = feedReadingLock
+      ? "阅读锁定已开启：时间线和热榜会停在当前状态，方便你慢慢看；解除后再同步新帖。"
+      : "自动刷新开启：新帖子会持续进入时间线；如果想停下来细看一条，打开阅读锁定。";
+  }
 }
 
 function renderFeedComposerMeta() {
@@ -8000,6 +8281,7 @@ if (feedForm) {
         body: JSON.stringify({
           content,
           category: feedCategory?.value || "daily",
+          mood: feedMood?.value || "neutral",
           reply_to_post_id: feedReplyTargetId || null,
           quote_post_id: feedQuoteTargetId || null,
         }),
@@ -8120,6 +8402,43 @@ marketTabs.forEach((button) => {
 feedSideTabs.forEach((button) => {
   button.addEventListener("click", () => {
     setCurrentFeedSideTab(button.dataset.feedSideTab || "overview");
+    if (feedReadingLock) {
+      renderCache.delete("feed-summary");
+    }
+    renderPanels();
+  });
+});
+timelineFilterKind?.addEventListener("change", () => {
+  timelineFilterKindValue = timelineFilterKind.value || "all";
+  renderPanels();
+});
+feedFilterKind?.addEventListener("change", () => {
+  feedFilterKindValue = feedFilterKind.value || "all";
+  if (feedReadingLock) {
+    renderCache.delete("feed-timeline");
+    renderCache.delete("feed-summary");
+  }
+  renderPanels();
+});
+feedFilterMood?.addEventListener("change", () => {
+  feedFilterMoodValue = feedFilterMood.value || "all";
+  if (feedReadingLock) {
+    renderCache.delete("feed-timeline");
+    renderCache.delete("feed-summary");
+  }
+  renderPanels();
+});
+feedLockBtn?.addEventListener("click", () => {
+  feedReadingLock = !feedReadingLock;
+  if (!feedReadingLock) {
+    renderCache.delete("feed-timeline");
+    renderCache.delete("feed-summary");
+  }
+  renderPanels();
+});
+journalTabBtns.forEach((button) => {
+  button.addEventListener("click", () => {
+    setCurrentJournalTab(button.dataset.journalTab || "overview");
     renderPanels();
   });
 });
@@ -8261,6 +8580,7 @@ if (grayCaseActionBox) {
     const caseId = button.dataset.grayCaseId;
     const action = button.dataset.grayAction;
     if (!caseId || !action) return;
+    retainedGrayCaseIds = caseId ? [caseId] : retainedGrayCaseIds;
     grayCasePending = true;
     try {
       state = await api(`/api/gray-cases/${caseId}/action`, {

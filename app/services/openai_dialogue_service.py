@@ -235,6 +235,11 @@ class OpenAIDialogueService:
             f" 作者：{author_name}。作者公开人格：{author_profile}。分类：{category}。当前天气：{weather_label(world.weather)}。"
             f" 当前团队气氛 {world.lab.team_atmosphere}，游客信号：{world.tourism.latest_signal or '暂无明显游客风向'}。"
         )
+        if "财政与监管局" in author_name or "政府" in author_profile:
+            base += (
+                " 如果作者是政府机构，请改成正式公告或正式回应口吻。"
+                " 句子仍然要短，但要清楚、稳健、能交代依据，不要阴阳怪气，不要像普通网友吵架。"
+            )
         if self.provider == "qwen":
             base += (
                 " 你现在写的是中文互联网短帖，不要像公文，也不要像平衡分析。"

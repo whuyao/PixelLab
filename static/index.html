@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GeoAI Pixel Lab Test (UrbanComp Lab)</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260315a" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260315g" />
   </head>
   <body>
     <div class="project-banner">
@@ -39,6 +39,7 @@
         <button type="button" class="view-tab" data-view="government">财政与政府</button>
         <button type="button" class="view-tab" data-view="feed">小镇微博</button>
         <button type="button" class="view-tab" data-view="journal">日志与观察</button>
+        <button type="button" class="view-tab" data-view="bulletin">晨报与案件</button>
         <button type="button" class="view-tab" data-view="teaching">智能体教学</button>
       </nav>
 
@@ -429,15 +430,12 @@
                 <button type="button" class="journal-nav-btn" data-journal-target="analysis">实时分析</button>
                 <button type="button" class="journal-nav-btn" data-journal-target="dialogue">实时对话</button>
                 <button type="button" class="journal-nav-btn" data-journal-target="finance">经济事件流</button>
-                <button type="button" class="journal-nav-btn" data-journal-target="daily">Lab Daily</button>
-                <button type="button" class="journal-nav-btn" data-journal-target="events">最近事件</button>
-                <button type="button" class="journal-nav-btn" data-journal-target="timeline">新闻时间线</button>
               </div>
             </div>
           </div>
         </section>
         <div class="journal-layout">
-          <div class="journal-main">
+          <div class="journal-main journal-main-wide">
             <section class="panel analysis-panel" data-journal-section="analysis">
               <div class="panel-head">
                 <h2>实时分析</h2>
@@ -484,6 +482,16 @@
                   <canvas id="casinoActivityAnalysisCanvas" width="640" height="220"></canvas>
                   <div id="casinoActivityAnalysisMeta" class="market-meta">等待分析数据。</div>
                 </section>
+                <section class="analysis-block">
+                  <h3>居民与游客消费</h3>
+                  <canvas id="consumptionAnalysisCanvas" width="640" height="220"></canvas>
+                  <div id="consumptionAnalysisMeta" class="market-meta">等待分析数据。</div>
+                </section>
+                <section class="analysis-block">
+                  <h3>银行存贷流</h3>
+                  <canvas id="bankAnalysisCanvas" width="640" height="220"></canvas>
+                  <div id="bankAnalysisMeta" class="market-meta">等待分析数据。</div>
+                </section>
                 <section class="analysis-block analysis-people-block">
                   <h3>人物剖面</h3>
                   <div id="peopleAnalysis" class="analysis-people-grid"></div>
@@ -523,7 +531,29 @@
               <div id="financeHistoryBox" class="finance-history-list"></div>
             </section>
           </div>
-          <aside class="journal-side">
+        </div>
+      </section>
+
+      <section class="view" data-view="bulletin">
+        <section class="panel journal-toolbar-panel">
+          <div class="panel-head">
+            <h2>晨报与案件台</h2>
+            <span class="panel-tag">晨报 / 案件 / 时间线</span>
+          </div>
+          <div class="journal-toolbar">
+            <div class="journal-toolbar-group">
+              <div class="toolbar-label">快速跳转</div>
+              <div class="journal-toolbar-nav">
+                <button type="button" class="journal-nav-btn" data-journal-target="daily">Lab Daily</button>
+                <button type="button" class="journal-nav-btn" data-journal-target="gray-cases">地下案件</button>
+                <button type="button" class="journal-nav-btn" data-journal-target="events">最近事件</button>
+                <button type="button" class="journal-nav-btn" data-journal-target="timeline">新闻时间线</button>
+              </div>
+            </div>
+          </div>
+        </section>
+        <div class="bulletin-layout">
+          <div class="bulletin-main">
             <section class="panel daily-panel" data-journal-section="daily">
               <div class="panel-head">
                 <h2>Lab Daily</h2>
@@ -536,8 +566,10 @@
                 <h2>地下案件处置台</h2>
                 <span class="panel-tag">玩家介入</span>
               </div>
-              <div id="grayCaseActionBox" class="daily-brief-box">一旦出现活跃地下案件，这里会出现压消息、举报、和解和做空入口。</div>
+              <div id="grayCaseActionBox" class="daily-brief-box" data-journal-section="gray-cases">一旦出现活跃地下案件，这里会出现压消息、举报、和解和做空入口。</div>
             </section>
+          </div>
+          <div class="bulletin-side">
             <section class="panel event-panel" data-journal-section="events">
               <div class="panel-head">
                 <h2>最近事件</h2>
@@ -560,13 +592,23 @@
                     <option value="14">14 天</option>
                   </select>
                 </label>
+                <label class="policy-field">
+                  <span class="policy-label">主题筛选</span>
+                  <span class="policy-hint">只看市场、政策或社会热点。</span>
+                  <select id="timelineFilterKind">
+                    <option value="all">全部主线</option>
+                    <option value="market">只看市场</option>
+                    <option value="policy">只看政策</option>
+                    <option value="social">只看社会热点</option>
+                  </select>
+                </label>
                 <button id="newsWindowSubmitBtn" type="button">更新频率</button>
               </div>
               <p class="composer-tip">系统会自动从 Brave 拉取主线新闻；如果未配置 Brave，则会自动编造市场新闻补足时间线。</p>
               <p id="signalStatus" class="signal-status"></p>
               <div id="newsTimelineBox" class="daily-brief-box scroll-panel-list">这里会显示未来几个时段排好的主线新闻。</div>
             </section>
-          </aside>
+          </div>
         </div>
       </section>
 
@@ -590,6 +632,13 @@
                     <option value="policy">政策</option>
                     <option value="gossip">八卦</option>
                   </select>
+                  <select id="feedMood" name="mood">
+                    <option value="neutral">中性</option>
+                    <option value="warm">温和</option>
+                    <option value="spark">兴奋</option>
+                    <option value="tense">紧张</option>
+                    <option value="cool">冷静</option>
+                  </select>
                   <button id="feedSubmitBtn" type="submit">发布帖子</button>
                 </div>
                 <div id="feedComposerMeta" class="composer-tip"></div>
@@ -600,8 +649,26 @@
             <section class="panel feed-timeline-panel">
               <div class="panel-head">
                 <h2>小镇微博时间线</h2>
-                <span class="panel-tag">公开帖子 / 近 1000 条</span>
+                <div class="feed-timeline-controls">
+                  <span class="panel-tag">公开帖子 / 近 1000 条</span>
+                  <select id="feedFilterKind" class="feed-filter-select" aria-label="按主题筛选微博">
+                    <option value="all">全部主题</option>
+                    <option value="tourist-invest">只看游客投资</option>
+                    <option value="government">只看政府回应</option>
+                    <option value="casino">只看赌场传闻</option>
+                  </select>
+                  <select id="feedFilterMood" class="feed-filter-select" aria-label="按情绪筛选微博">
+                    <option value="all">全部情绪</option>
+                    <option value="neutral">中性</option>
+                    <option value="warm">温和</option>
+                    <option value="spark">兴奋</option>
+                    <option value="tense">紧张</option>
+                    <option value="cool">冷静</option>
+                  </select>
+                  <button id="feedLockBtn" type="button" class="feed-lock-btn">阅读锁定：关</button>
+                </div>
               </div>
+              <p id="feedLockNote" class="composer-tip"></p>
               <div id="feedTimelineBox" class="feed-timeline-box"></div>
             </section>
           </div>
@@ -878,6 +945,6 @@
       <span>UrbanComp Lab (<a href="https://urbancomp.net" target="_blank" rel="noreferrer">https://urbancomp.net</a>) 开发</span>
       <span>GitHub：<a href="https://github.com/whuyao/PixelLab" target="_blank" rel="noreferrer">https://github.com/whuyao/PixelLab</a></span>
     </footer>
-    <script src="/static/app.js?v=20260315a" type="module"></script>
+    <script src="/static/app.js?v=20260315g" type="module"></script>
   </body>
 </html>

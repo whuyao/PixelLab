@@ -196,31 +196,35 @@ def _pick_preferred_brave_result(results: list[dict[str, str]]) -> dict[str, str
 
 def _build_synthetic_timeline_event(spec: dict[str, str], slot: TimeSlot, world: WorldState) -> LabEvent:
     banks = {
-        "宏观消费": [
+        "全球股市与汇率震荡": [
             ("消费券刺激带动本地零售回暖", "周边片区的餐饮和轻消费出现回暖迹象，市场预期居民支出意愿短期修复。", 1, "AGR", 3),
             ("居民储蓄倾向抬头压制即期消费", "更多家庭把新增收入留在存款里，消费恢复节奏比预期更慢。", -1, "AGR", 2),
         ],
-        "监管与税务": [
+        "央行与利率风暴": [
             ("地方监管释放温和规范信号", "市场判断短期不会出现更猛烈的收紧，合规成本仍在但可预期。", 1, "broad", 2),
             ("税务核查风声让交易情绪转谨慎", "部分经营者开始担心抽查频率和报表压力，盘面风险偏好略降。", -1, "SIG", 3),
         ],
-        "地产与住房": [
+        "全球地产与租金压力": [
             ("租住需求回升支撑园区地产预期", "短住与租住需求抬升，让地产相关收入和估值预期略有改善。", 1, "AGR", 2),
             ("住房观望情绪拖慢成交节奏", "潜在购房者继续观望，挂牌资产的消化速度有所放缓。", -1, "AGR", 2),
         ],
-        "游客与文旅": [
+        "全球旅游与消费冷热": [
             ("节庆客流预期抬升本地文旅信心", "活动日带动的游客预期升温，旅馆和集市可能迎来一轮额外消费。", 1, "AGR", 3),
             ("游客预算偏谨慎压低夜间消费", "虽然到访人数稳定，但游客单次消费额有收缩迹象。", -1, "AGR", 2),
         ],
-        "GeoAI 与空间智能": [
+        "GeoAI 与空间智能资本动态": [
             ("空间智能合作订单传闻升温", "外部客户开始试探 GeoAI 能力采购，市场把相关能力视为增长线索。", 1, "GEO", 4),
             ("GeoAI 项目审批节奏放慢", "几笔潜在合作需要更久评估，短期推进感减弱。", -1, "GEO", 3),
         ],
-        "就业与劳动": [
+        "科技融资就业与工资": [
             ("服务业用工需求回升", "短期劳动需求增加，让本地打工收入和现金流预期略有改善。", 1, "broad", 2),
             ("工资兑现周期拉长", "部分服务业订单回款慢，市场开始担心劳动收入兑现延后。", -1, "SIG", 2),
         ],
-        "社会热点": [
+        "能源航运与地缘冲击": [
+            ("航运与能源波动重新推高全球风险偏好分歧", "外部对油价、航运和地缘摩擦的讨论转热，市场重新定价风险敞口。", -1, "SIG", 4),
+            ("能源价格缓和带来一轮风险偏好修复", "外界开始押注能源和航运压力短期回落，盘面对高风险资产的态度稍微松动。", 1, "broad", 3),
+        ],
+        "社会热点与生活成本": [
             ("社交平台热议年轻人消费降级", "互联网讨论把焦点拉回到生活成本、收入预期和日常消费取舍。", -1, "AGR", 3),
             ("一线城市周边短途疗愈游突然走红", "社交平台上的体验分享让文旅与短住市场被重新关注。", 1, "AGR", 3),
             ("平台热帖争论住房到底该先买还是先租", "围绕住房焦虑、现金流和长期生活感的讨论持续升温。", 0, "AGR", 3),
@@ -255,16 +259,17 @@ def _build_synthetic_timeline_event(spec: dict[str, str], slot: TimeSlot, world:
 
 async def _rebuild_news_timeline() -> None:
     specs = [
-        {"theme": "宏观消费", "query": "China consumption stimulus retail sales policy market latest", "category": "market"},
-        {"theme": "监管与税务", "query": "China regulation tax oversight market real estate latest", "category": "market"},
-        {"theme": "地产与住房", "query": "China housing property market tourism rentals latest", "category": "market"},
-        {"theme": "游客与文旅", "query": "China tourism domestic travel spending cultural market latest", "category": "general"},
-        {"theme": "GeoAI 与空间智能", "query": "geospatial AI GeoAI spatial intelligence mapping funding latest", "category": "geoai"},
-        {"theme": "就业与劳动", "query": "China employment wages labor services income latest", "category": "general"},
-        {"theme": "社会热点", "query": "China social media hot topics youth lifestyle housing consumption latest", "category": "general"},
+        {"theme": "全球股市与汇率震荡", "query": "全球 股市 汇率 利率 通胀 暴跌 反弹 economy global market rates inflation Reuters Bloomberg", "category": "market"},
+        {"theme": "央行与利率风暴", "query": "全球 央行 利率 降息 加息 通胀 衰退 central bank rate cut hike inflation recession latest", "category": "market"},
+        {"theme": "能源航运与地缘冲击", "query": "全球 能源 油价 航运 制裁 地缘 风险 geopolitics energy shipping commodity shock latest", "category": "market"},
+        {"theme": "全球地产与租金压力", "query": "全球 房地产 租金 住房 房贷 房价 housing rent crisis property mortgage latest", "category": "market"},
+        {"theme": "全球旅游与消费冷热", "query": "全球 旅游 消费 文旅 客流 支出 tourism travel spending slowdown boom latest", "category": "general"},
+        {"theme": "GeoAI 与空间智能资本动态", "query": "全球 GeoAI 空间智能 遥感 地图 AI geospatial spatial intelligence satellite funding latest", "category": "geoai"},
+        {"theme": "科技融资就业与工资", "query": "全球 科技 融资 裁员 招聘 工资 AI funding layoffs hiring wages chips latest", "category": "general"},
+        {"theme": "社会热点与生活成本", "query": "全球 社会热点 生活成本 租房 消费 焦虑 social media viral rent cost of living latest", "category": "general"},
     ]
-    social_spec = next(spec for spec in specs if spec["theme"] == "社会热点")
-    core_specs = [spec for spec in specs if spec["theme"] != "社会热点"]
+    social_spec = next(spec for spec in specs if spec["theme"].startswith("社会热点"))
+    core_specs = [spec for spec in specs if not spec["theme"].startswith("社会热点")]
     world = context.engine.get_state()
     context.engine.state.news_timeline = [item for item in context.engine.state.news_timeline if item.status != "scheduled"]
     created = 0
@@ -310,7 +315,7 @@ async def _rebuild_news_timeline() -> None:
         created += 1
     has_social = any(
         item.status == "scheduled"
-        and item.theme == "社会热点"
+        and str(item.theme).startswith("社会热点")
         and item.scheduled_day <= context.engine.state.day + window_days
         for item in context.engine.state.news_timeline
     )
@@ -462,7 +467,7 @@ async def switch_llm_provider(payload: LLMProviderRequest) -> dict[str, object]:
 @app.post("/api/feed/post", response_model=WorldState)
 async def create_feed_post(payload: FeedPostRequest) -> WorldState:
     try:
-        context.engine.create_player_feed_post(payload.content, payload.category, payload.reply_to_post_id, payload.quote_post_id)
+        context.engine.create_player_feed_post(payload.content, payload.category, payload.reply_to_post_id, payload.quote_post_id, payload.mood)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await _refine_recent_feed_posts(limit=2)

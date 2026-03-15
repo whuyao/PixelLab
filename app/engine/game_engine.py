@@ -851,7 +851,14 @@ class GameEngine:
         post.heat = self._compute_feed_heat(post)
         self._append_feed_post(post, remember=True, apply_impacts=True)
 
-    def create_player_feed_post(self, content: str, category: str = "daily", reply_to_post_id: str | None = None, quote_post_id: str | None = None) -> WorldState:
+    def create_player_feed_post(
+        self,
+        content: str,
+        category: str = "daily",
+        reply_to_post_id: str | None = None,
+        quote_post_id: str | None = None,
+        mood: str = "neutral",
+    ) -> WorldState:
         cleaned = (content or "").strip()
         if not cleaned:
             raise ValueError("先写一句你想发的内容。")
@@ -865,6 +872,7 @@ class GameEngine:
             day=self.state.day,
             time_slot=self.state.time_slot,
             category=category if category in {"daily", "mood", "research", "market", "property", "tourism", "policy", "gossip"} else "daily",
+            mood=self._normalize_feed_mood(mood),
             content=cleaned[:160],
             topic_tags=self._feed_topic_tags(cleaned, category),
             desire_tags=[self._player_desire_label(cleaned)],
@@ -1011,6 +1019,7 @@ class GameEngine:
                 category=event.category,
                 scheduled_day=scheduled_day,
                 scheduled_time_slot=scheduled_time_slot,
+                mood=self._timeline_mood_for_event(event),
                 tone_hint=event.tone_hint,
                 market_target=event.market_target,
                 market_strength=event.market_strength,
@@ -1150,7 +1159,7 @@ class GameEngine:
             (
                 item
                 for item in self.state.news_timeline
-                if item.status == "scheduled" and item.theme == "社会热点"
+                if item.status == "scheduled" and str(item.theme).startswith("社会热点")
             ),
             None,
         )
@@ -1385,9 +1394,9 @@ class GameEngine:
         action = self.state.government.last_agent_action or "继续观察游客、税收和市场反馈"
         note = self.state.government.last_policy_note or "暂无新的额外说明"
         options = [
-            f"【政府运营说明】这轮先办“{agenda}”。最近刚做的是：{action}。别的先不乱加码。",
-            f"【政府运营说明】眼下先顾“{agenda}”，最近动作是：{action}。钱和维护都得一起算。",
-            f"【政府运营说明】现在重点还是“{agenda}”。最近已经处理：{action}。备注：{note[:20]}。",
+            f"【园区运营通告】当前工作重心为“{agenda}”。最近已执行：{action}。后续安排将结合财政承受、维护成本与居民反馈继续推进。",
+            f"【园区运营通告】现阶段优先处理“{agenda}”。最近完成事项：{action}。有关新增动作，将在评估预算与公共服务需求后发布。",
+            f"【园区运营通告】当前仍围绕“{agenda}”展开。最新进展：{action}。补充说明：{note[:28]}。",
         ]
         style_seed = int(hashlib.sha1(f"{self.state.day}-{self.state.time_slot}-government".encode('utf-8')).hexdigest()[:6], 16)
         content = options[style_seed % len(options)]
@@ -1419,9 +1428,9 @@ class GameEngine:
             return self._build_government_feed_post(self.state.events[0] if self.state.events else None)
         style_seed = int(hashlib.sha1(f"gov-reply-{target_post.id}-{self.state.day}".encode("utf-8")).hexdigest()[:6], 16)
         options = [
-            f"【政府回应】{target_post.author_name} 这条我们看到了。先别把话说满，这事最后还是要落到钱、维护和谁来扛。",
-            f"【政府回应】这类讨论不会装没看见，但也不会因为热度高就立刻改。先把账和后果摊开看。",
-            f"【政府回应】骂可以，吵也可以。我们更关心一件事：这事往下走，谁先吃亏，谁最后买单。",
+            f"【政府回应】已收到 {target_post.author_name} 关于此事的公开意见。相关问题将结合预算、维护成本与实际影响一并评估，不会仅依据热度即时调整。",
+            f"【政府回应】关于这类讨论，园区不会回避。后续处理将以账目、维护责任和公共承受度为依据，并在必要时补充说明。",
+            f"【政府回应】有关反映已记录。是否调整，将综合谁承担成本、谁受到影响以及整体公共收益后再作决定。",
         ]
         content = options[style_seed % len(options)]
         post = FeedPost(
@@ -1839,7 +1848,22 @@ class GameEngine:
         return clipped.rstrip("，,、：:") + "。"
 
     def _compute_feed_heat(self, post: FeedPost) -> int:
-        return max(1, min(100, int(post.likes * 1.5 + post.reposts * 3.2 + post.views / 11 + len(post.topic_tags) * 2 + post.credibility / 12)))
+        return max(1, int(post.likes * 1.5 + post.reposts * 3.2 + post.views / 11 + len(post.topic_tags) * 2 + post.credibility / 12))
+
+    def _recompute_feed_timeline_heat(self) -> None:
+        if not self.state.feed_timeline:
+            return
+        for post in self.state.feed_timeline:
+            post.heat = self._compute_feed_heat(post)
+        self.state.feed_timeline.sort(
+            key=lambda item: (
+                self._slot_sort_key(item.day, item.time_slot),
+                item.heat,
+                item.credibility,
+            ),
+            reverse=True,
+        )
+        self.state.feed_timeline = self.state.feed_timeline[:1000]
 
     def _feed_credibility_for_post(self, post: FeedPost) -> int:
         if post.author_type == "player":
@@ -1878,6 +1902,61 @@ class GameEngine:
         score = sum(1 for token in positive if token in content) - sum(1 for token in negative if token in content)
         return max(-2, min(2, score))
 
+    def _normalize_feed_mood(self, mood: str | None) -> str:
+        candidate = (mood or "neutral").strip().lower()
+        return candidate if candidate in {"neutral", "warm", "spark", "tense", "cool"} else "neutral"
+
+    def _infer_feed_mood(self, category: str, content: str, tone_hint: int = 0) -> str:
+        tone = tone_hint if tone_hint else self._feed_tone(content)
+        if category in {"policy", "research"}:
+            if tone < 0:
+                return "tense"
+            if tone > 0:
+                return "spark" if category == "research" else "cool"
+            return "cool"
+        if category in {"market", "property"}:
+            if tone > 0:
+                return "spark"
+            if tone < 0:
+                return "tense"
+            return "neutral"
+        if category in {"tourism", "daily"}:
+            if tone > 0:
+                return "warm"
+            if tone < 0:
+                return "tense"
+            return "neutral"
+        if category == "mood":
+            if tone > 0:
+                return "warm"
+            if tone < 0:
+                return "tense"
+            return "cool"
+        if category == "gossip":
+            if tone < 0:
+                return "tense"
+            if tone > 0:
+                return "spark"
+            return "warm"
+        return "neutral"
+
+    def _timeline_mood_for_event(self, event: LabEvent) -> str:
+        tone = int(getattr(event, "tone_hint", 0) or 0)
+        if event.category == "geoai":
+            return "spark" if tone > 0 else "cool"
+        if event.category == "market":
+            if tone < 0:
+                return "tense"
+            if tone > 0:
+                return "spark"
+            return "cool" if (event.market_strength or 0) >= 4 else "neutral"
+        if event.category == "general":
+            if tone > 0:
+                return "warm"
+            if tone < 0:
+                return "tense"
+        return "neutral"
+
     def _spread_feed_posts(self) -> None:
         if not self.state.feed_timeline:
             return
@@ -1907,16 +1986,7 @@ class GameEngine:
             post.likes = min(999, post.likes + reaction_gain + self.random.randint(0, 2))
             if freshness >= 4 and self.random.random() < min(0.38, post.credibility / 240):
                 post.reposts = min(999, post.reposts + 1)
-            post.heat = self._compute_feed_heat(post)
-        self.state.feed_timeline.sort(
-            key=lambda item: (
-                self._slot_sort_key(item.day, item.time_slot),
-                item.heat,
-                item.credibility,
-            ),
-            reverse=True,
-        )
-        self.state.feed_timeline = self.state.feed_timeline[:1000]
+        self._recompute_feed_timeline_heat()
 
     def _apply_feed_impacts(self, post: FeedPost) -> None:
         tone = self._feed_tone(post.content)
@@ -1967,6 +2037,9 @@ class GameEngine:
     def _append_feed_post(self, post: FeedPost, remember: bool = False, apply_impacts: bool = False) -> bool:
         if getattr(self.state, "feed_timeline", None) is None:
             self.state.feed_timeline = []
+        post.mood = self._normalize_feed_mood(getattr(post, "mood", "neutral"))
+        if post.mood == "neutral":
+            post.mood = self._infer_feed_mood(post.category, post.content)
         duplicate = next(
             (
                 existing
@@ -2041,7 +2114,7 @@ class GameEngine:
         return post
 
     def _seed_feed_from_external_event(self, event: LabEvent, theme: str = "") -> None:
-        category = "gossip" if theme == "社会热点" or event.category == "general" else ("market" if event.category == "market" else ("research" if event.category == "geoai" else "policy"))
+        category = "gossip" if str(theme).startswith("社会热点") or event.category == "general" else ("market" if event.category == "market" else ("research" if event.category == "geoai" else "policy"))
         if category == "gossip":
             content = f"系统新闻台刚抛来一条社会热点：{event.title}。现在大家开始把它往住房、消费、工作节奏和谁更难这几条线上吵。"
             tags = ["社会热点", event.source or "系统新闻台", "公开讨论"]
@@ -4467,8 +4540,166 @@ class GameEngine:
             self._maybe_spawn_tourist()
         self._move_tourists()
         self._trigger_tourist_spending()
+        self._trigger_tourist_investment()
+        self._trigger_tourist_market_investment()
         self._trigger_tourist_conversations()
         self._trigger_tourist_signals()
+
+    def _trigger_tourist_market_investment(self) -> None:
+        if not self.state.market.is_open or not self.state.market.stocks:
+            return
+        for tourist in self.state.tourists:
+            if tourist.visitor_tier not in {"vip", "buyer"}:
+                continue
+            if tourist.cash < 90:
+                continue
+            if tourist.current_location not in {"market", "meeting", "data_wall"}:
+                continue
+            base_chance = 0.048 if tourist.visitor_tier == "vip" else 0.018
+            chance = base_chance + max(0.0, self.state.market.sentiment / 420)
+            if self.random.random() > chance:
+                continue
+            quote = max(
+                self.state.market.stocks,
+                key=lambda item: item.change_pct + item.turnover_pct * 0.22 + max(0.0, (item.fair_value - item.price) / max(0.01, item.price) * 100) * 0.18,
+            )
+            budget = min(tourist.cash, self.random.randint(90, 260))
+            shares = max(1, int(budget // max(1.0, quote.price)))
+            cost = int(round(shares * quote.price))
+            if cost <= 0 or cost > tourist.cash:
+                continue
+            tourist.cash -= cost
+            tourist.mood = self._bounded(tourist.mood + 2)
+            tourist.current_activity = f"刚通过外部券商小仓位买了 {quote.symbol}，想看看这里的风向值不值得继续追。"
+            tourist.brief_note = (
+                f"{'这位高消费客户' if tourist.visitor_tier == 'vip' else '这位看房游客'}刚拿出 ${cost} 买了点 {quote.symbol}，"
+                "会继续盯着这里的盘面和气氛。"
+            )
+            self._apply_quote_move(quote.symbol, min(2.4, max(0.4, cost / 420)), f"受 {tourist.name} 的场外追单影响")
+            quote.volume = max(quote.volume or 0, (quote.volume or 0) + shares)
+            quote.turnover_pct = round((quote.volume / max(1, quote.shares_outstanding or BASE_SHARES_OUTSTANDING.get(quote.symbol, 100000))) * 100, 2)
+            self._refresh_market_microstructure()
+            self._update_index_history()
+            self._update_daily_index_history()
+            self._append_finance_record(
+                actor_id=tourist.id,
+                actor_name=tourist.name,
+                category="market",
+                action="invest",
+                summary=f"{tourist.name} 通过外部券商买入 {quote.name} {shares} 股，投入 ${cost}，准备继续盯着这里的市场风向。",
+                amount=cost,
+                asset_name=quote.name,
+                counterparty="外部券商",
+            )
+            self.state.events.insert(
+                0,
+                build_internal_event(
+                    title=f"{tourist.name} 小仓位买入了 {quote.symbol}",
+                    summary=f"{tourist.name} 刚花 ${cost} 小仓位买入 {quote.name}，游客里开始有人把这里当成可以下注的小市场。",
+                    slot=self.state.time_slot,
+                    category="market",
+                ),
+            )
+            self.state.events = self.state.events[:8]
+            post = FeedPost(
+                id=f"feed-{uuid4().hex[:8]}",
+                author_type="tourist",
+                author_id=tourist.id,
+                author_name=tourist.name,
+                day=self.state.day,
+                time_slot=self.state.time_slot,
+                category="market",
+                mood="spark",
+                content=self._clean_feed_text(
+                    f"我刚拿了 ${cost} 去试 {quote.symbol}。如果这里接下来还热，我可能会继续加一点；要是气氛一冷，我也会跑得很快。"
+                ),
+                topic_tags=[quote.symbol, "游客投机", "市场风向", "场外小仓位"],
+                desire_tags=["想试水", "追风向"],
+                likes=6 + self.random.randint(0, 5),
+                views=54 + self.random.randint(0, 36),
+                summary="有游客开始把这里当成可以试水投机的小市场。",
+                impacts=["影响市场", "影响游客讨论"],
+            )
+            post.credibility = self._feed_credibility_for_post(post)
+            post.heat = self._compute_feed_heat(post)
+            self._append_feed_post(post, remember=True, apply_impacts=True)
+
+    def _trigger_tourist_investment(self) -> None:
+        listed_assets = [
+            asset
+            for asset in self.state.properties
+            if asset.status == "listed"
+            and asset.owner_type in {"market", "government"}
+            and asset.property_type in {"rental_house", "shop", "greenhouse"}
+        ]
+        if not listed_assets:
+            return
+        for tourist in self.state.tourists:
+            if tourist.visitor_tier not in {"buyer", "vip"}:
+                continue
+            if tourist.cash < 60:
+                continue
+            if tourist.current_location not in {"market", "meeting", "data_wall"}:
+                continue
+            trigger_bias = 0.06
+            if tourist.property_interest:
+                trigger_bias += 0.04
+            if tourist.visitor_tier == "vip":
+                trigger_bias += 0.03
+            if self.random.random() > trigger_bias:
+                continue
+            target = self.random.choice(listed_assets)
+            deposit = min(tourist.cash, max(24, min(180, int(round(target.purchase_price * 0.08)))))
+            if deposit <= 0:
+                continue
+            tourist.cash = max(0, tourist.cash - deposit)
+            tourist.property_interest = True
+            tourist.current_activity = f"刚给 {target.name} 放了意向金，想再多看两眼。"
+            tourist.brief_note = f"对 {target.name} 动了心，今天先拿了 ${deposit} 试水。"
+            self.state.tourism.buyer_leads_total += 1
+            if target.owner_type == "government":
+                self.state.government.reserve_balance += deposit
+                self.state.government.revenues["government_asset"] = self.state.government.revenues.get("government_asset", 0) + deposit
+            self._append_finance_record(
+                actor_id=tourist.id,
+                actor_name=tourist.name,
+                category="property",
+                action="invest",
+                summary=f"{tourist.name} 给 {target.name} 放了 ${deposit} 意向金，想继续观察后续价格和氛围。",
+                amount=deposit,
+                asset_name=target.name,
+                counterparty="财政资产" if target.owner_type == "government" else "地产市场",
+            )
+            self.state.events.insert(
+                0,
+                build_internal_event(
+                    title=f"{tourist.name} 看中了 {target.name}",
+                    summary=f"{tourist.name} 先给 {target.name} 放了 ${deposit} 的意向金，准备继续看看这里到底值不值得长留。",
+                    slot=self.state.time_slot,
+                    category="market",
+                ),
+            )
+            self.state.events = self.state.events[:8]
+            post = FeedPost(
+                id=f"feed-{uuid4().hex[:8]}",
+                author_type="tourist",
+                author_id=tourist.id,
+                author_name=tourist.name,
+                day=self.state.day,
+                time_slot=self.state.time_slot,
+                category="property",
+                mood="spark",
+                content=self._clean_feed_text(f"{target.name} 我真有点心动。今天先放了 ${deposit} 当意向金，想看看这里到底值不值得长留。"),
+                topic_tags=["看房", target.name, "意向金"],
+                desire_tags=["想留更久", "先试水"],
+                likes=5 + self.random.randint(0, 4),
+                views=42 + self.random.randint(0, 24),
+                summary="游客公开表达了对园区房产的兴趣。",
+                impacts=["提升购房线索", "带动地产讨论"],
+            )
+            post.credibility = self._feed_credibility_for_post(post)
+            post.heat = self._compute_feed_heat(post)
+            self._append_feed_post(post, remember=True, apply_impacts=True)
 
     def _refresh_tourist_turnover(self) -> None:
         remaining: list[TouristAgent] = []
@@ -6507,6 +6738,7 @@ class GameEngine:
             self.state.casino.current_heat = max(12, int(self.state.casino.current_heat * 0.7))
 
     def _apply_daily_market_and_consumption_feedback(self, day: int) -> None:
+        slot = self.state.time_slot
         point = next((item for item in reversed(self.state.daily_economy_history or []) if item.day == day), None)
         if point is None:
             return
@@ -9615,6 +9847,8 @@ class GameEngine:
         case = self._related_gray_case(case_id)
         if case.status != "active":
             raise ValueError("这条地下案件已经不是可操作状态了。")
+        case.resolution_action = action
+        case.resolution_label = self._gray_resolution_label(action)
         if action == "suppress":
             cost = max(6, 4 + case.severity * 3)
             if self.state.player.cash < cost:
@@ -9622,6 +9856,7 @@ class GameEngine:
             self.state.player.cash -= cost
             case.exposure_risk = max(6, case.exposure_risk - (18 + case.severity * 4))
             case.summary = f"你花了 ${cost} 先把“{self._gray_case_label(case.case_type)}”往下压了一层。"
+            case.resolution_note = "你把风声压住了一层，但外面未必就此信服。"
             self.state.player.last_trade_summary = f"花 ${cost} 压了“{self._gray_case_label(case.case_type)}”的消息。"
             self.state.lab.reputation = self._bounded(self.state.lab.reputation - 1)
             self._apply_player_intervention_cost("gray_suppress", amount=2)
@@ -9636,6 +9871,7 @@ class GameEngine:
             )
         elif action == "report":
             case.summary = f"你主动把“{self._gray_case_label(case.case_type)}”捅到了台面上。"
+            case.resolution_note = "你把案子公开化了，后续会更容易进入舆论和监管视野。"
             self._expose_gray_case(case)
             self.state.lab.reputation = self._bounded(self.state.lab.reputation + 2)
             self.state.player.last_trade_summary = f"你主动举报了“{self._gray_case_label(case.case_type)}”。"
@@ -9647,6 +9883,7 @@ class GameEngine:
             self.state.player.cash -= cost
             case.status = "settled"
             case.summary = f"你拿出 ${cost} 试着把“{self._gray_case_label(case.case_type)}”按和解的方式收掉。"
+            case.resolution_note = "案子表面收住了，但参与者未必都真正服气。"
             for agent_id in case.participants:
                 agent = next((item for item in self.state.agents if item.id == agent_id), None)
                 if agent is not None:
@@ -9664,15 +9901,24 @@ class GameEngine:
             if not self._execute_player_short(symbol, shares, f"你借着“{self._gray_case_label(case.case_type)}”的风向下手。"):
                 raise ValueError("这条案子目前找不到可做空的目标。")
             case.exposure_risk = min(100, case.exposure_risk + 8)
+            case.resolution_note = "你借着风向下手套利了，这件事本身也可能被拿出来说。"
             self._apply_player_intervention_cost("gray_short", amount=1)
         else:
             raise ValueError("不支持的地下案件操作。")
+        self._apply_gray_case_resolution_effects(case, action)
+        self._maybe_publicize_gray_case_resolution(case, action)
         self.state.player.daily_actions.append(f"gray_case:{action}:{case.id}")
         self._log(
             "player_gray_case_action",
             action=action,
-            case={"id": case.id, "type": case.case_type, "status": case.status, "risk": case.exposure_risk},
-            player={"cash": self.state.player.cash, "last_trade_summary": self.state.player.last_trade_summary},
+            case={"id": case.id, "type": case.case_type, "status": case.status, "risk": case.exposure_risk, "resolution_exposed": case.resolution_exposed},
+            player={
+                "cash": self.state.player.cash,
+                "last_trade_summary": self.state.player.last_trade_summary,
+                "reputation": self.state.player.reputation_score,
+                "credit": self.state.player.credit_score,
+                "life_satisfaction": self.state.player.life_satisfaction,
+            },
         )
         self.state.events = self.state.events[:8]
         self._refresh_tasks()
@@ -9714,6 +9960,124 @@ class GameEngine:
             "wage_arrears": "broad",
             "pump_dump": "SIG",
         }.get(case_type, "broad")
+
+    def _gray_resolution_label(self, action: str) -> str:
+        return {
+            "suppress": "压消息",
+            "report": "举报",
+            "mediate": "和解",
+            "short": "借机做空",
+        }.get(action, action)
+
+    def _apply_gray_case_resolution_effects(self, case: GrayCase, action: str) -> None:
+        if action == "suppress":
+            self.state.player.life_satisfaction = self._bounded(self.state.player.life_satisfaction - 1)
+        elif action == "report":
+            self.state.player.life_satisfaction = self._bounded(self.state.player.life_satisfaction - 1)
+            self.state.player.credit_score = self._bounded(self.state.player.credit_score + 1)
+        elif action == "mediate":
+            self.state.player.life_satisfaction = self._bounded(self.state.player.life_satisfaction + 1)
+        elif action == "short":
+            self.state.player.life_satisfaction = self._bounded(self.state.player.life_satisfaction + 2)
+            self.state.player.credit_score = self._bounded(self.state.player.credit_score - 1)
+
+    def _maybe_publicize_gray_case_resolution(self, case: GrayCase, action: str) -> None:
+        base_probability = {
+            "suppress": 0.26,
+            "report": 0.52,
+            "mediate": 0.12,
+            "short": 0.34,
+        }.get(action, 0.18)
+        probability = min(
+            0.88,
+            base_probability
+            + (case.severity * 0.04)
+            + (case.exposure_risk * 0.0025)
+            + (0.06 if any(post.heat >= 16 and post.category in {"gossip", "policy"} for post in self.state.feed_timeline[:12]) else 0.0)
+            - max(0, self.state.player.reputation_score - 70) * 0.002,
+        )
+        if self.random.random() >= probability:
+            case.resolution_exposed = False
+            case.resolution_note = "处理结果暂时只停留在线下，没有立刻传到公开舆论场。"
+            return
+
+        label = self._gray_case_label(case.case_type)
+        actor_names = "、".join(case.participant_names[:2]) or "几个人"
+        if action == "suppress":
+            content = f"后巷又在传，有人想把“{label}”往下按。真要干净，何必急着捂？"
+            summary = f"有人怀疑“{label}”被压消息。"
+            author_type = "tourist"
+        elif action == "report":
+            content = f"关于“{label}”的情况，已收到举报并转入正式核查。涉及 {actor_names} 的部分，后续会给公开说明。"
+            summary = f"政府公开回应了一条“{label}”举报。"
+            author_type = "government"
+        elif action == "mediate":
+            content = f"听说“{label}”最后是私下谈掉了。表面安静了，可谁心里真服气，还不好说。"
+            summary = f"有人在议论“{label}”被和解。"
+            author_type = "tourist"
+        else:
+            content = f"“{label}”刚起风，就有人顺手拿它做空。嘴上都说不是冲钱去的，谁信啊。"
+            summary = f"“{label}”被传和做空套利扯到一起。"
+            author_type = "system"
+
+        if author_type == "government":
+            post = FeedPost(
+                id=f"feed-{uuid4().hex[:8]}",
+                author_type="government",
+                author_id="government",
+                author_name="园区财政与监管局",
+                day=self.state.day,
+                time_slot=self.state.time_slot,
+                category="policy",
+                content=self._clean_feed_text(content),
+                topic_tags=["监管", "案件处置", label],
+                desire_tags=["稳定运行"],
+                likes=4 + self.random.randint(0, 4),
+                views=48 + self.random.randint(0, 24),
+                summary=summary,
+                impacts=["影响政府页", "进入政策观察", "进入晨报"],
+            )
+        elif author_type == "tourist":
+            tourist = self.state.tourists[0] if self.state.tourists else None
+            post = FeedPost(
+                id=f"feed-{uuid4().hex[:8]}",
+                author_type="tourist" if tourist else "system",
+                author_id=tourist.id if tourist else "system",
+                author_name=tourist.name if tourist else "系统新闻台",
+                day=self.state.day,
+                time_slot=self.state.time_slot,
+                category="gossip",
+                content=self._clean_feed_text(content),
+                topic_tags=["八卦", "灰案", label],
+                desire_tags=[tourist.favorite_topic if tourist else "传闻"],
+                likes=3 + self.random.randint(0, 5),
+                views=36 + self.random.randint(0, 20),
+                summary=summary,
+                impacts=["影响关系", "影响游客", "进入晨报"],
+            )
+        else:
+            post = FeedPost(
+                id=f"feed-{uuid4().hex[:8]}",
+                author_type="system",
+                author_id="system",
+                author_name="系统新闻台",
+                day=self.state.day,
+                time_slot=self.state.time_slot,
+                category="market",
+                content=self._clean_feed_text(content),
+                topic_tags=["市场", "灰案", label],
+                desire_tags=["看风向"],
+                likes=2 + self.random.randint(0, 4),
+                views=34 + self.random.randint(0, 18),
+                summary=summary,
+                impacts=["影响市场", "进入晨报"],
+            )
+        post.credibility = self._feed_credibility_for_post(post)
+        post.heat = self._compute_feed_heat(post)
+        self._append_feed_post(post, remember=True, apply_impacts=True)
+        case.resolution_exposed = True
+        case.resolution_note = f"{self._gray_resolution_label(action)}的结果被发到了小镇微博。"
+        self._log("gray_case_resolution_feed", action=action, case={"id": case.id, "type": case.case_type}, post={"author": post.author_name, "category": post.category, "heat": post.heat})
 
     def _resolve_player_money_exchange(self, agent: Agent, dialogue: DialogueOutcome, relation_delta: int) -> list[str]:
         intent, explicit_amount = self._player_money_intent(dialogue.player_text)
@@ -10095,6 +10459,7 @@ class GameEngine:
                 post.credibility = 50
             if getattr(post, "reposts", None) is None:
                 post.reposts = 0
+        self._recompute_feed_timeline_heat()
         player_owned = [asset.id for asset in self.state.properties if asset.owner_type == "player" and asset.owner_id == self.state.player.id and asset.status == "owned"]
         if player_owned and not self.state.player.owned_property_ids:
             self.state.player.owned_property_ids = player_owned
@@ -10476,6 +10841,14 @@ class GameEngine:
             item.theme = self._localized_text(item.theme)
         for case in self.state.gray_cases or []:
             case.participant_names = [self._localized_text(name) for name in case.participant_names or []]
+            if getattr(case, "resolution_action", None) is None:
+                case.resolution_action = ""
+            if getattr(case, "resolution_label", None) is None:
+                case.resolution_label = ""
+            if getattr(case, "resolution_exposed", None) is None:
+                case.resolution_exposed = False
+            if getattr(case, "resolution_note", None) is None:
+                case.resolution_note = ""
         for tourist in self.state.tourists or []:
             if tourist.target_position is None:
                 tourist.target_position = None

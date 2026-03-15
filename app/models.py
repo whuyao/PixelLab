@@ -199,6 +199,7 @@ class FeedPost(BaseModel):
     day: int
     time_slot: TimeSlot
     category: Literal["daily", "mood", "research", "market", "property", "tourism", "policy", "gossip"] = "daily"
+    mood: Literal["neutral", "warm", "spark", "tense", "cool"] = "neutral"
     content: str
     topic_tags: list[str] = Field(default_factory=list)
     desire_tags: list[str] = Field(default_factory=list)
@@ -491,6 +492,10 @@ class GrayCase(BaseModel):
     due_day: int | None = None
     exposure_risk: int = 20
     status: str = "active"
+    resolution_action: str = ""
+    resolution_label: str = ""
+    resolution_exposed: bool = False
+    resolution_note: str = ""
 
 
 class IndexCandle(BaseModel):
@@ -570,6 +575,7 @@ class NewsTimelineItem(BaseModel):
     category: EventCategory = "general"
     scheduled_day: int
     scheduled_time_slot: TimeSlot
+    mood: Literal["neutral", "warm", "spark", "tense", "cool"] = "neutral"
     tone_hint: int = 0
     market_target: str = "broad"
     market_strength: int = 2
@@ -739,6 +745,7 @@ class LLMProviderRequest(BaseModel):
 class FeedPostRequest(BaseModel):
     content: str
     category: Literal["daily", "mood", "research", "market", "property", "tourism", "policy", "gossip"] = "daily"
+    mood: Literal["neutral", "warm", "spark", "tense", "cool"] = "neutral"
     reply_to_post_id: str | None = None
     quote_post_id: str | None = None
 

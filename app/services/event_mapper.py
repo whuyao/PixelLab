@@ -19,6 +19,17 @@ KEYWORD_CATEGORY_MAP: dict[str, EventCategory] = {
     "steam": "gaming",
 }
 
+THEME_CN_HINTS = {
+    "global markets": "全球市场",
+    "central bank": "央行与利率",
+    "geopolitics": "地缘与能源",
+    "housing": "全球住房",
+    "tourism": "全球旅游与消费",
+    "geospatial ai": "GeoAI 与空间智能",
+    "funding": "科技融资与就业",
+    "social media": "社会热点",
+}
+
 POSITIVE_MARKET_WORDS = ["增长", "回暖", "提振", "利好", "宽松", "支持", "修复", "上调", "复苏", "融资"]
 NEGATIVE_MARKET_WORDS = ["衰退", "收紧", "下滑", "风险", "抛售", "暴跌", "违约", "裁员", "承压", "监管"]
 TARGET_KEYWORDS = {
@@ -34,6 +45,54 @@ def infer_category(topic: str, default: EventCategory) -> EventCategory:
         if re.search(rf"(?<![a-z]){re.escape(keyword)}(?![a-z])", topic_lower):
             return category
     return default
+
+
+def _theme_hint_cn(topic: str) -> str:
+    lowered = topic.lower()
+    for keyword, label in THEME_CN_HINTS.items():
+        if keyword in lowered:
+            return label
+    return {
+        "market": "全球经济",
+        "geoai": "GeoAI 动向",
+        "tech": "科技动向",
+        "general": "全球热点",
+        "gaming": "游戏行业",
+    }.get(infer_category(topic, "general"), "全球热点")
+
+
+def _tone_label(tone_hint: int, category: EventCategory) -> tuple[str, str]:
+    if tone_hint >= 1:
+        return (
+            "偏利好" if category in {"market", "geoai", "tech"} else "偏热",
+            "这条消息更容易被理解成提振预期，可能放大乐观和冒险倾向。",
+        )
+    if tone_hint <= -1:
+        return (
+            "偏利空" if category in {"market", "geoai", "tech"} else "偏紧张",
+            "这条消息更容易被理解成风险信号，可能压低消费、情绪和市场偏好。",
+        )
+    return ("高不确定", "这条消息并不单边，大家更可能围绕它争论和反复试探。")
+
+
+def _headline_phrase(theme_hint: str, tone_hint: int, category: EventCategory) -> str:
+    if category == "market":
+        if tone_hint >= 1:
+            return f"{theme_hint}突发利好"
+        if tone_hint <= -1:
+            return f"{theme_hint}再起波澜"
+        return f"{theme_hint}出现分歧信号"
+    if category == "geoai":
+        if tone_hint >= 1:
+            return f"{theme_hint}热度升温"
+        if tone_hint <= -1:
+            return f"{theme_hint}推进承压"
+        return f"{theme_hint}出现新变量"
+    if tone_hint >= 1:
+        return f"{theme_hint}讨论升温"
+    if tone_hint <= -1:
+        return f"{theme_hint}引发担忧"
+    return f"{theme_hint}突然冲上议程"
 
 
 def map_search_result_to_event(item: dict[str, str], topic: str, slot: TimeSlot, default_category: EventCategory) -> LabEvent:
@@ -58,13 +117,17 @@ def map_search_result_to_event(item: dict[str, str], topic: str, slot: TimeSlot,
         "collective_reasoning": 5 if category in {"geoai", "tech"} else 2,
         "research_progress": 4 if category != "gaming" else 1,
     }
-    summary = item.get("description") or item.get("age") or "Fresh signal imported through the lab terminal."
+    theme_hint = _theme_hint_cn(topic)
+    tone_label, tone_effect = _tone_label(tone_hint, category)
+    source = item.get("profile_name") or item.get("url") or "Brave Search"
+    title = _headline_phrase(theme_hint, tone_hint, category)
+    summary = f"{source} 捕捉到一条围绕“{theme_hint}”的全球经济消息。{tone_effect}"
     return LabEvent(
         id=f"event-{uuid.uuid4().hex[:8]}",
         category=category,
-        title=item.get("title", topic.title()),
+        title=title,
         summary=summary,
-        source=item.get("profile_name") or item.get("url") or "Brave Search",
+        source=source,
         time_slot=slot,
         impacts=impacts,
         participants=[],

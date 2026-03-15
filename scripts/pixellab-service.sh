@@ -10,7 +10,7 @@ case "${1:-}" in
     /usr/bin/screen -S "$SESSION" -X quit >/dev/null 2>&1 || true
     /usr/bin/screen -dmS "$SESSION" /bin/zsh -lc "cd '$ROOT' && exec ./.venv/bin/python run_localfarmer.py >> '$LOG' 2>&1"
     sleep 3
-    pgrep -f "$ROOT/.venv/bin/python $ROOT/run_localfarmer.py" | head -n1 > "$PIDFILE"
+    pgrep -f "run_localfarmer.py" | head -n1 > "$PIDFILE" || true
     ;;
   stop)
     /usr/bin/screen -S "$SESSION" -X quit >/dev/null 2>&1 || true
@@ -19,7 +19,10 @@ case "${1:-}" in
   status)
     if /usr/bin/screen -list | grep -q "$SESSION"; then
       echo "running"
-      pgrep -f "$ROOT/.venv/bin/python $ROOT/run_localfarmer.py" | head -n1 || true
+      pgrep -f "run_localfarmer.py" | head -n1 || true
+    elif lsof -nP -iTCP:8765 -sTCP:LISTEN >/dev/null 2>&1; then
+      echo "running"
+      lsof -nP -iTCP:8765 -sTCP:LISTEN | awk 'NR==2{print $2}'
     else
       echo "stopped"
       exit 1
