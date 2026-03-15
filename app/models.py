@@ -349,6 +349,8 @@ class TourismState(BaseModel):
 
 class GovernmentState(BaseModel):
     name: str = "园区财政与监管局"
+    approval_score: int = 56
+    approval_note: str = "公众目前对政府维持温和支持。"
     big_mode_enabled: bool = False
     can_tune_taxes: bool = True
     can_tune_rates: bool = True

@@ -231,6 +231,7 @@ class GameEngine:
     def get_state(self) -> WorldState:
         self._ensure_agent_runtime_fields()
         self._refresh_bank_state()
+        self._refresh_government_agent_state()
         self.market_engine.prepare_view()
         self._refresh_tasks()
         self.social_engine.prepare_view()
@@ -256,7 +257,7 @@ class GameEngine:
         )
 
     def _refresh_state_signatures(self) -> None:
-        self.state.version = max(self.state.version, 59)
+        self.state.version = max(self.state.version, 60)
         self.state.section_signatures = self._sign_sections(self._build_state_sections())
 
     def _sign_sections(self, sections: dict[str, object]) -> dict[str, str]:
@@ -4346,11 +4347,39 @@ class GameEngine:
         if not self.state.market.is_open:
             return
         for agent in self.state.agents:
-            if agent.deposit_balance > 0 and (agent.cash < self.state.company.low_cash_threshold or agent.money_urgency >= 80) and self.random.random() < 0.48:
+            baseline_need = (
+                self.state.company.low_cash_threshold
+                + agent.daily_cost_baseline * 5
+                + max(0, agent.monthly_burden // 3)
+            )
+            severe_cash_stress = agent.cash < max(self.state.company.low_cash_threshold, baseline_need * 0.45)
+            borrow_for_pressure = agent.cash < baseline_need or agent.money_urgency >= 62
+            borrow_for_opportunity = (
+                self.state.market.regime == "bull"
+                and agent.risk_appetite >= 60
+                and agent.credit_score >= 30
+                and self._agent_total_assets(agent) >= 2500
+                and agent.cash < 4800
+            )
+            leverage_borrow = (
+                self.state.market.regime == "bull"
+                and agent.risk_appetite >= 72
+                and agent.credit_score >= 35
+                and (agent.deposit_balance >= 1200 or self._agent_total_assets(agent) >= 8000)
+                and agent.cash < max(4200, int(agent.deposit_balance * 0.08) if agent.deposit_balance else 4200)
+            )
+            if (
+                agent.deposit_balance > 0
+                and (severe_cash_stress or agent.money_urgency >= 86)
+                and self.random.random() < 0.34
+            ):
                 try:
-                    self._bank_withdraw("agent", agent.id, min(agent.deposit_balance, max(8, self.state.company.low_cash_threshold - agent.cash + 8)))
+                    withdraw_target = min(
+                        agent.deposit_balance,
+                        max(8, min(max(18, baseline_need - agent.cash), max(18, agent.deposit_balance // 4))),
+                    )
+                    self._bank_withdraw("agent", agent.id, withdraw_target)
                     agent.current_bubble = "先把存款拿一点出来。"
-                    continue
                 except ValueError:
                     pass
             active_loans = self._borrower_bank_loans("agent", agent.id)
@@ -4362,30 +4391,68 @@ class GameEngine:
                 continue
             if active_loans:
                 continue
-            if agent.cash > 55 and agent.money_urgency < 72:
+            baseline_need = (
+                self.state.company.low_cash_threshold
+                + agent.daily_cost_baseline * 5
+                + max(0, agent.monthly_burden // 3)
+            )
+            severe_cash_stress = agent.cash < max(self.state.company.low_cash_threshold, baseline_need * 0.45)
+            borrow_for_pressure = (
+                agent.cash < int(baseline_need * 1.15)
+                or agent.money_urgency >= 55
+                or agent.monthly_burden > max(120, agent.cash * 1.25)
+            )
+            borrow_for_opportunity = (
+                self.state.market.regime == "bull"
+                and agent.risk_appetite >= 60
+                and agent.credit_score >= 30
+                and self._agent_total_assets(agent) >= 2500
+                and agent.cash < 4800
+            )
+            leverage_borrow = (
+                self.state.market.regime == "bull"
+                and agent.risk_appetite >= 72
+                and agent.credit_score >= 35
+                and (agent.deposit_balance >= 1200 or self._agent_total_assets(agent) >= 8000)
+                and agent.cash < max(4200, int(agent.deposit_balance * 0.08) if agent.deposit_balance else 4200)
+            )
+            if not borrow_for_pressure and not borrow_for_opportunity and not leverage_borrow:
                 continue
-            if self.random.random() > 0.28:
+            borrow_chance = 0.58 if borrow_for_pressure else 0.26 if borrow_for_opportunity else 0.18
+            if self.random.random() > borrow_chance:
                 continue
             suggested_amount = max(
-                180,
+                320,
                 min(
-                    3600,
-                    220 + max(0, self.state.company.low_cash_threshold - agent.cash) * 12 + agent.money_urgency * 18,
+                    12000,
+                    340
+                    + max(0, baseline_need - agent.cash) * 18
+                    + agent.money_urgency * 24
+                    + max(0, agent.monthly_burden // 2)
+                    + (800 if borrow_for_opportunity else 0)
+                    + (1200 if leverage_borrow else 0),
                 ),
             )
             amount = min(self._bank_credit_line("agent", agent.id, agent.credit_score), suggested_amount)
             term_days = 1 if agent.credit_score >= 70 else 2 if agent.credit_score >= 50 else 3
             try:
-                self._bank_borrow("agent", agent.id, amount, term_days, "现金和体力都偏紧，先从银行周转。")
+                self._bank_borrow(
+                    "agent",
+                    agent.id,
+                    amount,
+                    term_days,
+                    "现金和体力都偏紧，先从银行周转。" if not leverage_borrow else "想留住手里的流动性，顺手借一点做周转和加仓。",
+                )
             except ValueError:
                 continue
             continue
         for agent in self.state.agents:
-            if agent.cash <= 90 or agent.money_urgency >= 62 or agent.is_resting:
+            reserve_floor = max(180, self.state.company.low_cash_threshold + agent.daily_cost_baseline * 9 + max(0, agent.monthly_burden // 2))
+            if agent.cash <= reserve_floor or agent.money_urgency >= 56 or agent.is_resting:
                 continue
-            if self.random.random() > 0.18:
+            if self.random.random() > 0.1:
                 continue
-            amount = min(max(10, int(agent.cash * 0.24)), max(0, agent.cash - 60))
+            amount = min(max(10, int(agent.cash * 0.1)), max(0, agent.cash - reserve_floor))
             if amount <= 0:
                 continue
             try:
@@ -7317,6 +7384,44 @@ class GameEngine:
             )
         ):
             government.current_agenda = "控制住房密度，把财政预算优先投向夜市和游客服务。"
+        fine_ratio = government.revenues.get("fine", 0) / max(1, government.total_revenue)
+        tax_load = (
+            government.wage_tax_rate_pct
+            + government.consumption_tax_rate_pct
+            + government.property_holding_tax_rate_pct * 0.5
+            + government.securities_tax_rate_pct * 0.35
+        )
+        service_average = (
+            government.public_service_level
+            + government.tourism_support_level
+            + government.housing_support_level
+        ) / 3
+        approval = 58
+        approval += round((service_average - 60) / 2.2)
+        approval += round((average_satisfaction - 80) / 1.8)
+        approval += round(max(-4, min(8, government.daily_asset_net / 18)))
+        approval += 6 if government.total_welfare_paid > 0 or government.last_targeted_support > 0 else 0
+        approval += 2 if government.last_coupon_pool > 0 else 0
+        approval -= round(max(0, tax_load - 19) * 0.65)
+        approval -= round(max(0, government.enforcement_level - 40) / 16)
+        approval -= round(fine_ratio * 14)
+        if government.big_mode_enabled:
+            approval -= 1
+        if government.reserve_balance >= 1800:
+            approval += 3
+        if government.reserve_balance >= 8000:
+            approval += 2
+        if self.state.market.regime == "bull":
+            approval += 2
+        government.approval_score = self._bounded(int(approval))
+        if government.approval_score >= 78:
+            government.approval_note = "公共服务、游客承接和财政稳态都不错，公众支持度偏高。"
+        elif government.approval_score >= 58:
+            government.approval_note = "公众总体认可政府维持秩序和服务，但仍盯着税负与监管。"
+        elif government.approval_score >= 38:
+            government.approval_note = "公众对税负、罚款和建设方向开始分裂，支持度处于拉扯状态。"
+        else:
+            government.approval_note = "公众明显不满当前税负、罚款或建设方向，政府口碑处于低位。"
         government.known_signals = signals[:4]
 
     def _government_sale_candidate(self) -> PropertyAsset | None:
@@ -9847,7 +9952,7 @@ class GameEngine:
 
     def _ensure_agent_runtime_fields(self) -> None:
         previous_version = self.state.version or 0
-        self.state.version = max(self.state.version, 58)
+        self.state.version = max(self.state.version, 60)
         if self.state.loans is None:
             self.state.loans = []
         if self.state.archived_tasks is None:
@@ -10225,6 +10330,10 @@ class GameEngine:
         self.state.government.audit_cooldown_days = max(2, min(10, 2 + round((100 - self.state.government.enforcement_level) / 12)))
         if self.state.government.last_targeted_support is None:
             self.state.government.last_targeted_support = 0
+        if self.state.government.approval_score is None:
+            self.state.government.approval_score = 56
+        if self.state.government.approval_note is None:
+            self.state.government.approval_note = "公众目前对政府维持温和支持。"
         if self.state.government.last_coupon_pool is None:
             self.state.government.last_coupon_pool = 0
         if self.state.government.last_public_service_spend is None:

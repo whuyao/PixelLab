@@ -1911,9 +1911,11 @@ function renderFiscalPanel() {
         <div class="status-pill"><strong>今日保障</strong><span>$${todayWelfare}</span></div>
         <div class="status-pill"><strong>今日财政动作</strong><span>$${todayGovernmentIncome}</span></div>
         <div class="status-pill"><strong>累计保障</strong><span>$${government.total_welfare_paid || 0}</span></div>
+        <div class="status-pill"><strong>政府支持度</strong><span>${government.approval_score || 0}</span></div>
         <div class="status-pill"><strong>监管强度</strong><span>${government.enforcement_level || 0}</span></div>
         <div class="status-pill"><strong>最近政策</strong><span>${escapeHtml(government.last_policy_note || "维持默认税率")}</span></div>
       </div>
+      <div class="metric-meta">${escapeHtml(government.approval_note || "公众目前对政府维持温和支持。")}</div>
     </article>
     <div class="fiscal-dashboard-grid">
     <section class="metric-group fiscal-dashboard-card fiscal-settlement-card">
