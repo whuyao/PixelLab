@@ -313,8 +313,11 @@ class TouristAgent(BaseModel):
     brief_note: str = ""
     short_term_memory: list[MemoryEntry] = Field(default_factory=list)
     market_portfolio: dict[str, int] = Field(default_factory=dict)
+    market_cost_basis: dict[str, int] = Field(default_factory=dict)
     market_invested_total: int = 0
     market_last_action: str = ""
+    market_preference: str = ""
+    market_preference_note: str = ""
     target_position: Point | None = None
     target_location: str = ""
     linger_ticks: int = 0

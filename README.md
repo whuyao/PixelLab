@@ -19,6 +19,7 @@
 - 核心 5 个智能体已切到独立专属人物绘制，游客也按 `普通 / 回头客 / 高消费 / 潜在购房者` 做了外观分层
 - 玩家与智能体对话支持 `OpenAI` 或 `Qwen` 兼容接口
 - 自动人物对话和自动微博发帖都支持 LLM 精修；默认模型为 `gpt-5-mini`，也可以在运行中热切换到 Qwen
+- 最近一轮 prompt 调优已经把 `私聊对话 / 微博原发帖 / 微博回复 / 政府公告` 分流，并对 `Qwen / GPT` 分别收口，减少无意义 thinking 和“分析腔”
 - 智能体有长期记忆、短期记忆、关系、欲望、信用、口碑、体力和小屋作息
 - 当前角色信息下方带有玩家与 5 个核心智能体的关系矩阵，用颜色区分关系状态
 - 当前世界还包含轻量游客、旅馆、集市、政府财政与监管、公司打工、银行存款与公共资产
@@ -443,6 +444,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
   - [casino_system_guide.md](docs/casino_system_guide.md)：地下赌场玩法、赌税、灰案与监管联动说明
   - [casino_emergence_report.md](docs/casino_emergence_report.md)：地下赌场接入后在经济、微博、灰案与监管层面的涌现复盘
   - [consumption_real_estate_design.md](docs/consumption_real_estate_design.md)：消费、地产与生活满意度系统设计
+  - [llm_prompt_tuning_retrospective.md](docs/llm_prompt_tuning_retrospective.md)：OpenAI / Qwen 双模型 prompt 收敛、口吻分流与长期挂念整理复盘
   - [undergrad_system_explainer.md](docs/undergrad_system_explainer.md)：面向本科生的系统解释
   - [system_development_retrospective.md](docs/system_development_retrospective.md)：系统发展过程复盘
 - 运行分析与历史案例：

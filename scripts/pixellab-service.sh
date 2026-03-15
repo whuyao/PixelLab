@@ -7,12 +7,14 @@ PIDFILE="$ROOT/logs/server.pid"
 mkdir -p "$ROOT/logs"
 case "${1:-}" in
   start)
+    pkill -f "run_localfarmer.py" >/dev/null 2>&1 || true
     /usr/bin/screen -S "$SESSION" -X quit >/dev/null 2>&1 || true
     /usr/bin/screen -dmS "$SESSION" /bin/zsh -lc "cd '$ROOT' && exec ./.venv/bin/python run_localfarmer.py >> '$LOG' 2>&1"
     sleep 3
     pgrep -f "run_localfarmer.py" | head -n1 > "$PIDFILE" || true
     ;;
   stop)
+    pkill -f "run_localfarmer.py" >/dev/null 2>&1 || true
     /usr/bin/screen -S "$SESSION" -X quit >/dev/null 2>&1 || true
     rm -f "$PIDFILE"
     ;;

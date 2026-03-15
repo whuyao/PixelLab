@@ -2307,6 +2307,20 @@ canvas {
   color: var(--accent-deep);
 }
 
+.memory-subgroup {
+  margin-top: 8px;
+}
+
+.memory-subgroup-title {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 2px 8px;
+  border: 1px solid rgba(58, 50, 43, 0.25);
+  background: rgba(225, 212, 180, 0.45);
+  color: var(--accent-deep);
+  font-size: 0.75rem;
+}
+
 .memory-chip {
   display: inline-block;
   margin: 0 6px 6px 0;

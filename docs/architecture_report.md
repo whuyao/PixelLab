@@ -173,6 +173,10 @@ flowchart LR
   - Qwen 默认示例模型是 `qwen3.5-flash`
   - 观察模式下自动发言也优先走同一条链路
   - Prompt 注入角色记忆、主欲望、局部视角、财务压力和关系语境
+  - 对话 / 微博原发帖 / 微博回复 / 政府原发帖 / 政府回复使用分开的模板
+  - Qwen 与 GPT 使用分开的收敛策略，优先减少无意义的长推理和分析腔
+  - 会把内部地图代号映射成中文地名，例如 `data_wall -> 果园坡地`
+  - 模型输出后还会做一层中文清洗，移除不自然黑话和重复口头禅
 
 ### 3.5 外部事件层
 
@@ -241,6 +245,8 @@ flowchart LR
   面向演示与教学的大政府模式独立说明，聚焦权限、工期、锚点与制度影响。
 - [casino_system_guide.md](casino_system_guide.md)
   面向演示与教学的地下赌场系统说明，聚焦赌局、赌税、微博扩散、灰案与监管。
+- [llm_prompt_tuning_retrospective.md](llm_prompt_tuning_retrospective.md)
+  复盘这一轮 OpenAI / Qwen 双模型 prompt 收敛、角色口吻分流、内部代号清洗与长期挂念整理。
 - [casino_emergence_report.md](casino_emergence_report.md)
   复盘赌场上线后，在经济、微博、灰案与监管层面出现的涌现现象。
 - [market_casino_social_emergence_report.md](market_casino_social_emergence_report.md)

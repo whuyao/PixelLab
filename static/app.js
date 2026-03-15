@@ -165,7 +165,7 @@ const llmApplyBtn = document.getElementById("llmApplyBtn");
 const llmStatusMeta = document.getElementById("llmStatusMeta");
 const llmSwitchStatus = document.getElementById("llmSwitchStatus");
 const llmSwitcherShell = llmToggleBtn?.closest(".llm-switcher-shell") || null;
-const ASSET_VERSION = "20260315j";
+const ASSET_VERSION = "20260315k";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -530,6 +530,7 @@ function touristInvestmentSnapshot(tourist) {
     currentValue: Math.round(currentValue),
     delta: Math.round(currentValue - invested),
     holdingsLabel: positions.length ? positions.map(([symbol, shares]) => `${symbol}×${shares}`).join(" · ") : "暂无持仓",
+    preferenceLabel: tourist?.market_preference ? `${tourist.market_preference}${tourist?.market_preference_note ? ` · ${tourist.market_preference_note}` : ""}` : (tourist?.market_preference_note || "暂时还没有形成明确投资偏好"),
   };
 }
 
@@ -2739,20 +2740,37 @@ function renderMarketModule() {
     const touristCurrentValue = touristInvestors.reduce((sum, entry) => sum + entry.snapshot.currentValue, 0);
     const touristFloatingDelta = touristInvestors.reduce((sum, entry) => sum + entry.snapshot.delta, 0);
     const touristPreferenceCounts = touristInvestors.reduce((acc, entry) => {
-      Object.entries(entry.tourist.market_portfolio || {}).forEach(([symbol, shares]) => {
-        acc[symbol] = (acc[symbol] || 0) + Number(shares || 0);
-      });
+      const key = entry.tourist.market_preference || Object.keys(entry.tourist.market_portfolio || {})[0];
+      if (key) {
+        acc[key] = (acc[key] || 0) + 1;
+      }
       return acc;
     }, {});
     const touristPreferenceLabel = Object.entries(touristPreferenceCounts)
       .sort((left, right) => right[1] - left[1])
       .slice(0, 3)
-      .map(([symbol, shares]) => `${symbol}×${shares}`)
+      .map(([symbol, count]) => `${symbol}(${count}人)`)
       .join(" · ");
     const touristInvestorLeaderboard = touristInvestors
       .slice()
       .sort((left, right) => right.snapshot.currentValue - left.snapshot.currentValue)
       .slice(0, 5);
+    const touristInvestorIds = new Set((state.tourists || []).map((tourist) => tourist.id));
+    const recentTouristTrades = (state.finance_history || [])
+      .filter((record) =>
+        touristInvestorIds.has(record.actor_id)
+        && record.category === "market"
+        && ["invest", "exit"].includes(record.action)
+      )
+      .slice(0, 10);
+    const touristBuyCount = recentTouristTrades.filter((record) => record.action === "invest").length;
+    const touristSellCount = recentTouristTrades.filter((record) => record.action === "exit").length;
+    const touristNetInflow = recentTouristTrades
+      .filter((record) => record.action === "invest")
+      .reduce((sum, record) => sum + Number(record.amount || 0), 0);
+    const touristNetOutflow = recentTouristTrades
+      .filter((record) => record.action === "exit")
+      .reduce((sum, record) => sum + Number(record.amount || 0), 0);
     const consumptionWindowLabel = `近 ${Math.max(1, trailingConsumption.length)} 个工作日消费流`;
     const governmentWindowLabel = `近 ${Math.max(1, trailingGovernmentRevenue.length)} 个工作日财政资产曲线`;
     const casinoWindowLabel = `近 ${Math.max(1, trailingCasinoDays.length || trailingCasinoWagers.length)} 个工作日赌资`;
@@ -2782,9 +2800,15 @@ function renderMarketModule() {
         <div class="metric-meta">持仓游客 ${touristInvestors.length} 人 · 已投 ${formatCompactCurrency(touristInvestedTotal)} · 当前市值 ${formatCompactCurrency(touristCurrentValue)}</div>
         <div class="metric-meta">当前浮盈亏 ${touristFloatingDelta >= 0 ? "+" : "-"}${formatCompactCurrency(Math.abs(touristFloatingDelta))} · 偏好 ${escapeHtml(touristPreferenceLabel || "暂时还没有形成明显偏好")}</div>
         <div class="metric-meta">${escapeHtml(touristInvestorLeaderboard[0] ? `领头持仓：${touristInvestorLeaderboard[0].tourist.name} · ${touristInvestorLeaderboard[0].snapshot.holdingsLabel}` : "游客暂时还没有公开可见的股票持仓。")}</div>
+        <div class="metric-meta">${escapeHtml(touristInvestorLeaderboard[0]?.tourist.market_preference_note || "游客是否继续下注，会同时看微博热度、市场主线和个人情绪。")}</div>
+        <div class="metric-meta">最近买入 ${touristBuyCount} 次 · 最近卖出 ${touristSellCount} 次 · 净流入 ${formatCompactCurrency(touristNetInflow)} · 净流出 ${formatCompactCurrency(touristNetOutflow)}</div>
         <div class="memory-section compact">
           <strong>游客持仓榜</strong>
-          <div>${touristInvestorLeaderboard.length ? touristInvestorLeaderboard.map((entry) => `<span class="memory-chip">${escapeHtml(`${entry.tourist.name} · ${entry.snapshot.holdingsLabel} · ${formatCompactCurrency(entry.snapshot.currentValue)} · ${entry.snapshot.delta >= 0 ? "+" : "-"}${formatCompactCurrency(Math.abs(entry.snapshot.delta))}`)}</span>`).join("") : '<span class="memory-meta">目前还没有游客形成稳定持仓。</span>'}</div>
+          <div>${touristInvestorLeaderboard.length ? touristInvestorLeaderboard.map((entry) => `<span class="memory-chip">${escapeHtml(`${entry.tourist.name} · ${entry.snapshot.holdingsLabel} · ${formatCompactCurrency(entry.snapshot.currentValue)} · ${entry.snapshot.delta >= 0 ? "+" : "-"}${formatCompactCurrency(Math.abs(entry.snapshot.delta))} · 偏好 ${entry.tourist.market_preference || "未定"}`)}</span>`).join("") : '<span class="memory-meta">目前还没有游客形成稳定持仓。</span>'}</div>
+        </div>
+        <div class="memory-section compact">
+          <strong>最近买卖记录</strong>
+          <div>${recentTouristTrades.length ? recentTouristTrades.map((record) => `<span class="memory-chip">${escapeHtml(`${record.actor_name} · ${record.action === "invest" ? "买入" : "卖出"} · ${record.asset_name || "股票"} · ${formatCompactCurrency(record.amount || 0)}`)}</span>`).join("") : '<span class="memory-meta">最近还没有新的游客买卖记录。</span>'}</div>
         </div>
       </article>
     `;
@@ -4400,6 +4424,7 @@ function renderMemory() {
         <div class="status-pill"><strong>已投资金</strong><span>${formatCompactCurrency(investment.invested)}</span></div>
         <div class="status-pill"><strong>当前市值</strong><span>${formatCompactCurrency(investment.currentValue)}</span></div>
         <div class="status-pill"><strong>浮动盈亏</strong><span>${investment.delta >= 0 ? "+" : ""}${formatCompactCurrency(investment.delta)}</span></div>
+        <div class="status-pill"><strong>投资偏好</strong><span>${tourist.market_preference || "未定"}</span></div>
       </div>
       <div class="memory-section">
         <strong>当前活动</strong>
@@ -4422,6 +4447,10 @@ function renderMemory() {
         <div>${tourist.market_last_action ? escapeHtml(tourist.market_last_action) : "这位游客目前还没有公开可见的投资动作。"} </div>
       </div>
       <div class="memory-section">
+        <strong>偏好来源</strong>
+        <div>${escapeHtml(tourist.market_preference_note || "这位游客目前还没有形成稳定的投资偏好。")}</div>
+      </div>
+      <div class="memory-section">
         <strong>短期记忆</strong>
         <div>${shortTerm}</div>
       </div>
@@ -4437,9 +4466,7 @@ function renderMemory() {
   const shortTerm = (agent.short_term_memory || [])
     .map((memory) => `<span class="memory-chip">${memory.text}</span>`)
     .join("") || '<span class="memory-meta">暂无短期记忆。</span>';
-  const longTerm = (agent.long_term_memory || [])
-    .map((memory) => `<span class="memory-chip">${memory.text}</span>`)
-    .join("") || '<span class="memory-meta">暂无长期记忆。</span>';
+  const longTerm = renderLongTermMemoryGroups(agent.long_term_memory || []);
   const relations = Object.entries(agent.relations || {})
     .sort((left, right) => right[1] - left[1])
     .map(([key, value]) => {
@@ -4575,7 +4602,7 @@ function renderMemory() {
       <div>${shortTerm}</div>
     </div>
     <div class="memory-section">
-      <strong>长期记忆</strong>
+      <strong>长期挂念</strong>
       <div>${longTerm}</div>
     </div>
     ${relationMatrix}
@@ -4589,6 +4616,50 @@ function relationStateClass(value) {
   if (value >= 15) return "relation-state-soft";
   if (value <= -25) return "relation-state-tense";
   return "relation-state-neutral";
+}
+
+function classifyLongTermMemory(text) {
+  if (!text) return "other";
+  if (/(大盘|股市|盘面|板块|指数|市场|持仓|利率|房价|赌局|下注|返还|资金)/.test(text)) {
+    return "market";
+  }
+  if (/(外地|外部|游客消息|科技融资|就业|天气|运输|监管|政策|新闻|晨报|热搜|热点)/.test(text)) {
+    return "external";
+  }
+  if (/(玩家|米遥|林澈|周铖|芮宁|凯川|聊过|分歧|微博|说过|没放下|关系|吵|和好)/.test(text)) {
+    return "social";
+  }
+  return "other";
+}
+
+function renderLongTermMemoryGroups(memories) {
+  const groups = {
+    market: [],
+    external: [],
+    social: [],
+    other: [],
+  };
+  (memories || []).slice(0, 4).forEach((memory) => {
+    groups[classifyLongTermMemory(memory.text)].push(memory.text);
+  });
+  const labels = {
+    market: "市场挂念",
+    external: "外部挂念",
+    social: "人际挂念",
+    other: "其他挂念",
+  };
+  return Object.entries(labels)
+    .map(([key, label]) => {
+      const items = groups[key];
+      if (!items.length) return "";
+      return `
+        <div class="memory-subgroup">
+          <span class="memory-subgroup-title">${label}</span>
+          <div>${items.map((text) => `<span class="memory-chip">${text}</span>`).join("")}</div>
+        </div>
+      `;
+    })
+    .join("") || '<span class="memory-meta">暂无长期挂念。</span>';
 }
 
 function relationStateShortLabel(value) {

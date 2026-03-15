@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GeoAI Pixel Lab Test (UrbanComp Lab)</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260315j" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260315k" />
   </head>
   <body>
     <div class="project-banner">
@@ -697,7 +697,7 @@
               <span class="panel-tag">本科生 / 研究生学习入口</span>
             </div>
             <div class="teaching-hero-copy">
-              <p>这个页面不是操作台，而是一份面向课堂讲解的系统说明。它解释这套像素 GeoAI 实验室里，什么是智能体、什么是 GeoAI、为什么经济约束是底层驱动，以及市场、微博、政府、主线新闻和地下赌场怎样共同长出复杂行为。</p>
+              <p>这个页面不是操作台，而是一份面向课堂讲解的系统说明。它解释这套像素 GeoAI 实验室里，什么是智能体、什么是 GeoAI、为什么经济约束是底层驱动，以及市场、微博、政府、主线新闻、地下赌场和 LLM prompt 工程怎样共同长出复杂行为。</p>
               <div class="teaching-chip-row">
                 <span class="memory-chip">多智能体</span>
                 <span class="memory-chip">GeoAI</span>
@@ -722,7 +722,7 @@
                   <li>状态层：心情、压力、体力、专注、满意度</li>
                   <li>社会层：关系、盟友、对手、最近互动</li>
                   <li>经济层：现金、存款、信用、股票、借贷、房产</li>
-                  <li>记忆层：短期记忆、长期记忆、memory stream、即时意图</li>
+                  <li>记忆层：短期记忆、长期挂念、memory stream、即时意图</li>
                 </ul>
               </div>
             </section>
@@ -867,7 +867,26 @@
 
             <section class="panel teaching-panel">
               <div class="panel-head">
-                <h2>8. 地下赌场为什么值得观察</h2>
+                <h2>8. 为什么要做 Prompt 工程</h2>
+                <span class="panel-tag">像人话不是自动出现的</span>
+              </div>
+              <div class="teaching-block">
+                <p>这套系统后来专门做了一轮 prompt 调优，因为“模型能生成中文”不等于“角色说的话就像人”。系统现在会把私聊、微博原发帖、微博回复和政府公告拆成不同模板；Qwen 和 GPT 也按不同模型习性分别收口。</p>
+                <ul class="teaching-list">
+                  <li>私聊更像当面接话，公开微博更像公开表态</li>
+                  <li>政府账号单独走正式公告与正式回应模板</li>
+                  <li>内部代号先翻译成中文地名，例如 <code>data_wall -&gt; 果园坡地</code></li>
+                  <li>长期记忆会先压成更少、更稳的“长期挂念”</li>
+                </ul>
+                <div class="teaching-mini-formula">
+                  <code>像人话 = 任务模板 + 角色口吻 + 中文清洗 + 记忆收敛</code>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel teaching-panel">
+              <div class="panel-head">
+                <h2>9. 地下赌场为什么值得观察</h2>
                 <span class="panel-tag">灰色经济节点</span>
               </div>
               <div class="teaching-block">
@@ -888,7 +907,7 @@
 
             <section class="panel teaching-panel">
               <div class="panel-head">
-                <h2>9. 最近的系统调优在做什么</h2>
+                <h2>10. 最近的系统调优在做什么</h2>
                 <span class="panel-tag">机制优化</span>
               </div>
               <div class="teaching-block">
@@ -904,7 +923,7 @@
 
             <section class="panel teaching-panel">
               <div class="panel-head">
-                <h2>10. 本项目适合怎么学</h2>
+                <h2>11. 本项目适合怎么学</h2>
                 <span class="panel-tag">课堂路径</span>
               </div>
               <div class="teaching-block">
@@ -945,6 +964,6 @@
       <span>UrbanComp Lab (<a href="https://urbancomp.net" target="_blank" rel="noreferrer">https://urbancomp.net</a>) 开发</span>
       <span>GitHub：<a href="https://github.com/whuyao/PixelLab" target="_blank" rel="noreferrer">https://github.com/whuyao/PixelLab</a></span>
     </footer>
-    <script src="/static/app.js?v=20260315j" type="module"></script>
+    <script src="/static/app.js?v=20260315k" type="module"></script>
   </body>
 </html>

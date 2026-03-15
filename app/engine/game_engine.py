@@ -187,10 +187,30 @@ BASE_SHARES_OUTSTANDING = {"GEO": 180000, "AGR": 240000, "SIG": 150000}
 BASE_AVG_VOLUME = {"GEO": 5600, "AGR": 4800, "SIG": 5200}
 TOURIST_NAME_POOL = ["许栀", "沈禾", "顾岚", "孟遥", "程汐", "唐屿", "苏楠", "袁栩", "陆晴", "乔朔"]
 TOURIST_ARCHETYPES = [
-    {"archetype": "周末散客", "favorite_topic": "天气、住宿和集市小吃", "spending_desire": 54, "budget": 18},
-    {"archetype": "摄影游客", "favorite_topic": "果园、湖边和好看的角落", "spending_desire": 48, "budget": 16},
-    {"archetype": "短住买手", "favorite_topic": "集市、价格和什么值得带回去", "spending_desire": 68, "budget": 26},
-    {"archetype": "考察访客", "favorite_topic": "GeoAI、园区故事和谁最懂这里", "spending_desire": 42, "budget": 14},
+    {
+        "archetype": "周末散客",
+        "topic_pool": ["天气、住宿和集市小吃", "湖边散步和值不值得多待", "住一晚划不划算", "这里晚上安不安静"],
+        "spending_desire": 54,
+        "budget": 18,
+    },
+    {
+        "archetype": "摄影游客",
+        "topic_pool": ["果园、湖边和好看的角落", "哪块光线最好", "夜里哪里最有气氛", "哪处最适合慢慢走"],
+        "spending_desire": 48,
+        "budget": 16,
+    },
+    {
+        "archetype": "短住买手",
+        "topic_pool": ["集市、价格和什么值得带回去", "房租、短住和生活成本", "哪块更适合长住", "手里的钱花在哪更值"],
+        "spending_desire": 68,
+        "budget": 26,
+    },
+    {
+        "archetype": "考察访客",
+        "topic_pool": ["GeoAI、小镇故事和谁最懂这里", "这地方怎么一步步变成这样", "谁在推动这里变化", "科技和日常到底怎么缠在一起"],
+        "spending_desire": 42,
+        "budget": 14,
+    },
 ]
 TOURISM_EVENT_TITLES = [
     "湖畔夜市",
@@ -200,7 +220,7 @@ TOURISM_EVENT_TITLES = [
 ]
 TOURIST_SIGNAL_BANK = [
     {"title": "游客带来外地买手消息", "summary": "几位游客提到外地渠道正在回补农食和文旅周边订单。", "category": "market", "tone": 1, "target": "AGR", "strength": 2},
-    {"title": "游客聊起一波空间智能参访热", "summary": "来访者频繁讨论园区里的 GeoAI 展示和空间智能体验，市场开始把相关能力当成新的卖点。", "category": "geoai", "tone": 1, "target": "GEO", "strength": 2},
+    {"title": "游客聊起一波空间智能参访热", "summary": "来访者频繁讨论小镇里的 GeoAI 展示和空间智能体验，市场开始把相关能力当成新的卖点。", "category": "geoai", "tone": 1, "target": "GEO", "strength": 2},
     {"title": "游客带来一条监管收紧风声", "summary": "短住买手在集市里谈到外地监管可能收紧交易和数据流通，大家情绪明显谨慎。", "category": "market", "tone": -1, "target": "SIG", "strength": 3},
     {"title": "游客口中的消费回暖传闻", "summary": "回头客在旅馆里说，周边几个片区的消费人流比上月明显回暖。", "category": "general", "tone": 1, "target": "AGR", "strength": 2},
     {"title": "游客散播一条地产观望消息", "summary": "看房游客普遍觉得短期房价偏高，购买动作可能会先放慢。", "category": "market", "tone": -1, "target": "AGR", "strength": 2},
@@ -236,6 +256,7 @@ class GameEngine:
         self._refresh_tasks()
         self.social_engine.prepare_view()
         self.lifestyle_engine.prepare_view()
+        self._normalize_recent_dialogue_history()
         self._sync_event_history()
         self._refresh_state_signatures()
         return self.state
@@ -576,27 +597,27 @@ class GameEngine:
         roll = self.random.random()
         if roll < 0.035:
             gross_payout = int(round(stake * 4.2))
-            outcome_text = "一把摸到大彩头"
+            outcome_text = "一下吃到大彩头"
             satisfaction_delta = 12
             stress_delta = -8
         elif roll < 0.18:
             gross_payout = int(round(stake * 2.15))
-            outcome_text = "狠狠赢了一把"
+            outcome_text = "赢得挺痛快"
             satisfaction_delta = 7
             stress_delta = -5
         elif roll < 0.37:
             gross_payout = int(round(stake * 1.28))
-            outcome_text = "小赢一手"
+            outcome_text = "小赢了一点"
             satisfaction_delta = 3
             stress_delta = -2
         elif roll < 0.49:
             gross_payout = int(round(stake * 0.92))
-            outcome_text = "差一点回本"
+            outcome_text = "差一点就回本了"
             satisfaction_delta = -1
             stress_delta = 1
         else:
             gross_payout = 0
-            outcome_text = "把筹码全丢在了牌桌上"
+            outcome_text = "这一把基本输干净了"
             satisfaction_delta = -6 if stake >= 80 else -4
             stress_delta = 5 if trigger != "desperation" else 7
         net_delta = gross_payout - stake - gambling_tax
@@ -673,9 +694,9 @@ class GameEngine:
             return
         category = "gossip" if tourist or stake < 100 else "market"
         hot_line = (
-            f"{actor_name} 今晚在后巷地下赌场{outcome_text}，桌上已经开始传谁又想靠赌桌翻身。"
+            f"{actor_name} 今晚在后巷地下赌场{outcome_text}，旁边已经有人在议论谁又想靠赌桌翻身。"
             if net_delta >= 0
-            else f"{actor_name} 刚在后巷地下赌场把筹码砸进去了，旁边已经有人拿这事当八卦在传。"
+            else f"{actor_name} 刚在后巷地下赌场栽了一手，旁边已经有人把这事当八卦在传。"
         )
         post = FeedPost(
             id=f"feed-{uuid4().hex[:8]}",
@@ -736,11 +757,11 @@ class GameEngine:
                 participants=[actor_id],
                 participant_names=[actor_name],
                 topic="地下赌场",
-                summary=f"{actor_name} 在后巷地下赌场下注 ${stake}，{outcome_text}，净变化 ${net_delta}。",
+                summary=f"{actor_name} 在后巷地下赌场压了 ${stake}，{outcome_text}，净变化 ${net_delta}。",
                 key_point=f"{actor_name} 压了 ${stake}，返还 ${payout}，赌税 ${tax}，净变化 ${net_delta}。",
                 transcript=[
                     f"{actor_name}：我先压 ${stake}，看看今晚手气站不站我这边。",
-                    f"庄家：{outcome_text}{'，台面吐了 $' + str(payout) if payout else '。'}",
+                    f"庄家：{outcome_text}{'，桌上回了 $' + str(payout) if payout else '。'}",
                 ],
                 desire_labels={actor_name: "想搏一把运气和现金缓冲"},
                 mood="warm" if net_delta > 0 else "tense" if net_delta < -(stake // 2) else "neutral",
@@ -817,10 +838,10 @@ class GameEngine:
     def _casino_brag_post(self, actor: Agent, *, stake: int, net_delta: int) -> str:
         lines = {
             "lin": f"后巷这把我拿了 ${net_delta}。别神化手气，我只是在别人上头的时候收手更快。",
-            "mika": f"刚从后巷出来，居然真让我卷走 ${net_delta}。现在心脏还在跳，先别劝我冷静。",
-            "jo": f"后巷这把净进 ${net_delta}。别讲运气，桌上谁先乱，钱就往谁口袋里流。",
-            "rae": f"今晚后巷意外赢了 ${net_delta}。开心归开心，但我已经看见旁边有人输得脸都白了。",
-            "kai": f"后巷这把吃到 ${net_delta}，风就是这么拐过来的。别问，问就是今晚信号站我这边。",
+            "mika": f"刚从后巷出来，居然真让我带走了 ${net_delta}。现在心脏还在跳，先别劝我冷静。",
+            "jo": f"后巷这把净进 ${net_delta}。别讲运气，谁先乱，钱就往谁口袋里流。",
+            "rae": f"今晚后巷意外赢了 ${net_delta}。开心归开心，但旁边真有人输得脸都白了。",
+            "kai": f"后巷这把拿到 ${net_delta}。这阵风先吹到我这边了，就这么简单。",
         }
         return lines.get(actor.id, f"刚从后巷地下赌场拿到 ${net_delta}，今晚牌桌真偏我。")
 
@@ -828,7 +849,7 @@ class GameEngine:
         tier_style = {
             "regular": f"后巷那个赌桌居然真有人敢压，我刚试了 ${stake}，{outcome_text}。这地方比白天看起来野多了。",
             "repeat": f"上次来还没这么吵，这次后巷赌局已经传开了。我刚压了 ${stake}，{outcome_text}，难怪大家都爱围着看。",
-            "vip": f"后巷赌局真不是摆设。我刚扔了 ${stake}，{outcome_text}。花钱这事，至少今晚算有点刺激。",
+            "vip": f"后巷赌局真不是摆设。我刚下了 ${stake}，{outcome_text}。花钱这事，至少今晚算有点刺激。",
             "buyer": f"本来在看房，结果被后巷赌局拽过去了。我压了 ${stake}，{outcome_text}，现在更想知道这里到底是什么地方。",
         }
         post = FeedPost(
@@ -958,7 +979,7 @@ class GameEngine:
             line=line,
             topic=tourist.favorite_topic or "旅途见闻",
             bubble_text=line,
-            effects=["游客心情 +1", "园区人气 +1"],
+            effects=["游客心情 +1", "小镇人气 +1"],
         )
         self.state.latest_dialogue = outcome
         self._append_dialogue_record(
@@ -970,7 +991,7 @@ class GameEngine:
                 participants=["player", tourist.id],
                 participant_names=[self.state.player.name, tourist.name],
                 topic=tourist.favorite_topic or "旅途见闻",
-                summary=f"你和 {tourist.name} 围绕“{tourist.favorite_topic or '旅途见闻'}”聊了一轮，游客对园区的印象被进一步拉高。",
+                summary=self._natural_player_tourist_summary(tourist.name, tourist.favorite_topic or "旅途见闻"),
                 key_point=f"{tourist.name} 主要在意“{tourist.favorite_topic or '旅途体验'}”，你的回应让他更愿意继续停留和消费。",
                 transcript=[f"你：{cleaned}", f"{tourist.name}：{line}"],
                 desire_labels={self.state.player.name: self._player_desire_label(cleaned), tourist.name: "想把这趟行程过得舒服一点"},
@@ -1394,9 +1415,9 @@ class GameEngine:
         action = self.state.government.last_agent_action or "继续观察游客、税收和市场反馈"
         note = self.state.government.last_policy_note or "暂无新的额外说明"
         options = [
-            f"【园区运营通告】当前工作重心为“{agenda}”。最近已执行：{action}。后续安排将结合财政承受、维护成本与居民反馈继续推进。",
-            f"【园区运营通告】现阶段优先处理“{agenda}”。最近完成事项：{action}。有关新增动作，将在评估预算与公共服务需求后发布。",
-            f"【园区运营通告】当前仍围绕“{agenda}”展开。最新进展：{action}。补充说明：{note[:28]}。",
+            f"【小镇运营通告】当前工作重心为“{agenda}”。最近已执行：{action}。后续安排将结合财政承受、维护成本与居民反馈继续推进。",
+            f"【小镇运营通告】现阶段优先处理“{agenda}”。最近完成事项：{action}。有关新增动作，将在评估预算与公共服务需求后发布。",
+            f"【小镇运营通告】当前仍围绕“{agenda}”展开。最新进展：{action}。补充说明：{note[:28]}。",
         ]
         style_seed = int(hashlib.sha1(f"{self.state.day}-{self.state.time_slot}-government".encode('utf-8')).hexdigest()[:6], 16)
         content = options[style_seed % len(options)]
@@ -1407,7 +1428,7 @@ class GameEngine:
             id=f"feed-{uuid4().hex[:8]}",
             author_type="government",
             author_id="government",
-            author_name="园区财政与监管局",
+            author_name="小镇财政与监管局",
             day=self.state.day,
             time_slot=self.state.time_slot,
             category="policy",
@@ -1429,7 +1450,7 @@ class GameEngine:
         style_seed = int(hashlib.sha1(f"gov-reply-{target_post.id}-{self.state.day}".encode("utf-8")).hexdigest()[:6], 16)
         options = [
             f"【政府回应】已收到 {target_post.author_name} 关于此事的公开意见。相关问题将结合预算、维护成本与实际影响一并评估，不会仅依据热度即时调整。",
-            f"【政府回应】关于这类讨论，园区不会回避。后续处理将以账目、维护责任和公共承受度为依据，并在必要时补充说明。",
+            f"【政府回应】关于这类讨论，小镇不会回避。后续处理将以账目、维护责任和公共承受度为依据，并在必要时补充说明。",
             f"【政府回应】有关反映已记录。是否调整，将综合谁承担成本、谁受到影响以及整体公共收益后再作决定。",
         ]
         content = options[style_seed % len(options)]
@@ -1437,7 +1458,7 @@ class GameEngine:
             id=f"feed-{uuid4().hex[:8]}",
             author_type="government",
             author_id="government",
-            author_name="园区财政与监管局",
+            author_name="小镇财政与监管局",
             day=self.state.day,
             time_slot=self.state.time_slot,
             category="policy",
@@ -2099,7 +2120,7 @@ class GameEngine:
             time_slot=self.state.time_slot,
             category="gossip",
             content=self._clean_feed_text(
-                f"系统新闻台预告：外面已经开始热议“{item.title}”。这条社会热点还没真正落到园区，但游客、住房、消费和谁先被卷进去，八成很快就会有人吵起来。"
+                f"系统新闻台预告：外面已经开始热议“{item.title}”。这条社会热点还没真正落到小镇，但游客、住房、消费和谁先被卷进去，八成很快就会有人吵起来。"
             ),
             topic_tags=["社会热点", item.source or "系统新闻台", "公开讨论"],
             desire_tags=["公开讨论"],
@@ -2285,7 +2306,7 @@ class GameEngine:
                 participants=[first.id, second.id],
                 participant_names=[first.name, second.name],
                 topic=topic,
-                summary=f"{first.name} 和 {second.name} 在{ROOM_LABELS.get(first.current_location, first.current_location)}围绕“{topic}”接了一轮，整体气氛偏{self._mood_label(mood)}。",
+                summary=self._natural_dialogue_summary(first, second, topic, mood),
                 key_point=self._ambient_dialogue_key_point(
                     first.name,
                     second.name,
@@ -2319,13 +2340,184 @@ class GameEngine:
             0,
             build_internal_event(
                 title=self._thread_event_title(first, second, thread),
-                summary=f"他们在{ROOM_LABELS.get(first.current_location, first.current_location)}围绕“{topic}”继续聊。当前气氛偏{self._mood_label(mood)}。",
+                summary=self._natural_dialogue_summary(first, second, topic, mood),
                 slot=self.state.time_slot,
                 category="general",
             ),
         )
         self.state.events = self.state.events[:8]
         self._maybe_emit_relationship_scene(first, second, thread)
+
+    def _natural_dialogue_summary(self, first: Agent, second: Agent, topic: str, mood: str) -> str:
+        location = ROOM_LABELS.get(first.current_location, first.current_location)
+        mood_tail_options = {
+            "warm": [
+                "两个人越说越顺，气氛慢慢松下来。",
+                "说着说着就顺了，先前那点绷着的感觉也散了。",
+                "这一轮聊完，彼此都松了一口气。",
+            ],
+            "spark": [
+                "话头一下对上了，明显聊出了点火花。",
+                "有个点突然接上了，两个人都愿意往下多说几句。",
+                "这话题一碰上，场子一下活了。",
+            ],
+            "tense": [
+                "两边都没真让着对方。",
+                "这几句说下来，谁也没打算先退。",
+                "听得出来，两边都还绷着。",
+            ],
+            "neutral": [
+                "彼此都还在试探对方到底在意什么。",
+                "这轮话没闹大，但大家都还留着一点判断。",
+                "面上还算平稳，心里各有各的盘算。",
+            ],
+        }
+        mood_tail = self.random.choice(mood_tail_options.get(mood, mood_tail_options["neutral"]))
+        openers = [
+            f"{first.name} 和 {second.name} 在{location}聊起了“{topic}”。",
+            f"{first.name} 和 {second.name} 在{location}说到了“{topic}”。",
+            f"{first.name} 和 {second.name} 在{location}把话题拐到了“{topic}”上。",
+        ]
+        return f"{self.random.choice(openers)} {mood_tail}"
+
+    def _pick_fresh_summary_variant(self, candidates: list[str], *, recent_window: int = 18) -> str:
+        recent_summaries = [item.summary for item in self.state.dialogue_history[:recent_window] if item.summary]
+        fresh = [candidate for candidate in candidates if candidate not in recent_summaries]
+        pool = fresh or candidates
+        return self.random.choice(pool)
+
+    def _tourist_topic_pool_for(self, tourist: TouristAgent) -> list[str]:
+        by_archetype = {
+            "周末散客": ["天气、住宿和集市小吃", "湖边散步和值不值得多待", "住一晚划不划算", "这里晚上安不安静"],
+            "摄影游客": ["果园、湖边和好看的角落", "哪块光线最好", "夜里哪里最有气氛", "哪处最适合慢慢走"],
+            "短住买手": ["集市、价格和什么值得带回去", "房租、短住和生活成本", "哪块更适合长住", "手里的钱花在哪更值"],
+            "考察访客": ["GeoAI、小镇故事和谁最懂这里", "这地方怎么一步步变成这样", "谁在推动这里变化", "科技和日常到底怎么缠在一起"],
+        }
+        pool = list(by_archetype.get(tourist.archetype, []))
+        if tourist.visitor_tier == "buyer":
+            pool.extend(["房租、挂牌和长住成本", "手里的钱到底该先买房还是先留现金"])
+        if tourist.visitor_tier == "vip":
+            pool.extend(["这里花钱值不值", "住得舒服和看得漂亮哪个更重要"])
+        if tourist.property_interest:
+            pool.extend(["房租、短住和生活成本", "哪块更适合长住"])
+        if not pool:
+            pool = ["这里最值得逛哪里", "这地方到底适不适合多待一阵"]
+        return list(dict.fromkeys(pool))
+
+    def _refresh_tourist_topic(self, tourist: TouristAgent) -> None:
+        pool = self._tourist_topic_pool_for(tourist)
+        current = tourist.favorite_topic or ""
+        candidates = [topic for topic in pool if topic != current]
+        tourist.favorite_topic = self.random.choice(candidates or pool)
+        tourist.brief_note = self._tourist_brief_note(tourist.visitor_tier, tourist.favorite_topic)
+
+    def _natural_tourist_dialogue_summary(self, tourist_name: str, agent_name: str, location: str, topic: str) -> str:
+        variants = [
+            f"{tourist_name} 在{location}和 {agent_name} 聊了几句“{topic}”，对这里的日子更有画面了。",
+            f"{tourist_name} 在{location}逮着 {agent_name} 问了问“{topic}”，一下觉得这里没那么生分了。",
+            f"{tourist_name} 在{location}和 {agent_name} 扯到“{topic}”，越聊越觉得这里真有人在过日子。",
+            f"{tourist_name} 在{location}跟 {agent_name} 聊到“{topic}”，原本走马观花的心思慢慢沉了下来。",
+            f"{tourist_name} 在{location}和 {agent_name} 说起“{topic}”，对这里的印象一下立体了不少。",
+            f"{tourist_name} 在{location}问了 {agent_name} 几句“{topic}”，听完以后觉得这里比想象中更有烟火气。",
+        ]
+        return self._pick_fresh_summary_variant(variants)
+
+    def _natural_player_tourist_summary(self, tourist_name: str, topic: str) -> str:
+        variants = [
+            f"你和 {tourist_name} 聊了聊“{topic}”，对方明显更愿意继续逛下去。",
+            f"你和 {tourist_name} 说到“{topic}”，这趟行程对他来说一下具体了起来。",
+            f"你陪 {tourist_name} 聊了几句“{topic}”，他对这里的印象又暖了一点。",
+            f"你跟 {tourist_name} 提了提“{topic}”，他原本有点散的注意力一下收回来了。",
+            f"你和 {tourist_name} 顺着“{topic}”多聊了几句，对方明显更愿意在这里多停一会儿。",
+            f"你陪 {tourist_name} 扯到“{topic}”，他看这里的眼神慢慢从路过变成了认真打量。",
+        ]
+        return self._pick_fresh_summary_variant(variants)
+
+    def _natural_gray_trade_summary(self, requester_name: str, donor_name: str, topic: str) -> str:
+        variants = [
+            f"{requester_name} 和 {donor_name} 背着人做了一笔和“{topic}”有关的灰市交易。",
+            f"{requester_name} 和 {donor_name} 私下把“{topic}”这件事谈成了一笔见不得光的买卖。",
+            f"{requester_name} 和 {donor_name} 没走明面，悄悄围着“{topic}”做成了一笔交易。",
+        ]
+        return self.random.choice(variants)
+
+    def _natural_bank_borrow_summary(self, borrower_name: str, bank_name: str, amount: int, term_days: int, amount_due: int) -> str:
+        variants = [
+            f"{borrower_name} 刚从{bank_name}周转了 ${amount}，准备 {term_days} 天内还上 ${amount_due}。",
+            f"{borrower_name} 手头发紧，刚向{bank_name}借了 ${amount}，{term_days} 天后要还 ${amount_due}。",
+            f"{borrower_name} 刚去{bank_name}补了一口现金，借到 ${amount}，到期要还 ${amount_due}。",
+        ]
+        return self.random.choice(variants)
+
+    def _natural_bank_repay_summary(self, borrower_name: str, paid: int, remaining: int) -> str:
+        if remaining <= 0:
+            variants = [
+                f"{borrower_name} 已经把这笔银行贷款结清了。",
+                f"{borrower_name} 总算把这笔银行贷款还完了。",
+                f"{borrower_name} 刚把欠银行的这笔钱清掉了。",
+            ]
+            return self.random.choice(variants)
+        variants = [
+            f"{borrower_name} 先还了银行 ${paid}，但这笔贷款还没彻底结清。",
+            f"{borrower_name} 刚往银行回了 ${paid}，剩下的还得接着扛。",
+            f"{borrower_name} 先把银行这边补了 ${paid}，后面还有尾账没清。",
+        ]
+        return self.random.choice(variants)
+
+    def _normalize_recent_dialogue_history(self) -> None:
+        for tourist in self.state.tourists:
+            if tourist.favorite_topic:
+                tourist.favorite_topic = tourist.favorite_topic.replace("园区", "小镇")
+            if tourist.brief_note:
+                tourist.brief_note = tourist.brief_note.replace("园区", "小镇")
+            if tourist.current_activity:
+                tourist.current_activity = tourist.current_activity.replace("园区", "小镇")
+        for item in self.state.dialogue_history[:200]:
+            summary = item.summary or ""
+            if summary:
+                item.summary = summary.replace("园区", "小镇")
+            if item.key_point:
+                item.key_point = item.key_point.replace("园区", "小镇")
+            if item.topic:
+                item.topic = item.topic.replace("园区", "小镇")
+            if "围绕“" in summary and "接了一轮，整体气氛偏" in summary and len(item.participant_names) >= 2:
+                item.summary = self._natural_dialogue_summary(
+                    self._find_agent(item.participants[0]) if item.participants and item.participants[0] in {a.id for a in self.state.agents} else self.state.agents[0],
+                    self._find_agent(item.participants[1]) if len(item.participants) > 1 and item.participants[1] in {a.id for a in self.state.agents} else self.state.agents[0],
+                    item.topic or "眼前这件事",
+                    item.mood or "neutral",
+                )
+                continue
+            if "游客对园区的印象被进一步拉高" in summary and len(item.participant_names) >= 2:
+                tourist_name = item.participant_names[-1]
+                item.summary = self._natural_player_tourist_summary(tourist_name, item.topic or "旅途见闻")
+                continue
+            if "短聊了一轮，游客视角给了园区一点新鲜感" in summary and len(item.participant_names) >= 2:
+                tourist_name, agent_name = item.participant_names[0], item.participant_names[1]
+                item.summary = self._natural_tourist_dialogue_summary(tourist_name, agent_name, ROOM_LABELS.get("foyer", "小镇里"), item.topic or "旅途见闻")
+                continue
+        for post in self.state.feed_timeline[:300]:
+            if post.content:
+                post.content = post.content.replace("园区", "小镇")
+            if post.summary:
+                post.summary = post.summary.replace("园区", "小镇")
+            if post.topic_tags:
+                post.topic_tags = [tag.replace("园区", "小镇") for tag in post.topic_tags]
+            if item.topic == "银行借贷" and "刚向青松合作银行借到" in summary:
+                borrower_name = item.participant_names[0] if item.participant_names else "有人"
+                m = re.search(r"借到 \$(\d+).*?(\d+) 天后归还 \$(\d+)", summary)
+                if m:
+                    item.summary = self._natural_bank_borrow_summary(borrower_name, self.state.bank.name, int(m.group(1)), int(m.group(2)), int(m.group(3)))
+                continue
+            if item.topic == "银行借贷" and ("已经把这笔银行贷款还清" in summary or "先补还了一部分逾期银行贷款" in summary or "先提前归还了一部分银行贷款" in summary):
+                borrower_name = item.participant_names[0] if item.participant_names else "有人"
+                m = re.search(r"本次处理 (\d+)", item.financial_note or "")
+                remaining = 0
+                m2 = re.search(r"剩余 \$(\d+)", item.financial_note or "")
+                if m2:
+                    remaining = int(m2.group(1))
+                paid = int(m.group(1)) if m else 0
+                item.summary = self._natural_bank_repay_summary(borrower_name, paid, remaining)
 
     def _soft_shift_player_pressure(self) -> None:
         if self.random.random() < 0.22:
@@ -3246,7 +3438,7 @@ class GameEngine:
         if previous_tourist_signals:
             latest_signal = previous_tourist_signals[0]
             add_entry(
-                f"游客耳语：{latest_signal.title}，这条外来消息昨天已经影响到园区判断和盘面气氛。",
+                f"游客耳语：{latest_signal.title}，这条外来消息昨天已经影响到小镇判断和盘面气氛。",
                 target_kind="event",
                 target_id=latest_signal.id,
             )
@@ -4256,7 +4448,7 @@ class GameEngine:
         self.state.events = self.state.events[:8]
         self._append_bank_dialogue_record(
             loan,
-            summary=f"{borrower_name} 刚向{self.state.bank.name}借到 ${amount}，准备在 {term_days} 天后归还 ${loan.amount_due}。",
+            summary=self._natural_bank_borrow_summary(borrower_name, self.state.bank.name, amount, term_days, loan.amount_due),
             key_point=f"银行按当前信用给出 {loan.total_rate_pct:.2f}% 总利率，借款已经到账。",
             mood="warm" if credit_score >= 70 else "neutral",
             transcript=[f"{self.state.bank.name}：这笔可以批，按 {loan.total_rate_pct:.2f}% 总利率走。"] if borrower_type == "player" else [f"{borrower_name}：先借 ${amount} 周转。"],
@@ -4320,16 +4512,16 @@ class GameEngine:
             loan.status = "repaid"
             self._adjust_bank_borrower_credit(loan.borrower_type, loan.borrower_id, 4)
             self.state.lab.reputation = self._bounded(self.state.lab.reputation + 1)
-            summary = f"{borrower_name} 已经把这笔银行贷款还清。"
+            summary = self._natural_bank_repay_summary(borrower_name, payment, 0)
             key_point = "按时还清后，信用略有回升。"
             mood = "warm"
         elif loan.status == "overdue":
-            summary = f"{borrower_name} 先补还了一部分逾期银行贷款。"
+            summary = self._natural_bank_repay_summary(borrower_name, payment, loan.amount_due)
             key_point = f"还剩 ${loan.amount_due}，逾期状态还没完全解除。"
             mood = "tense"
         elif self.state.day < loan.due_day:
             loan.status = "active"
-            summary = f"{borrower_name} 先提前归还了一部分银行贷款。"
+            summary = self._natural_bank_repay_summary(borrower_name, payment, loan.amount_due)
             key_point = f"还剩 ${loan.amount_due}，这笔贷款还没到期。"
             mood = "neutral"
         else:
@@ -4541,6 +4733,7 @@ class GameEngine:
         self._move_tourists()
         self._trigger_tourist_spending()
         self._trigger_tourist_investment()
+        self._trigger_tourist_market_exit()
         self._trigger_tourist_market_investment()
         self._trigger_tourist_conversations()
         self._trigger_tourist_signals()
@@ -4553,34 +4746,72 @@ class GameEngine:
             for post in (self.state.feed_timeline or [])[:18]
         )
         for tourist in self.state.tourists:
-            if tourist.visitor_tier not in {"vip", "buyer"}:
+            if tourist.visitor_tier not in {"vip", "buyer", "repeat", "regular"}:
                 continue
-            if tourist.cash < 90:
+            if tourist.market_last_action.startswith("刚把"):
                 continue
-            if tourist.current_location not in {"market", "meeting", "data_wall"}:
+            minimum_cash = {
+                "vip": 70,
+                "buyer": 65,
+                "repeat": 55,
+                "regular": 45,
+            }.get(tourist.visitor_tier, 70)
+            if tourist.cash < minimum_cash:
                 continue
-            base_chance = 0.085 if tourist.visitor_tier == "vip" else 0.038
+            if tourist.current_location not in {"market", "meeting", "data_wall", "lounge", "foyer"}:
+                continue
+            base_chance = {
+                "vip": 0.16,
+                "buyer": 0.11,
+                "repeat": 0.05,
+                "regular": 0.04,
+            }.get(tourist.visitor_tier, 0.04)
             chance = base_chance + max(0.0, self.state.market.sentiment / 420)
             if self.state.market.regime == "bull":
-                chance += 0.035
+                chance += 0.05
             if hot_market_buzz:
-                chance += 0.04
+                chance += 0.06
             if tourist.favorite_topic in {"股票", "房价", "GeoAI"}:
-                chance += 0.03
+                chance += 0.04
+            if tourist.property_interest:
+                chance += 0.02
+            if tourist.mood >= 72:
+                chance += 0.025
             if self.random.random() > chance:
                 continue
+            preferred_symbol, preference_note = self._tourist_preferred_market_symbol(tourist)
             quote = max(
                 self.state.market.stocks,
-                key=lambda item: item.change_pct + item.turnover_pct * 0.22 + max(0.0, (item.fair_value - item.price) / max(0.01, item.price) * 100) * 0.18,
+                key=lambda item: (
+                    item.change_pct
+                    + item.turnover_pct * 0.22
+                    + max(0.0, (item.fair_value - item.price) / max(0.01, item.price) * 100) * 0.18
+                    + (0.75 if item.symbol == preferred_symbol else 0.0)
+                ),
             )
-            budget = min(tourist.cash, self.random.randint(90, 260))
+            budget_floor = {
+                "vip": 120,
+                "buyer": 90,
+                "repeat": 60,
+                "regular": 28,
+            }.get(tourist.visitor_tier, 80)
+            budget_ceiling = {
+                "vip": 320,
+                "buyer": 240,
+                "repeat": 140,
+                "regular": 72,
+            }.get(tourist.visitor_tier, 180)
+            budget = min(tourist.cash, self.random.randint(budget_floor, budget_ceiling))
             shares = max(1, int(budget // max(1.0, quote.price)))
             cost = int(round(shares * quote.price))
             if cost <= 0 or cost > tourist.cash:
                 continue
             tourist.cash -= cost
             tourist.market_portfolio[quote.symbol] = tourist.market_portfolio.get(quote.symbol, 0) + shares
-            tourist.market_invested_total += cost
+            tourist.market_cost_basis[quote.symbol] = tourist.market_cost_basis.get(quote.symbol, 0) + cost
+            tourist.market_invested_total = sum(tourist.market_cost_basis.values())
+            tourist.market_preference = preferred_symbol or quote.symbol
+            tourist.market_preference_note = preference_note
             tourist.market_last_action = f"刚拿 ${cost} 买了 {quote.symbol} {shares} 股。"
             tourist.mood = self._bounded(tourist.mood + 3)
             tourist.current_activity = f"刚通过外部券商小仓位买了 {quote.symbol}，想看看这波热度还能不能再冲一段。"
@@ -4636,6 +4867,173 @@ class GameEngine:
             post.credibility = self._feed_credibility_for_post(post)
             post.heat = self._compute_feed_heat(post)
             self._append_feed_post(post, remember=True, apply_impacts=True)
+            self._log(
+                "tourist_market_invest",
+                tourist={"id": tourist.id, "name": tourist.name, "tier": tourist.visitor_tier},
+                quote={"symbol": quote.symbol, "name": quote.name, "shares": shares, "cost": cost},
+            )
+
+    def _trigger_tourist_market_exit(self) -> None:
+        if not self.state.market.is_open or not self.state.market.stocks:
+            return
+        for tourist in self.state.tourists:
+            positions = [(symbol, shares) for symbol, shares in (tourist.market_portfolio or {}).items() if shares > 0]
+            if not positions:
+                continue
+            negative_buzz = any(post.category in {"market", "policy", "gossip"} and post.mood == "tense" and post.heat >= 18 for post in (self.state.feed_timeline or [])[:18])
+            tight_cash = tourist.cash <= 28
+            leaving_soon = tourist.stay_until_day - self.state.day <= 1
+            chance = 0.0
+            if tight_cash:
+                chance += 0.18
+            if leaving_soon:
+                chance += 0.14
+            if self.state.market.regime == "risk":
+                chance += 0.08
+            if negative_buzz:
+                chance += 0.08
+            if tourist.mood <= 45:
+                chance += 0.05
+            chance += 0.04
+            if self.random.random() > chance:
+                continue
+            preferred_symbol, preference_note = self._tourist_preferred_market_symbol(tourist)
+            symbol, shares = max(
+                positions,
+                key=lambda item: (
+                    1 if item[0] != preferred_symbol else 0,
+                    item[1],
+                ),
+            )
+            quote = next((stock for stock in self.state.market.stocks if stock.symbol == symbol), None)
+            if quote is None:
+                continue
+            sell_shares = max(1, shares if (tight_cash or leaving_soon) else max(1, shares // 2))
+            proceeds = int(round(sell_shares * quote.price))
+            cost_basis = tourist.market_cost_basis.get(symbol, 0)
+            avg_cost = cost_basis / max(1, shares)
+            realized_cost = int(round(avg_cost * sell_shares))
+            tourist.cash += proceeds
+            remaining = max(0, shares - sell_shares)
+            if remaining <= 0:
+                tourist.market_portfolio.pop(symbol, None)
+                tourist.market_cost_basis.pop(symbol, None)
+            else:
+                tourist.market_portfolio[symbol] = remaining
+                tourist.market_cost_basis[symbol] = max(0, cost_basis - realized_cost)
+            tourist.market_invested_total = sum(tourist.market_cost_basis.values())
+            tourist.market_last_action = f"刚把 {symbol} 卖出 {sell_shares} 股，回收 ${proceeds}。"
+            tourist.market_preference = preferred_symbol or symbol
+            tourist.market_preference_note = preference_note
+            realized_delta = proceeds - realized_cost
+            tourist.mood = self._bounded(tourist.mood + (2 if realized_delta >= 0 else -1))
+            tourist.current_activity = f"刚把 {symbol} 卖出一部分，准备看看接下来还值不值得继续跟。"
+            tourist.brief_note = f"刚把 {symbol} 卖出 {sell_shares} 股，回收 ${proceeds}，这趟投资开始更像一次短线试水。"
+            self._apply_quote_move(symbol, max(-2.0, min(-0.35, -proceeds / 520)), f"受 {tourist.name} 的场外减仓影响")
+            quote.volume = max(quote.volume or 0, (quote.volume or 0) + sell_shares)
+            quote.turnover_pct = round((quote.volume / max(1, quote.shares_outstanding or BASE_SHARES_OUTSTANDING.get(quote.symbol, 100000))) * 100, 2)
+            self._refresh_market_microstructure()
+            self._update_index_history()
+            self._update_daily_index_history()
+            self._append_finance_record(
+                actor_id=tourist.id,
+                actor_name=tourist.name,
+                category="market",
+                action="exit",
+                summary=f"{tourist.name} 通过外部券商卖出 {quote.name} {sell_shares} 股，回收 ${proceeds}，实现盈亏 ${realized_delta}。",
+                amount=proceeds,
+                asset_name=quote.name,
+                counterparty="外部券商",
+            )
+            if self.random.random() < 0.35:
+                post = FeedPost(
+                    id=f"feed-{uuid4().hex[:8]}",
+                    author_type="tourist",
+                    author_id=tourist.id,
+                    author_name=tourist.name,
+                    day=self.state.day,
+                    time_slot=self.state.time_slot,
+                    category="market",
+                    mood="cool" if realized_delta >= 0 else "tense",
+                    content=self._clean_feed_text(
+                        f"我先把 {symbol} 收回来一点，落袋为安总比把情绪全压在一条线上强。"
+                        if realized_delta >= 0
+                        else f"{symbol} 这波我先撤一点，不然心态会先被它拖坏。"
+                    ),
+                    topic_tags=[symbol, "游客减仓", "短线试水"],
+                    desire_tags=["先收手", "控制风险"],
+                    likes=4 + self.random.randint(0, 4),
+                    views=28 + self.random.randint(0, 18),
+                    summary="有游客开始把这里的市场当成可进可出的短线试水盘。",
+                    impacts=["影响市场", "影响游客讨论"],
+                )
+                post.credibility = self._feed_credibility_for_post(post)
+                post.heat = self._compute_feed_heat(post)
+                self._append_feed_post(post, remember=True, apply_impacts=True)
+            self._log(
+                "tourist_market_exit",
+                tourist={"id": tourist.id, "name": tourist.name, "tier": tourist.visitor_tier},
+                quote={"symbol": quote.symbol, "name": quote.name, "shares": sell_shares, "proceeds": proceeds, "realized_delta": realized_delta},
+            )
+
+    def _tourist_preferred_market_symbol(self, tourist: TouristAgent) -> tuple[str, str]:
+        scores = {"GEO": 0.0, "AGR": 0.0, "SIG": 0.0}
+        reasons: dict[str, list[str]] = {symbol: [] for symbol in scores}
+        topic = tourist.favorite_topic or ""
+        if any(keyword in topic for keyword in ["GeoAI", "空间", "故事", "懂这里"]):
+            scores["GEO"] += 1.1
+            reasons["GEO"].append("你更关注 GeoAI 和小镇故事")
+        if any(keyword in topic for keyword in ["集市", "价格", "带回去", "消费", "小吃"]):
+            scores["AGR"] += 1.0
+            reasons["AGR"].append("你更在意消费、集市和价格")
+        if any(keyword in topic for keyword in ["天气", "住宿", "信号", "风向"]):
+            scores["SIG"] += 0.9
+            reasons["SIG"].append("你更留意住宿、风向和信号")
+        if tourist.property_interest:
+            scores["AGR"] += 0.35
+            reasons["AGR"].append("你本来就在看房和资产")
+        if tourist.visitor_tier == "vip":
+            scores["SIG"] += 0.25
+            reasons["SIG"].append("高消费游客更容易追逐风向")
+        if tourist.visitor_tier == "buyer":
+            scores["AGR"] += 0.3
+            scores["GEO"] += 0.2
+            reasons["AGR"].append("看房游客偏向资产和消费线")
+            reasons["GEO"].append("看房游客也会顺带注意 GeoAI 主线")
+        rotation_leader = self.state.market.rotation_leader or "GEO"
+        scores[rotation_leader] += 0.55
+        reasons[rotation_leader].append("当前市场主线正在轮到这只票")
+        if self.state.market.regime == "bull":
+            scores["GEO"] += 0.18
+            scores["AGR"] += 0.12
+            reasons["GEO"].append("牛市里更愿意追增长")
+        elif self.state.market.regime == "risk":
+            scores["SIG"] += 0.22
+            reasons["SIG"].append("风险市里更偏保守信号资产")
+        sentiment = self.state.market.sentiment or 0
+        if sentiment >= 18:
+            scores["GEO"] += 0.2
+            scores["AGR"] += 0.14
+            reasons["GEO"].append("市场情绪偏热，增长题材更受欢迎")
+        elif sentiment <= -12:
+            scores["SIG"] += 0.18
+            reasons["SIG"].append("市场偏冷，防守型标的更稳")
+        for post in (self.state.feed_timeline or [])[:24]:
+            if post.category not in {"market", "tourism", "property"} or (post.heat or 0) < 10:
+                continue
+            tags = " ".join(post.topic_tags or []) + " " + (post.content or "")
+            for symbol in scores:
+                if symbol in tags:
+                    delta = min(0.45, (post.heat or 0) / 120)
+                    if post.mood == "tense":
+                        delta *= -0.5
+                        reasons[symbol].append(f"微博上有人在紧张讨论 {symbol}")
+                    elif post.mood in {"warm", "spark"}:
+                        reasons[symbol].append(f"微博上对 {symbol} 的情绪偏热")
+                    scores[symbol] += delta
+        symbol, _ = max(scores.items(), key=lambda item: item[1])
+        note = "；".join(reasons[symbol][:3]) if reasons[symbol] else "更多是顺着当前市场和小镇舆论试水。"
+        return symbol, note
 
     def _trigger_tourist_investment(self) -> None:
         listed_assets = [
@@ -4693,6 +5091,12 @@ class GameEngine:
                 ),
             )
             self.state.events = self.state.events[:8]
+            self._log(
+                "tourist_property_invest",
+                tourist={"id": tourist.id, "name": tourist.name, "tier": tourist.visitor_tier},
+                property={"id": target.id, "name": target.name},
+                deposit=deposit,
+            )
             post = FeedPost(
                 id=f"feed-{uuid4().hex[:8]}",
                 author_type="tourist",
@@ -4707,7 +5111,7 @@ class GameEngine:
                 desire_tags=["想留更久", "先试水"],
                 likes=5 + self.random.randint(0, 4),
                 views=42 + self.random.randint(0, 24),
-                summary="游客公开表达了对园区房产的兴趣。",
+                summary="游客公开表达了对小镇房产的兴趣。",
                 impacts=["提升购房线索", "带动地产讨论"],
             )
             post.credibility = self._feed_credibility_for_post(post)
@@ -4725,7 +5129,7 @@ class GameEngine:
                 self.state.events.insert(
                     0,
                     build_internal_event(
-                        title=f"{tourist.name} 离开园区",
+                        title=f"{tourist.name} 离开小镇",
                         summary=f"{tourist.name} 结束了这次短住，带着“{tourist.favorite_topic or '这里挺有意思'}”的印象离开了。",
                         slot=self.state.time_slot,
                         category="general",
@@ -4776,6 +5180,7 @@ class GameEngine:
         elif visitor_tier == "buyer":
             budget += 18
             spending_desire += 6
+        initial_topic = self.random.choice(list(template["topic_pool"]))
         tourist = TouristAgent(
             id=f"tourist-{uuid4().hex[:8]}",
             name=name,
@@ -4784,7 +5189,7 @@ class GameEngine:
             is_returning=visitor_tier == "repeat",
             property_interest=visitor_tier == "buyer",
             message_influence=3 if visitor_tier == "vip" else 2 if visitor_tier in {"repeat", "buyer"} else 1,
-            favorite_topic=str(template["favorite_topic"]),
+            favorite_topic=initial_topic,
             position=tourism.inn_position.model_copy(),
             current_location=tourism.inn_location,
             cash=cash,
@@ -4794,7 +5199,7 @@ class GameEngine:
             stay_until_day=self.state.day + self.random.randint(1, 3),
             current_activity=f"刚在{tourism.inn_name}放下行李，准备先看看集市和湖边。",
             current_bubble="这地方比想象中舒服。",
-            brief_note=self._tourist_brief_note(visitor_tier, str(template["favorite_topic"])),
+            brief_note=self._tourist_brief_note(visitor_tier, initial_topic),
             short_term_memory=[
                 MemoryEntry(
                     text=f"刚住进{tourism.inn_name}，第一反应是这里比想象中更舒服。",
@@ -4819,7 +5224,7 @@ class GameEngine:
             0,
             build_internal_event(
                 title=f"{tourist.name} 搬进了 {tourism.inn_name}",
-                summary=f"{tourist.name} 作为 {tourist.archetype} 来到园区短住，身份偏向{self._tourist_tier_label(tourist.visitor_tier)}，可能会去 {tourism.market_name} 消费、和人聊天，并给本地经济带来一点热度。",
+                summary=f"{tourist.name} 作为 {tourist.archetype} 来到小镇短住，身份偏向{self._tourist_tier_label(tourist.visitor_tier)}，可能会去 {tourism.market_name} 消费、和人聊天，并给本地经济带来一点热度。",
                 slot=self.state.time_slot,
                 category="general",
             ),
@@ -4847,6 +5252,8 @@ class GameEngine:
                 if not tourist.last_locations or tourist.last_locations[-1] != tourist.current_location:
                     tourist.last_locations.append(tourist.current_location)
                     tourist.last_locations = tourist.last_locations[-4:]
+                if self.random.random() < 0.18:
+                    self._refresh_tourist_topic(tourist)
                 if destination == self.state.tourism.market_position:
                     tourist.current_activity = f"正在 {self.state.tourism.market_name} 东看西看，顺手打听这里的价钱和故事。"
                     tourist.current_bubble = self.random.choice(["这边摊子还挺密。", "这里买东西好像不贵。", "有人愿意给我讲讲这里吗？"])
@@ -5018,7 +5425,7 @@ class GameEngine:
         else:
             owner_type = "public_tourism"
             owner_id = "tourism_public"
-            owner_name = "园区文旅运营"
+            owner_name = "小镇文旅运营"
             self.state.government.reserve_balance += actual_amount
             self.state.government.revenues["tourism_public"] = self.state.government.revenues.get("tourism_public", 0) + actual_amount
         tourism.daily_revenue += actual_amount
@@ -5084,7 +5491,7 @@ class GameEngine:
         agent.current_bubble = agent_line
         tourist.current_activity = f"刚和 {agent.name} 聊起了“{tourist.favorite_topic or '这里的生活'}”。"
         agent.current_activity = f"刚和游客 {tourist.name} 接了一轮短对话。"
-        self._remember_tourist(tourist, f"你刚和 {agent.name} 聊了“{tourist.favorite_topic or '这里的生活'}”，对园区的印象更具体了。", 2)
+        self._remember_tourist(tourist, f"你刚和 {agent.name} 聊了“{tourist.favorite_topic or '这里的生活'}”，对这座小镇的印象更具体了。", 2)
         self._remember(agent, f"刚和游客 {tourist.name} 聊了“{tourist.favorite_topic or '这里的生活'}”。", 1)
         agent.state.mood = self._bounded(agent.state.mood + 1)
         self.state.lab.team_atmosphere = self._bounded(self.state.lab.team_atmosphere + 1)
@@ -5097,8 +5504,13 @@ class GameEngine:
                 participants=[tourist.id, agent.id],
                 participant_names=[tourist.name, agent.name],
                 topic=tourist.favorite_topic or "旅途见闻",
-                summary=f"{tourist.name} 在 {ROOM_LABELS.get(tourist.current_location, tourist.current_location)} 和 {agent.name} 短聊了一轮，游客视角给了园区一点新鲜感。",
-                key_point=f"{tourist.name} 主要在问“{tourist.favorite_topic or '这里值得看什么'}”，{agent.name} 顺手把园区的节奏讲给他听。",
+                summary=self._natural_tourist_dialogue_summary(
+                    tourist.name,
+                    agent.name,
+                    ROOM_LABELS.get(tourist.current_location, tourist.current_location),
+                    tourist.favorite_topic or "旅途见闻",
+                ),
+                key_point=f"{tourist.name} 主要在问“{tourist.favorite_topic or '这里值得看什么'}”，{agent.name} 顺手把小镇的节奏讲给他听。",
                 transcript=[f"{tourist.name}：{tourist_line}", f"{agent.name}：{agent_line}"],
                 desire_labels={tourist.name: "想把旅途过得有意思一点", agent.name: DESIRE_LABELS.get(dominant_desire_for_agent(self.state, agent)[0], "想先观察局势")},
                 mood="warm",
@@ -5151,8 +5563,8 @@ class GameEngine:
             "这消息不一定准，但外面已经在传了。",
             "我在旅馆里听到一个值得提一下的说法。",
         ])
-        tourist.brief_note = f"刚把一条外部消息带进园区：{signal['title']}。"
-        self._remember_tourist(tourist, f"你刚把一条外部消息“{signal['title']}”带进园区，觉得自己像个临时情报源。", 2)
+        tourist.brief_note = f"刚把一条外部消息带进小镇：{signal['title']}。"
+        self._remember_tourist(tourist, f"你刚把一条外部消息“{signal['title']}”带进小镇，觉得自己像个临时情报源。", 2)
         self._ingest_event(event, player_injected=False)
 
     def _tourist_ambient_lines(self, tourist: TouristAgent, agent: Agent) -> tuple[str, str]:
@@ -5196,7 +5608,7 @@ class GameEngine:
     def _tourist_brief_note(self, visitor_tier: str, topic: str) -> str:
         tier_note = {
             "regular": "更容易被轻松氛围和集市吸引，会带来稳定的小额消费。",
-            "repeat": "这是回头客，熟悉园区节奏，更容易再次消费和传播消息。",
+            "repeat": "这是回头客，熟悉小镇节奏，更容易再次消费和传播消息。",
             "vip": "这是高消费客户，出手更大方，也更容易影响周边人的判断。",
             "buyer": "这是潜在购房者，会顺手打听旅馆、集市和挂牌房产。",
         }.get(visitor_tier, "会在停留期间带来额外消费。")
@@ -5309,7 +5721,7 @@ class GameEngine:
                 participants=[requester.id, donor.id],
                 participant_names=[requester.name, donor.name],
                 topic=topic,
-                summary=f"{requester.name} 和 {donor.name} 围绕“{topic}”私下做成了一笔灰市交易。",
+                summary=self._natural_gray_trade_summary(requester.name, donor.name, topic),
                 key_point=self._ambient_dialogue_key_point(
                     requester.name,
                     donor.name,
@@ -5519,7 +5931,7 @@ class GameEngine:
         inflation_lift = max(0, round((inflation_index - 100.0) / 16))
         pressure_lift = max(0, round(living_pressure / 24))
         wealth_lift = min(4, round(max(0, self._team_cash_total() + self.state.player.cash - 18000) / 32000))
-        tourism_lift = 1 if (self.state.tourism and (self.state.tourism.daily_visitors or 0) >= 4) else 0
+        tourism_lift = 1 if (self.state.tourism and ((self.state.tourism.daily_arrivals or 0) >= 4 or len(self.state.tourists or []) >= 4)) else 0
 
         def step_toward(current: int, target: int, floor: int, cap: int) -> int:
             current = current or floor
@@ -6418,7 +6830,9 @@ class GameEngine:
             if agent.short_term_memory:
                 items.append(f"刚记住：{agent.short_term_memory[0].text}")
             if agent.long_term_memory:
-                items.append(f"长线挂念：{agent.long_term_memory[0].text}")
+                long_term = agent.long_term_memory[0]
+                if long_term.importance >= 4 or long_term.day < self.state.day:
+                    items.append(f"长线挂念：{long_term.text}")
             thread = next((thread for thread in self.state.social_threads if agent.id in thread.participants), None)
             if thread:
                 items.append(f"最近对话线：{thread.latest_summary}")
@@ -6831,7 +7245,7 @@ class GameEngine:
         self._refresh_presence()
         if slot == "morning" and day > 1:
             self.state.player.daily_actions = []
-            self.social_engine.run_new_day_briefing(previous_day)
+            self.social_engine.run_new_day_briefing(day - 1)
             self.state.events.insert(
                 0,
                 build_internal_event(
@@ -6939,7 +7353,7 @@ class GameEngine:
         agent.state.mood = min(100, agent.state.mood + max(1, curiosity_gain - 1))
         self._remember(agent, f"刚收到外部事件：“{event.title}”。", importance=2)
         if event.category in {"geoai", "tech", "market"}:
-            self._remember(agent, f"“{event.title}”可能改变实验室接下来的讨论方向。", importance=3, long_term=True)
+            self._remember(agent, f"“{event.title}”这件事，接下来多半会影响小镇里的看法。", importance=3, long_term=True)
         event_bubble = {
             "geoai": "这条信息值得继续推演。",
             "tech": "也许要调整实验方案。",
@@ -6969,7 +7383,7 @@ class GameEngine:
             self._remember(agent, f"玩家刚刚说：“{dialogue.player_text}”", importance=2)
         self._remember(agent, f"你刚刚回复玩家：“{dialogue.line[:72]}”", importance=2)
         if mode != "observer" and agent.persona in {"rational", "creative"}:
-            self._remember(agent, f"关于“{topic}”的讨论值得继续追。", importance=3, long_term=True)
+            self._remember(agent, f"“{topic}”这件事还值得过后再想一想。", importance=3, long_term=True)
         self.state.events.insert(
             0,
             build_internal_event(
@@ -7101,12 +7515,12 @@ class GameEngine:
         if recipient_type == "player":
             self.state.player.cash += payout
             self.state.player.life_satisfaction = self._bounded(self.state.player.life_satisfaction + (4 if bankruptcy else 2))
-            self.state.player.last_trade_summary = f"园区财政发来 ${payout} 的{'破产' if bankruptcy else '低收入'}保障金，先把现金线托住。"
+            self.state.player.last_trade_summary = f"小镇财政发来 ${payout} 的{'破产' if bankruptcy else '低收入'}保障金，先把现金线托住。"
         elif agent is not None:
             agent.cash += payout
             self._adjust_agent_satisfaction(agent, 4 if bankruptcy else 2)
             agent.state.stress = self._bounded(agent.state.stress - (8 if bankruptcy else 4))
-            agent.last_trade_summary = f"园区财政发来 ${payout} 的{'破产' if bankruptcy else '低收入'}保障金，让你先稳一口气。"
+            agent.last_trade_summary = f"小镇财政发来 ${payout} 的{'破产' if bankruptcy else '低收入'}保障金，让你先稳一口气。"
         self._append_finance_record(
             actor_id=recipient_id,
             actor_name=recipient_name,
@@ -8911,13 +9325,157 @@ class GameEngine:
         agent.short_term_memory.insert(0, entry)
         agent.short_term_memory = agent.short_term_memory[:5]
         if long_term:
-            agent.long_term_memory.insert(0, entry)
-            agent.long_term_memory = agent.long_term_memory[:5]
+            self._remember_long_term(agent, text, importance)
 
     def _remember_tourist(self, tourist: TouristAgent, text: str, importance: int = 1) -> None:
         entry = MemoryEntry(text=text, day=self.state.day, time_slot=self.state.time_slot, importance=importance)
         tourist.short_term_memory.insert(0, entry)
         tourist.short_term_memory = tourist.short_term_memory[:4]
+
+    def _memory_signature(self, text: str) -> str:
+        normalized = (
+            text.replace("你刚刚", "")
+            .replace("刚刚", "")
+            .replace("刚收到", "")
+            .replace("今天", "")
+            .replace("这一轮", "")
+            .replace("第 ", "第")
+            .replace("。", "")
+            .replace("，", "")
+            .replace("：", "")
+            .replace("“", "")
+            .replace("”", "")
+            .strip()
+        )
+        return normalized[:72]
+
+    def _summarize_long_term_memory(self, text: str) -> str:
+        summary = text.strip()
+        summary = summary.replace("实验室", "小镇")
+        if summary.startswith("LabDaily："):
+            brief = summary.replace("LabDaily：", "", 1).strip()
+            if brief.startswith("股市速写："):
+                market_line = brief.replace("股市速写：", "", 1).split("；", 1)[0].strip("。 ")
+                summary = f"今天一早大家还在念叨：{market_line}。"
+            elif "；" in brief:
+                first, second = brief.split("；", 1)
+                summary = f"晨报里反复提到：{first.strip()}，{second.strip()}。"
+            else:
+                summary = f"晨报里反复提到：{brief.strip()}。"
+        if summary.startswith("晨报一直在提醒：股市速写："):
+            market_line = summary.replace("晨报一直在提醒：股市速写：", "", 1).split("，板块主线", 1)[0].strip("。 ")
+            summary = f"今天一早大家还在念叨：{market_line}。"
+        if summary.startswith("游客消息："):
+            message = summary.replace("游客消息：", "", 1).strip("。 ")
+            summary = f"外地传来的“{message}”这件事，还挂在心里。"
+        event_match = re.match(r"^“(.+?)”可能会?改变小镇接下来的讨论方向。?$", summary)
+        if event_match:
+            summary = f"“{event_match.group(1)}”这件事，大家到现在还没放下。"
+        event_match = re.match(r"^“(.+?)”这件事，接下来多半会影响小镇里的看法。?$", summary)
+        if event_match:
+            summary = f"这两天大家都绕不开“{event_match.group(1)}”这件事。"
+        feed_match = re.match(r"^(?:微博：|微博上有人提到：)(.+?说“.+)$", summary)
+        if feed_match:
+            text = feed_match.group(1).strip()
+            if len(text) > 34:
+                text = text[:32].rstrip("，。、“”\" ") + "…"
+            summary = f"那条微博还挂在心里：{text}"
+        replacements = [
+            ("你刚刚回复玩家：", "你和玩家已经说到："),
+            ("玩家刚刚说：", "玩家提过："),
+            ("刚收到外部事件：", "外部消息："),
+            ("刚收到外部事件：“", "外部消息“"),
+            ("关于“", "“"),
+            ("”的讨论值得继续追。", "”这件事值得继续留意。"),
+            ("可能改变实验室接下来的讨论方向。", "可能会改变小镇接下来的讨论方向。"),
+            ("你在", ""),
+            ("和玩家聊了“", "和玩家聊过“"),
+            ("天气是", "当时天气是"),
+            ("微博：", "微博上有人提到："),
+        ]
+        for source, target in replacements:
+            summary = summary.replace(source, target)
+        summary = re.sub(r"第\s*(\d+)\s*天开始了。", r"第\1天开头的那阵子，", summary)
+        summary = re.sub(r"你在[^和]{0,12}和玩家聊过“", "和玩家聊过“", summary)
+        summary = re.sub(r"刚|刚刚|这一轮", "", summary)
+        summary = re.sub(r"\s+", "", summary)
+        summary = summary.strip("，。 ")
+        summary = summary.replace("。。", "。")
+        if len(summary) > 48:
+            summary = summary[:46].rstrip("，。 ") + "…"
+        if not summary.endswith(("。", "！", "？")):
+            summary += "。"
+        return summary
+
+    def _extract_market_memory_info(self, text: str) -> dict[str, object] | None:
+        match = re.match(
+            r"^今天一早大家还在念叨：大盘(?P<tone>承压|走强|震荡)，指数收在(?P<close>\d+(?:\.\d+)?)，昨日日内(?P<change>[+-]\d+(?:\.\d+)?)%。$",
+            text.strip(),
+        )
+        if not match:
+            return None
+        return {
+            "tone": match.group("tone"),
+            "close": float(match.group("close")),
+            "change": float(match.group("change")),
+        }
+
+    def _merge_long_term_memories(self, memories: list[MemoryEntry]) -> list[MemoryEntry]:
+        merged: list[MemoryEntry] = []
+        market_memories: list[tuple[MemoryEntry, dict[str, object]]] = []
+        for memory in memories:
+            info = self._extract_market_memory_info(memory.text)
+            if info is None:
+                merged.append(memory)
+                continue
+            market_memories.append((memory, info))
+        if market_memories:
+            latest_memory, latest_info = market_memories[0]
+            tones = [str(info["tone"]) for _, info in market_memories]
+            unique_tones = list(dict.fromkeys(tones))
+            if len(market_memories) == 1:
+                merged.insert(0, latest_memory)
+            else:
+                if len(unique_tones) == 1:
+                    tone_phrase = {
+                        "承压": "这几天盘面一直偏弱",
+                        "走强": "这几天盘面一直偏强",
+                        "震荡": "这几天盘面一直在来回晃",
+                    }.get(unique_tones[0], "这几天盘面一直在变")
+                else:
+                    tone_phrase = "这几天盘面来回拉扯"
+                summary = (
+                    f"{tone_phrase}，大家嘴上一直在念叨大盘；"
+                    f"最近一次收在{latest_info['close']:.2f}，单日{latest_info['change']:+.2f}%。"
+                )
+                merged.insert(
+                    0,
+                    MemoryEntry(
+                        text=summary,
+                        day=latest_memory.day,
+                        time_slot=latest_memory.time_slot,
+                        importance=max(memory.importance for memory, _ in market_memories),
+                    ),
+                )
+        merged.sort(key=lambda item: (item.day, SLOT_SEQUENCE.index(item.time_slot), item.importance), reverse=True)
+        return merged[:4]
+
+    def _remember_long_term(self, agent: Agent, text: str, importance: int) -> None:
+        if importance < 3:
+            return
+        summary = self._summarize_long_term_memory(text)
+        signature = self._memory_signature(summary)
+        existing = agent.long_term_memory or []
+        if any(self._memory_signature(memory.text) == signature for memory in existing[:4]):
+            return
+        todays_long_term = [memory for memory in existing if memory.day == self.state.day]
+        if importance < 4 and len(todays_long_term) >= 1:
+            return
+        if importance >= 4 and len(todays_long_term) >= 2:
+            return
+        entry = MemoryEntry(text=summary, day=self.state.day, time_slot=self.state.time_slot, importance=importance)
+        agent.long_term_memory.insert(0, entry)
+        agent.long_term_memory = self._merge_long_term_memories(agent.long_term_memory[:6])
 
     def _cooldown_for(self, owner: Agent | object, target_id: str) -> int:
         return int(getattr(owner, "relation_cooldowns", {}).get(target_id, 0))
@@ -10038,7 +10596,7 @@ class GameEngine:
                 id=f"feed-{uuid4().hex[:8]}",
                 author_type="government",
                 author_id="government",
-                author_name="园区财政与监管局",
+                author_name="小镇财政与监管局",
                 day=self.state.day,
                 time_slot=self.state.time_slot,
                 category="policy",
@@ -10323,7 +10881,7 @@ class GameEngine:
             elif item.tone_hint <= -1:
                 effect = "这条消息让市场、消费和舆论判断都更偏谨慎。"
             else:
-                effect = "这条消息没有给出单边答案，更多是在园区里制造讨论和试探。"
+                effect = "这条消息没有给出单边答案，更多是在小镇里制造讨论和试探。"
             return f"{item.source or '系统新闻台'} 围绕“{theme_cn}”抛出的全球消息，已在第 {day} 天{slot_label}落地。{effect}"
         if item.tone_hint >= 1:
             effect = "这条消息更容易抬高风险偏好和消费情绪。"
@@ -10412,13 +10970,13 @@ class GameEngine:
             elif tourist.current_location == self.state.tourism.inn_location:
                 tourist.current_activity = f"正在{self.state.tourism.inn_name}休息，准备下一轮出门。"
             else:
-                tourist.current_activity = "正在园区里慢慢闲逛，看看哪里值得停下来。"
+                tourist.current_activity = "正在小镇里慢慢闲逛，看看哪里值得停下来。"
             tourist.brief_note = tourist.brief_note or f"{self._tourist_tier_label(tourist.visitor_tier)}，这趟会待到第 {tourist.stay_until_day} 天，最关心“{tourist.favorite_topic or '哪里最值得继续逛'}”。"
         self._record_analysis_point()
 
     def _ensure_agent_runtime_fields(self) -> None:
         previous_version = self.state.version or 0
-        self.state.version = max(self.state.version, 61)
+        self.state.version = max(self.state.version, 62)
         if self.state.loans is None:
             self.state.loans = []
         if self.state.archived_tasks is None:
@@ -10613,6 +11171,10 @@ class GameEngine:
                 tourist.market_invested_total = 0
             if tourist.market_last_action is None:
                 tourist.market_last_action = ""
+            if tourist.market_preference is None:
+                tourist.market_preference = ""
+            if tourist.market_preference_note is None:
+                tourist.market_preference_note = ""
             if not tourist.short_term_memory:
                 tourist.short_term_memory = [
                     MemoryEntry(
@@ -10624,6 +11186,15 @@ class GameEngine:
                 ]
             for memory in tourist.short_term_memory or []:
                 memory.text = self._localized_text(memory.text)
+            tourist.favorite_topic = self._localized_text(tourist.favorite_topic)
+            tourist.current_activity = self._localized_text(tourist.current_activity)
+            tourist.current_bubble = self._localized_text(tourist.current_bubble)
+            tourist.brief_note = self._localized_text(tourist.brief_note)
+            tourist.market_last_action = self._localized_text(tourist.market_last_action or "")
+            tourist.market_preference = self._localized_text(tourist.market_preference or "")
+            tourist.market_preference_note = self._localized_text(tourist.market_preference_note or "")
+
+        for agent in self.state.agents:
             if agent.portfolio is None:
                 agent.portfolio = {}
             if not agent.life_satisfaction:
@@ -10693,8 +11264,16 @@ class GameEngine:
             agent.memory_stream = [self._localized_text(item) for item in agent.memory_stream or []]
             for memory in agent.short_term_memory or []:
                 memory.text = self._localized_text(memory.text)
+            normalized_long_term: list[MemoryEntry] = []
+            seen_memory_signatures: set[str] = set()
             for memory in agent.long_term_memory or []:
-                memory.text = self._localized_text(memory.text)
+                memory.text = self._summarize_long_term_memory(self._localized_text(memory.text))
+                signature = self._memory_signature(memory.text)
+                if signature in seen_memory_signatures:
+                    continue
+                seen_memory_signatures.add(signature)
+                normalized_long_term.append(memory)
+            agent.long_term_memory = self._merge_long_term_memories(normalized_long_term[:6])
         if self.state.player.portfolio is None:
             self.state.player.portfolio = {}
         if not self.state.player.credit_score:

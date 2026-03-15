@@ -131,7 +131,7 @@ def _feed_author_profile(post) -> str:
     if post.author_type == "government":
         gov = world.government
         return (
-            "园区财政与监管局：公开表达偏短句公告风，但也会直接回应质疑。"
+            "小镇财政与监管局：公开表达偏短句公告风，但也会直接回应质疑。"
             f" 当前议程：{gov.current_agenda or '暂无'}；最近动作：{gov.last_agent_action or '暂无'}；监管强度：{gov.enforcement_level}。"
         )
     return "系统账号：负责播报和提醒。"
@@ -205,7 +205,7 @@ def _build_synthetic_timeline_event(spec: dict[str, str], slot: TimeSlot, world:
             ("税务核查风声让交易情绪转谨慎", "部分经营者开始担心抽查频率和报表压力，盘面风险偏好略降。", -1, "SIG", 3),
         ],
         "全球地产与租金压力": [
-            ("租住需求回升支撑园区地产预期", "短住与租住需求抬升，让地产相关收入和估值预期略有改善。", 1, "AGR", 2),
+            ("租住需求回升支撑小镇地产预期", "短住与租住需求抬升，让地产相关收入和估值预期略有改善。", 1, "AGR", 2),
             ("住房观望情绪拖慢成交节奏", "潜在购房者继续观望，挂牌资产的消化速度有所放缓。", -1, "AGR", 2),
         ],
         "全球旅游与消费冷热": [
