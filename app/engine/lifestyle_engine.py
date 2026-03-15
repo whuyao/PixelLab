@@ -23,6 +23,7 @@ class LifestyleEngine:
 
     def run_new_day(self) -> WorldState:
         self.host._update_inflation_state()
+        self.host._update_daily_cost_baselines()
         self.host._settle_property_income()
         self.host._settle_daily_living_costs()
         self.host._refresh_lifestyle_state()

@@ -196,8 +196,9 @@ body.llm-dev-visible .llm-switcher-shell,
 }
 
 .journal-layout {
-  grid-template-columns: minmax(0, 1fr) 430px;
+  grid-template-columns: minmax(0, 1.28fr) minmax(400px, 470px);
   gap: 18px;
+  align-items: start;
 }
 
 .government-board {
@@ -1439,9 +1440,11 @@ canvas {
 
 .journal-side {
   grid-template-columns: 1fr;
-  max-width: 430px;
-  width: 430px;
-  justify-self: stretch;
+  width: auto;
+  max-width: 470px;
+  min-width: 0;
+  justify-self: end;
+  align-self: start;
 }
 
 .policy-group {

@@ -277,7 +277,7 @@ async def _rebuild_news_timeline() -> None:
     min_items, max_items = sample_bounds
     sample_size = min(len(core_specs), context.engine.random.randint(min_items, max_items))
     chosen_specs = context.engine.random.sample(core_specs, sample_size)
-    social_probability = {3: 0.35, 7: 1.0, 14: 1.0}.get(window_days, 1.0)
+    social_probability = {3: 0.18, 7: 0.55, 14: 0.72}.get(window_days, 0.55)
     if context.engine.random.random() < social_probability:
         chosen_specs.append(social_spec)
     horizon_slots = window_days * 5
@@ -314,7 +314,7 @@ async def _rebuild_news_timeline() -> None:
         and item.scheduled_day <= context.engine.state.day + window_days
         for item in context.engine.state.news_timeline
     )
-    if not has_social and window_days >= 7:
+    if not has_social and window_days >= 14:
         fallback_event = _build_synthetic_timeline_event(social_spec, world.time_slot, world)
         fallback_event.market_strength = max(4, fallback_event.market_strength)
         fallback_offset = max(1, min(horizon_slots, context.engine.random.randint(2, max(2, horizon_slots // 2))))

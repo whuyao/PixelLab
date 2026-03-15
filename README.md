@@ -446,7 +446,8 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
   - [system_development_retrospective.md](docs/system_development_retrospective.md)：系统发展过程复盘
 - 运行分析与历史案例：
   - [recent_100day_emergence_report.md](docs/recent_100day_emergence_report.md)：最近 100 天系统与智能体涌现报告
-  - [recent_100day_government_emergence_report.md](docs/recent_100day_government_emergence_report.md)：最近 100 天政府智能体与大政府模式涌现报告
+- [recent_100day_government_emergence_report.md](docs/recent_100day_government_emergence_report.md)：最近 100 天政府智能体与大政府模式涌现报告
+- [market_casino_social_emergence_report.md](docs/market_casino_social_emergence_report.md)：最近 100 天市场、赌场、微博与政府耦合涌现复盘
   - [emergent_behavior_casebook.md](docs/emergent_behavior_casebook.md)：10 个涌现行为案例
   - [simulation_day312_review.md](docs/simulation_day312_review.md)：第 312 天阶段的历史运行复盘
   - [simulation_day312_academic_analysis.md](docs/simulation_day312_academic_analysis.md)：第 312 天阶段的历史学术分析版
@@ -573,6 +574,10 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
 - 赌场是灰色经济节点，会进入灰案、监管抽查和财政收入
 - 市场页和日志页都已经带赌场观察卡、下注热度图、最近 10 笔赌局和最大输赢榜
 - 赌场自动交易会进入 `实时对话`，并可以通过 `只看地下赌博` 单独筛出
+- 最近一轮调优刻意降低了赌场“吞噬全镇现金”的倾向，转而强化它对人物情绪、微博热帖、灰案和监管链的放大作用
+- 进一步分析可参考：
+  - [casino_emergence_report.md](docs/casino_emergence_report.md)
+  - [market_casino_social_emergence_report.md](docs/market_casino_social_emergence_report.md)
 
 当前 5 个核心角色在微博上的公开人格已经刻意拉开：
 

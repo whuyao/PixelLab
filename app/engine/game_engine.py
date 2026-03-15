@@ -765,6 +765,13 @@ class GameEngine:
 
     def _apply_casino_social_effects(self, actor: Agent, *, stake: int, net_delta: int) -> None:
         target = self._pick_casino_relation_target(actor)
+        if net_delta >= 0:
+            actor.consumption_desire = self._bounded(actor.consumption_desire + min(8, max(2, net_delta // 60)))
+            actor.life_satisfaction = self._bounded(actor.life_satisfaction + min(6, 1 + net_delta // 120))
+            actor.state.mood = self._bounded(actor.state.mood + min(5, 1 + net_delta // 140))
+        else:
+            actor.state.stress = self._bounded(actor.state.stress + min(6, max(1, abs(net_delta) // 120)))
+            actor.consumption_desire = self._bounded(actor.consumption_desire - min(4, max(1, abs(net_delta) // 180)))
         if target is None:
             return
         if net_delta <= -max(90, stake // 2):
@@ -1206,8 +1213,9 @@ class GameEngine:
             else:
                 candidates.append(self._build_government_feed_post(latest_event))
         for post in candidates[: max(0, slot_cap - len(current_slot_posts))]:
-            self._append_feed_post(post, remember=True, apply_impacts=True)
-            self._log("feed_post", author_type=post.author_type, author_name=post.author_name, category=post.category, content=post.content, heat=post.heat)
+            inserted = self._append_feed_post(post, remember=True, apply_impacts=True)
+            if inserted:
+                self._log("feed_post", author_type=post.author_type, author_name=post.author_name, category=post.category, content=post.content, heat=post.heat)
 
     def _build_agent_feed_post(self, agent: Agent, latest_event: LabEvent | None) -> FeedPost:
         category = self._agent_feed_category(agent, latest_event)
@@ -1914,12 +1922,24 @@ class GameEngine:
         credibility_weight = max(1, post.credibility // 25)
         heat_weight = max(1, post.heat // 20)
         if post.category == "market":
-            self.state.market.sentiment = self._bounded(self.state.market.sentiment + tone * credibility_weight * heat_weight)
+            market_shift = tone * credibility_weight * heat_weight
+            if tone > 0:
+                market_shift += 1
+                self.state.player.consumption_desire = self._bounded(self.state.player.consumption_desire + 1)
+                for agent in self.state.agents:
+                    agent.consumption_desire = self._bounded(agent.consumption_desire + 1)
+            self.state.market.sentiment = self._bounded(self.state.market.sentiment + market_shift)
         elif post.category == "tourism":
             self.state.tourism.latest_signal = f"微博舆情：{post.content[:24]}"
             self.state.tourism.daily_messages_count += 1
             if tone > 0:
                 self.state.tourism.repeat_customers_total += 1
+                self.state.market.sentiment = self._bounded(self.state.market.sentiment + 1)
+                self.state.player.life_satisfaction = self._bounded(self.state.player.life_satisfaction + 1)
+                self.state.player.consumption_desire = self._bounded(self.state.player.consumption_desire + 2)
+                for agent in self.state.agents:
+                    agent.life_satisfaction = self._bounded(agent.life_satisfaction + 1)
+                    agent.consumption_desire = self._bounded(agent.consumption_desire + 2)
         elif post.category == "research":
             self.state.lab.collective_reasoning = self._bounded(self.state.lab.collective_reasoning + max(1, heat_weight))
             self.state.lab.research_progress = self._bounded(self.state.lab.research_progress + max(0, tone + 1))
@@ -1931,6 +1951,10 @@ class GameEngine:
             if post.category == "gossip" and tone != 0:
                 self.state.tourism.latest_signal = f"小镇微博热议：{post.content[:24]}"
                 self.state.tourism.daily_messages_count += 1
+                if tone > 0:
+                    self.state.player.life_satisfaction = self._bounded(self.state.player.life_satisfaction + 1)
+                    for agent in self.state.agents:
+                        agent.life_satisfaction = self._bounded(agent.life_satisfaction + 1)
         elif post.category == "property" and tone > 0:
             self.state.tourism.buyer_leads_total += 1
         if post.reply_to_post_id:
@@ -1939,7 +1963,7 @@ class GameEngine:
                 agent = self.get_agent(post.author_id)
                 self._adjust_player_relation(agent, 1 if tone >= 0 else 0, "你在小镇微博上的公开互动被对方看见了。", observer=True)
 
-    def _append_feed_post(self, post: FeedPost, remember: bool = False, apply_impacts: bool = False) -> None:
+    def _append_feed_post(self, post: FeedPost, remember: bool = False, apply_impacts: bool = False) -> bool:
         if getattr(self.state, "feed_timeline", None) is None:
             self.state.feed_timeline = []
         duplicate = next(
@@ -1954,13 +1978,27 @@ class GameEngine:
             None,
         )
         if duplicate is not None:
-            return
+            return False
+        if post.author_type == "system" and post.topic_tags:
+            primary_tag = post.topic_tags[1] if len(post.topic_tags) > 1 else post.topic_tags[0]
+            recent_system_duplicate = next(
+                (
+                    existing
+                    for existing in self.state.feed_timeline[:24]
+                    if existing.author_type == "system"
+                    and existing.category == post.category
+                    and primary_tag in (existing.topic_tags or [])
+                ),
+                None,
+            )
+            if recent_system_duplicate is not None:
+                return False
         self.state.feed_timeline.insert(0, post)
         self.state.feed_timeline = self.state.feed_timeline[:1000]
         if apply_impacts:
             self._apply_feed_impacts(post)
         if not remember:
-            return
+            return True
         memory_text = f"微博：{post.author_name}说“{post.content[:26]}”"
         if post.author_type == "agent":
             agent = self.get_agent(post.author_id)
@@ -1975,6 +2013,7 @@ class GameEngine:
             for agent in self.state.agents[:2]:
                 self._remember(agent, f"热帖挂在脑子里：{post.author_name}提到“{post.content[:20]}”", 1)
             self.state.tourism.latest_signal = f"微博热帖：{post.content[:24]}"
+        return True
 
     def _build_scheduled_social_preview_post(self, item: NewsTimelineItem) -> FeedPost:
         post = FeedPost(
@@ -5162,6 +5201,63 @@ class GameEngine:
             pressure += 3
         self.state.market.living_cost_pressure = self._bounded(round(pressure))
 
+    def _update_daily_cost_baselines(self) -> None:
+        inflation_index = self.state.market.inflation_index or 100.0
+        living_pressure = self.state.market.living_cost_pressure or 0
+        service_relief = round((self.state.government.public_service_level + self.state.government.housing_support_level) / 32)
+        inflation_lift = max(0, round((inflation_index - 100.0) / 16))
+        pressure_lift = max(0, round(living_pressure / 24))
+        wealth_lift = min(4, round(max(0, self._team_cash_total() + self.state.player.cash - 18000) / 32000))
+        tourism_lift = 1 if (self.state.tourism and (self.state.tourism.daily_visitors or 0) >= 4) else 0
+
+        def step_toward(current: int, target: int, floor: int, cap: int) -> int:
+            current = current or floor
+            target = max(floor, min(cap, target))
+            if current < target:
+                current += min(2, target - current)
+            elif current > target:
+                current -= min(1, current - target)
+            return max(floor, min(cap, current))
+
+        player_target = (
+            8
+            + inflation_lift
+            + pressure_lift
+            + wealth_lift
+            + tourism_lift
+            + max(0, self.state.player.monthly_burden // 14)
+            - service_relief
+        )
+        self.state.player.daily_cost_baseline = step_toward(
+            self.state.player.daily_cost_baseline,
+            player_target,
+            8,
+            36,
+        )
+
+        persona_base_cost = {
+            "engineering": 6,
+            "rational": 7,
+            "creative": 8,
+            "empathetic": 7,
+            "opportunist": 9,
+        }
+        for agent in self.state.agents:
+            asset_lift = 1 if self._agent_total_assets(agent) >= 12000 else 0
+            housing_lift = max(0, len(agent.owned_property_ids or []) - 1)
+            target = (
+                persona_base_cost.get(agent.persona, 7)
+                + inflation_lift
+                + pressure_lift
+                + wealth_lift
+                + tourism_lift
+                + asset_lift
+                + housing_lift
+                + max(0, agent.monthly_burden // 14)
+                - service_relief
+            )
+            agent.daily_cost_baseline = step_toward(agent.daily_cost_baseline, target, 6, 34)
+
     def _apply_daily_living_cost(
         self,
         *,
@@ -5332,6 +5428,10 @@ class GameEngine:
             agent.last_trade_summary = f"刚在后巷地下赌场下注 ${stake}，{result['outcome']}，净变化 ${result['net']}。"
             self._shift_agent_state(agent, mood=3 if int(result["net"]) > 0 else -2, stress=int(result["stress"]), curiosity=1)
             self._adjust_agent_satisfaction(agent, int(result["satisfaction"]))
+            if int(result["net"]) > 0:
+                agent.consumption_desire = self._bounded(agent.consumption_desire + min(8, max(2, int(result["net"]) // 70)))
+            else:
+                agent.money_urgency = self._bounded(agent.money_urgency + min(10, max(2, abs(int(result["net"])) // 60)))
             self._remember(agent, f"你刚在后巷地下赌场下注 ${stake}，{result['outcome']}。", 2, long_term=stake >= 120)
             self._append_finance_record(
                 actor_id=agent.id,
@@ -5393,6 +5493,7 @@ class GameEngine:
             tourist.current_activity = "刚在后巷地下赌场围着牌桌试了试手气，还在回味输赢。"
             tourist.current_bubble = "这地方真敢玩。"
             tourist.mood = self._bounded(tourist.mood + (4 if int(result["net"]) > 0 else -2))
+            tourist.spending_desire = self._bounded(tourist.spending_desire + (4 if int(result["net"]) > 0 else -1))
             self._remember_tourist(tourist, f"你刚在后巷地下赌场下注 ${stake}，{result['outcome']}。", 2)
             self._append_finance_record(
                 actor_id=tourist.id,
@@ -5424,18 +5525,18 @@ class GameEngine:
 
     def _suggest_agent_casino_stake(self, agent: Agent, *, tight_cash: bool, high_cash: bool) -> int:
         if tight_cash:
-            return max(8, min(agent.cash, 28 + agent.money_urgency // 5))
+            return max(8, min(agent.cash, 20 + agent.money_urgency // 7))
         if high_cash:
-            return max(80, min(agent.cash // 3, 480 + agent.risk_appetite * 4 + agent.money_urgency * 2))
-        return max(15, min(agent.cash // 4, 140 + agent.state.mood + agent.risk_appetite // 2))
+            return max(60, min(agent.cash // 5, 220 + agent.risk_appetite * 2 + agent.money_urgency))
+        return max(15, min(agent.cash // 6, 96 + agent.state.mood // 2 + agent.risk_appetite // 3))
 
     def _suggest_tourist_casino_stake(self, tourist: TouristAgent, *, tight_cash: bool, high_cash: bool) -> int:
         if tight_cash:
-            return max(6, min(tourist.cash, 18))
+            return max(6, min(tourist.cash, 14))
         if high_cash:
             bonus = 80 if tourist.visitor_tier == "vip" else 40 if tourist.visitor_tier == "buyer" else 0
-            return max(18, min(tourist.cash // 3, 180 + bonus))
-        return max(8, min(tourist.cash // 4, 66))
+            return max(16, min(tourist.cash // 5, 96 + bonus))
+        return max(8, min(tourist.cash // 6, 42))
 
     def _property_owner_name(self, asset: PropertyAsset) -> str:
         if asset.owner_type == "player":
@@ -6321,6 +6422,7 @@ class GameEngine:
             )
             self._record_daily_bank_point(previous_day)
             self._record_daily_casino_point(previous_day)
+            self._apply_daily_market_and_consumption_feedback(previous_day)
             self._refresh_tourism_cycle()
             self.state.tourism.daily_revenue = 0
             self.state.tourism.daily_private_income = 0
@@ -6336,6 +6438,24 @@ class GameEngine:
             self.state.casino.daily_tax = 0
             self.state.casino.daily_big_wins = 0
             self.state.casino.current_heat = max(12, int(self.state.casino.current_heat * 0.7))
+
+    def _apply_daily_market_and_consumption_feedback(self, day: int) -> None:
+        point = next((item for item in reversed(self.state.daily_economy_history or []) if item.day == day), None)
+        if point is None:
+            return
+        total_consumption = point.resident_consumption + point.tourist_consumption
+        if total_consumption <= 0:
+            return
+        consumption_score = min(5, total_consumption // 220)
+        if point.tourist_consumption >= 80:
+            self.state.market.sentiment = self._bounded(self.state.market.sentiment + 1 + consumption_score // 2)
+        if total_consumption >= 180:
+            self.state.player.consumption_desire = self._bounded(self.state.player.consumption_desire + 1 + consumption_score // 2)
+            self.state.player.life_satisfaction = self._bounded(self.state.player.life_satisfaction + 1)
+            for agent in self.state.agents:
+                agent.consumption_desire = self._bounded(agent.consumption_desire + 1 + consumption_score // 2)
+                if point.tourist_consumption >= 60:
+                    agent.life_satisfaction = self._bounded(agent.life_satisfaction + 1)
             if not self.state.casino.last_note:
                 self.state.casino.last_note = "昨晚牌桌已经收声，今晚看谁还会摸进后巷。"
             self.state.market.sentiment = int(self.state.market.sentiment * 0.6)
@@ -7948,15 +8068,15 @@ class GameEngine:
             and ("gambl" in case.case_type or "casino" in case.case_type or "赌" in case.summary)
             and (target_id in case.participants or target_type == "player")
         )
-        enforcement_factor = max(0.06, government.enforcement_level / 100)
-        audit_score = max(0.0, wealth / 6500) + property_count * 0.24 + gray_risk * 1.4 + casino_risk * 1.1 + min(2.6, (self.state.casino.daily_wagers or 0) / 320)
+        enforcement_factor = max(0.05, government.enforcement_level / 100)
+        audit_score = max(0.0, wealth / 8000) + property_count * 0.16 + gray_risk * 1.1 + casino_risk * 0.7 + min(1.6, (self.state.casino.daily_wagers or 0) / 900)
         if wealth < 4500 and property_count < 4 and gray_risk == 0 and casino_risk == 0:
             return
-        trigger_probability = min(0.14, (0.003 + audit_score / 28) * enforcement_factor)
+        trigger_probability = min(0.085, (0.002 + audit_score / 34) * enforcement_factor)
         if self.random.random() > trigger_probability:
             return
-        fine_rate = 0.0014 + government.enforcement_level / 22000
-        fine_base = max(3, int(round(wealth * fine_rate))) + property_count + gray_risk * 4 + casino_risk * 3
+        fine_rate = 0.0008 + government.enforcement_level / 32000
+        fine_base = max(2, int(round(wealth * fine_rate))) + property_count + gray_risk * 2 + casino_risk * 1
         fine = self._collect_tax(
             payer_type=target_type,
             payer_id=target_id,

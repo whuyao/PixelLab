@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GeoAI Pixel Lab Test (UrbanComp Lab)</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260314t" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260315a" />
   </head>
   <body>
     <div class="project-banner">
@@ -620,7 +620,7 @@
               <span class="panel-tag">本科生 / 研究生学习入口</span>
             </div>
             <div class="teaching-hero-copy">
-              <p>这个页面不是操作台，而是一份面向课堂讲解的系统说明。它解释这套像素 GeoAI 实验室里，什么是智能体、什么是 GeoAI、为什么经济约束是底层驱动，以及多个子系统怎样共同长出复杂行为。</p>
+              <p>这个页面不是操作台，而是一份面向课堂讲解的系统说明。它解释这套像素 GeoAI 实验室里，什么是智能体、什么是 GeoAI、为什么经济约束是底层驱动，以及市场、微博、政府和地下赌场怎样共同长出复杂行为。</p>
               <div class="teaching-chip-row">
                 <span class="memory-chip">多智能体</span>
                 <span class="memory-chip">GeoAI</span>
@@ -677,6 +677,7 @@
                   <li>游客会带来外部消息和消费</li>
                   <li>监管和税率会改变行为成本</li>
                   <li>市场涨跌会反过来影响情绪和风险偏好</li>
+                  <li>公开舆论会放大消费、游客和制度判断</li>
                 </ul>
                 <p>这些局部规则叠加后，就会长出资产分化、关系极化、联盟、冲突和制度反应。</p>
               </div>
@@ -755,7 +756,7 @@
                   <li>高热帖子会进入记忆、晨报和地图围观反应</li>
                   <li>游客热帖会推高到访与消费预期</li>
                   <li>政策帖会进入政府已知信息，改变建设和监管判断</li>
-                  <li>市场帖会改变情绪和交易倾向</li>
+                  <li>市场帖会改变情绪和交易倾向，乐观叙事还会反推消费欲望</li>
                 </ul>
                 <div class="teaching-mini-formula">
                   <code>公开帖子 -> 热度 / 可信度 -> 记忆 / 市场 / 游客 / 政府 -> 下一轮行为</code>
@@ -793,12 +794,14 @@
                 <span class="panel-tag">灰色经济节点</span>
               </div>
               <div class="teaching-block">
-                <p>地下赌场不是单独小游戏，而是一个把冒险冲动、现金波动、公开炫耀、赌税和监管绑在一起的灰色经济节点。</p>
+                <p>地下赌场不是单独小游戏，而是一个把冒险冲动、现金波动、公开炫耀、赌税和监管绑在一起的灰色经济节点。它现在更像情绪与舆论放大器，而不是单纯把全镇现金吸走的黑洞。</p>
                 <ul class="teaching-list">
                   <li>玩家走到门口后可以手动触发赌局</li>
                   <li>智能体和游客会在资金紧张、资金很多或情绪高涨时低频自主赌博</li>
-                  <li>赢大钱会引发炫耀和微博传播，输钱则可能导致争执与压力上升</li>
+                  <li>赢大钱会引发炫耀、消费冲动和微博传播，输钱则可能导致争执、压力和资金紧迫</li>
                   <li>赌税进入财政，赌场热度又会提高灰案和监管抽查风险</li>
+                  <li>市场页已经能直接看最近 10 笔赌局和最大输赢榜</li>
+                  <li>最近一轮调优刻意降低了赌场抽走全镇现金的能力，转而强化它对人物情绪、微博热帖和灰案的放大作用</li>
                 </ul>
                 <div class="teaching-mini-formula">
                   <code>赌局 -> 现金波动 / 情绪变化 -> 微博扩散 -> 赌税 / 灰案 / 抽查</code>
@@ -808,7 +811,23 @@
 
             <section class="panel teaching-panel">
               <div class="panel-head">
-                <h2>9. 本项目适合怎么学</h2>
+                <h2>9. 最近的系统调优在做什么</h2>
+                <span class="panel-tag">机制优化</span>
+              </div>
+              <div class="teaching-block">
+                <p>最近一轮调优不是加新按钮，而是在调系统的“力学平衡”，避免所有财富都被罚款或赌场吸走。</p>
+                <ul class="teaching-list">
+                  <li>降低罚款触发率和罚款权重，减轻财政对惩罚收入的依赖</li>
+                  <li>增强正向游客消费、市场热度和生活满意度之间的正反馈</li>
+                  <li>减少重复社会热点播种，避免微博像机械复读</li>
+                  <li>让赌场更多影响个体情绪、微博和关系，而不是只抽走现金</li>
+                </ul>
+              </div>
+            </section>
+
+            <section class="panel teaching-panel">
+              <div class="panel-head">
+                <h2>10. 本项目适合怎么学</h2>
                 <span class="panel-tag">课堂路径</span>
               </div>
               <div class="teaching-block">
@@ -849,6 +868,6 @@
       <span>UrbanComp Lab (<a href="https://urbancomp.net" target="_blank" rel="noreferrer">https://urbancomp.net</a>) 开发</span>
       <span>GitHub：<a href="https://github.com/whuyao/PixelLab" target="_blank" rel="noreferrer">https://github.com/whuyao/PixelLab</a></span>
     </footer>
-    <script src="/static/app.js?v=20260314t" type="module"></script>
+    <script src="/static/app.js?v=20260315a" type="module"></script>
   </body>
 </html>

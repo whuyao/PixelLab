@@ -241,6 +241,10 @@ flowchart LR
   面向演示与教学的大政府模式独立说明，聚焦权限、工期、锚点与制度影响。
 - [casino_system_guide.md](casino_system_guide.md)
   面向演示与教学的地下赌场系统说明，聚焦赌局、赌税、微博扩散、灰案与监管。
+- [casino_emergence_report.md](casino_emergence_report.md)
+  复盘赌场上线后，在经济、微博、灰案与监管层面出现的涌现现象。
+- [market_casino_social_emergence_report.md](market_casino_social_emergence_report.md)
+  复盘最近 100 天里市场、赌场、微博、游客与政府形成的耦合结构，以及近期平衡性调优如何改变系统行为。
 - [simulation_day312_academic_analysis.md](simulation_day312_academic_analysis.md)
   更偏学术分析写法的长期运行报告。
 
@@ -1125,6 +1129,13 @@ asset_i = cash_i + deposit_i + stockValue_i + propertyValue_i - liability_i
 - 罚缴逻辑
 
 所以赌场是一个明确的灰色经济放大器，而不是独立小游戏。
+
+最近一轮参数调优后，赌场在系统中的角色又被重新平衡了一次：
+
+- 降低自动下注上限，减少赌场把大量现金直接抽离小镇的趋势
+- 强化赌局结果对 `mood / life_satisfaction / consumption_desire` 的反馈
+- 让赌场更多通过微博炫耀、八卦、灰案和监管去影响社会结构
+- 让财政大头更多回到工资税、消费税和政府资产收入，而不是罚款
 
 #### 观测入口
 
