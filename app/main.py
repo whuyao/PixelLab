@@ -259,19 +259,21 @@ def _build_synthetic_timeline_event(spec: dict[str, str], slot: TimeSlot, world:
 
 async def _rebuild_news_timeline() -> None:
     specs = [
-        {"theme": "全球股市与汇率震荡", "query": "全球 股市 汇率 利率 通胀 暴跌 反弹 economy global market rates inflation Reuters Bloomberg", "category": "market"},
-        {"theme": "央行与利率风暴", "query": "全球 央行 利率 降息 加息 通胀 衰退 central bank rate cut hike inflation recession latest", "category": "market"},
-        {"theme": "能源航运与地缘冲击", "query": "全球 能源 油价 航运 制裁 地缘 风险 geopolitics energy shipping commodity shock latest", "category": "market"},
-        {"theme": "全球地产与租金压力", "query": "全球 房地产 租金 住房 房贷 房价 housing rent crisis property mortgage latest", "category": "market"},
-        {"theme": "全球旅游与消费冷热", "query": "全球 旅游 消费 文旅 客流 支出 tourism travel spending slowdown boom latest", "category": "general"},
-        {"theme": "GeoAI 与空间智能资本动态", "query": "全球 GeoAI 空间智能 遥感 地图 AI geospatial spatial intelligence satellite funding latest", "category": "geoai"},
-        {"theme": "科技融资就业与工资", "query": "全球 科技 融资 裁员 招聘 工资 AI funding layoffs hiring wages chips latest", "category": "general"},
-        {"theme": "社会热点与生活成本", "query": "全球 社会热点 生活成本 租房 消费 焦虑 social media viral rent cost of living latest", "category": "general"},
+        {"theme": "全球股市与汇率震荡", "query": "全球 股市 汇率 暴跌 暴涨 利率 通胀 衍生品 风险 停牌 market crash rebound currency rates inflation latest", "category": "market"},
+        {"theme": "央行与利率风暴", "query": "全球 央行 利率 降息 加息 通胀 衰退 债券 收益率 central bank rate cut hike inflation recession yields latest", "category": "market"},
+        {"theme": "能源航运与地缘冲击", "query": "全球 能源 油价 航运 制裁 地缘 风险 冲突 供应链 geopolitics energy shipping oil sanctions supply shock latest", "category": "market"},
+        {"theme": "全球地产与租金压力", "query": "全球 房地产 租金 住房 房贷 房价 断供 租房 焦虑 housing rent crisis property mortgage foreclosure latest", "category": "market"},
+        {"theme": "全球旅游与消费冷热", "query": "全球 旅游 消费 文旅 客流 支出 爆火 降温 tourism travel spending boom slowdown latest", "category": "general"},
+        {"theme": "GeoAI 与空间智能资本动态", "query": "全球 GeoAI 空间智能 遥感 地图 AI 融资 收购 geospatial spatial intelligence satellite funding acquisition latest", "category": "geoai"},
+        {"theme": "科技融资就业与工资", "query": "全球 科技 融资 裁员 招聘 工资 期权 AI funding layoffs hiring wages startup latest", "category": "general"},
+        {"theme": "社会热点与生活成本", "query": "全球 社会热点 生活成本 租房 消费 焦虑 爆款 争议 话题 social media viral rent cost of living controversy latest", "category": "general"},
     ]
     social_spec = next(spec for spec in specs if spec["theme"].startswith("社会热点"))
     core_specs = [spec for spec in specs if not spec["theme"].startswith("社会热点")]
     world = context.engine.get_state()
-    context.engine.state.news_timeline = [item for item in context.engine.state.news_timeline if item.status != "scheduled"]
+    # 主线新闻时间线是观察未来窗口的工具，不保留旧版本的历史排程，
+    # 这样切换到新的中文全球经济主题后，不会继续混着旧英文条目。
+    context.engine.state.news_timeline = []
     created = 0
     window_days = max(3, min(14, int(getattr(context.engine.state, "news_window_days", 7) or 7)))
     sample_bounds = {

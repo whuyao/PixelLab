@@ -4548,6 +4548,10 @@ class GameEngine:
     def _trigger_tourist_market_investment(self) -> None:
         if not self.state.market.is_open or not self.state.market.stocks:
             return
+        hot_market_buzz = any(
+            post.category in {"market", "tourism", "property"} and (post.heat or 0) >= 18
+            for post in (self.state.feed_timeline or [])[:18]
+        )
         for tourist in self.state.tourists:
             if tourist.visitor_tier not in {"vip", "buyer"}:
                 continue
@@ -4555,8 +4559,14 @@ class GameEngine:
                 continue
             if tourist.current_location not in {"market", "meeting", "data_wall"}:
                 continue
-            base_chance = 0.048 if tourist.visitor_tier == "vip" else 0.018
+            base_chance = 0.085 if tourist.visitor_tier == "vip" else 0.038
             chance = base_chance + max(0.0, self.state.market.sentiment / 420)
+            if self.state.market.regime == "bull":
+                chance += 0.035
+            if hot_market_buzz:
+                chance += 0.04
+            if tourist.favorite_topic in {"股票", "房价", "GeoAI"}:
+                chance += 0.03
             if self.random.random() > chance:
                 continue
             quote = max(
@@ -4569,11 +4579,14 @@ class GameEngine:
             if cost <= 0 or cost > tourist.cash:
                 continue
             tourist.cash -= cost
-            tourist.mood = self._bounded(tourist.mood + 2)
-            tourist.current_activity = f"刚通过外部券商小仓位买了 {quote.symbol}，想看看这里的风向值不值得继续追。"
+            tourist.market_portfolio[quote.symbol] = tourist.market_portfolio.get(quote.symbol, 0) + shares
+            tourist.market_invested_total += cost
+            tourist.market_last_action = f"刚拿 ${cost} 买了 {quote.symbol} {shares} 股。"
+            tourist.mood = self._bounded(tourist.mood + 3)
+            tourist.current_activity = f"刚通过外部券商小仓位买了 {quote.symbol}，想看看这波热度还能不能再冲一段。"
             tourist.brief_note = (
                 f"{'这位高消费客户' if tourist.visitor_tier == 'vip' else '这位看房游客'}刚拿出 ${cost} 买了点 {quote.symbol}，"
-                "会继续盯着这里的盘面和气氛。"
+                "已经开始把这里当成能顺手下注的小市场。"
             )
             self._apply_quote_move(quote.symbol, min(2.4, max(0.4, cost / 420)), f"受 {tourist.name} 的场外追单影响")
             quote.volume = max(quote.volume or 0, (quote.volume or 0) + shares)
@@ -4595,7 +4608,7 @@ class GameEngine:
                 0,
                 build_internal_event(
                     title=f"{tourist.name} 小仓位买入了 {quote.symbol}",
-                    summary=f"{tourist.name} 刚花 ${cost} 小仓位买入 {quote.name}，游客里开始有人把这里当成可以下注的小市场。",
+                    summary=f"{tourist.name} 刚花 ${cost} 小仓位买入 {quote.name}，游客里开始有人把这里当成可以顺手追单的小市场。",
                     slot=self.state.time_slot,
                     category="market",
                 ),
@@ -10244,6 +10257,95 @@ class GameEngine:
             text = text.replace(legacy, localized)
         return text
 
+    def _timeline_theme_cn(self, theme: str, category: str) -> str:
+        lowered = (theme or "").lower()
+        if "global market" in lowered or "股市" in theme or "汇率" in theme:
+            return "全球股市与汇率"
+        if "central bank" in lowered or "利率" in theme or "央行" in theme:
+            return "全球央行与利率"
+        if "geopolit" in lowered or "能源" in theme or "地缘" in theme:
+            return "全球地缘与能源"
+        if "housing" in lowered or "地产" in theme or "租金" in theme:
+            return "全球住房与租金"
+        if "tourism" in lowered or "消费" in theme or "旅游" in theme:
+            return "全球旅游与消费"
+        if "geospatial" in lowered or "geoai" in lowered or "空间智能" in theme:
+            return "GeoAI 与空间智能资本"
+        if "funding" in lowered or "就业" in theme or "融资" in theme:
+            return "科技融资与就业"
+        if "social" in lowered or "热点" in theme or "生活成本" in theme:
+            return "全球社会热点"
+        return {
+            "market": "全球经济",
+            "geoai": "GeoAI 动向",
+            "tech": "科技动向",
+            "policy": "全球政策",
+            "general": "全球热点",
+            "gaming": "游戏行业",
+        }.get(category or "general", "全球热点")
+
+    def _timeline_title_cn(self, theme_cn: str, category: str, tone_hint: int) -> str:
+        if category == "market":
+            if tone_hint >= 1:
+                return f"{theme_cn}突发异动，风险偏好转热"
+            if tone_hint <= -1:
+                return f"{theme_cn}骤然承压，全球情绪转冷"
+            return f"{theme_cn}出现剧烈分歧"
+        if category == "geoai":
+            if tone_hint >= 1:
+                return f"{theme_cn}热度冲高"
+            if tone_hint <= -1:
+                return f"{theme_cn}推进受阻"
+            return f"{theme_cn}爆出新变量"
+        if category == "policy":
+            if tone_hint >= 1:
+                return f"{theme_cn}政策预期升温"
+            if tone_hint <= -1:
+                return f"{theme_cn}引发监管担忧"
+            return f"{theme_cn}政策争论升温"
+        if tone_hint >= 1:
+            return f"{theme_cn}讨论爆热"
+        if tone_hint <= -1:
+            return f"{theme_cn}引爆担忧"
+        return f"{theme_cn}突然冲上议程"
+
+    def _timeline_summary_cn(self, item: NewsTimelineItem) -> str:
+        theme_cn = self._timeline_theme_cn(item.theme, item.category)
+        if item.status == "triggered":
+            day = item.triggered_day or item.scheduled_day
+            slot = ROOM_LABELS.get(item.triggered_time_slot or item.scheduled_time_slot, "")
+            slot_label = {"morning": "早晨", "noon": "中午", "afternoon": "下午", "evening": "傍晚", "night": "夜晚"}.get(
+                item.triggered_time_slot or item.scheduled_time_slot,
+                "",
+            )
+            if item.tone_hint >= 1:
+                effect = "这条消息把游客、市场和微博讨论都往更乐观的方向推了一层。"
+            elif item.tone_hint <= -1:
+                effect = "这条消息让市场、消费和舆论判断都更偏谨慎。"
+            else:
+                effect = "这条消息没有给出单边答案，更多是在园区里制造讨论和试探。"
+            return f"{item.source or '系统新闻台'} 围绕“{theme_cn}”抛出的全球消息，已在第 {day} 天{slot_label}落地。{effect}"
+        if item.tone_hint >= 1:
+            effect = "这条消息更容易抬高风险偏好和消费情绪。"
+        elif item.tone_hint <= -1:
+            effect = "这条消息更容易引发避险和收缩预期。"
+        else:
+            effect = "这条消息更可能引发争论，而不是单边推动市场。"
+        return f"{item.source or '系统新闻台'} 正在为“{theme_cn}”预热一条全球消息。{effect}"
+
+    def _timeline_item_needs_cn_migration(self, item: NewsTimelineItem) -> bool:
+        title = item.title or ""
+        summary = item.summary or ""
+        english_title = re.search(r"[A-Za-z]{4,}", title) is not None
+        english_summary = re.search(r"[A-Za-z]{4,}", summary) is not None
+        return bool(english_title or english_summary)
+
+    def _normalize_news_timeline_item_cn(self, item: NewsTimelineItem) -> None:
+        item.theme = self._timeline_theme_cn(item.theme, item.category)
+        if self._timeline_item_needs_cn_migration(item):
+            item.title = self._timeline_title_cn(item.theme, item.category, item.tone_hint)
+            item.summary = self._timeline_summary_cn(item)
+
     def _refresh_presence(self) -> None:
         activity_by_agent = {
             "lin": {
@@ -10316,7 +10418,7 @@ class GameEngine:
 
     def _ensure_agent_runtime_fields(self) -> None:
         previous_version = self.state.version or 0
-        self.state.version = max(self.state.version, 60)
+        self.state.version = max(self.state.version, 61)
         if self.state.loans is None:
             self.state.loans = []
         if self.state.archived_tasks is None:
@@ -10505,6 +10607,12 @@ class GameEngine:
             tourist.brief_note = tourist.brief_note or f"这趟会待到第 {tourist.stay_until_day} 天。"
             if tourist.short_term_memory is None:
                 tourist.short_term_memory = []
+            if tourist.market_portfolio is None:
+                tourist.market_portfolio = {}
+            if tourist.market_invested_total is None:
+                tourist.market_invested_total = 0
+            if tourist.market_last_action is None:
+                tourist.market_last_action = ""
             if not tourist.short_term_memory:
                 tourist.short_term_memory = [
                     MemoryEntry(
@@ -10839,6 +10947,7 @@ class GameEngine:
             item.title = self._localized_text(item.title)
             item.summary = self._localized_text(item.summary)
             item.theme = self._localized_text(item.theme)
+            self._normalize_news_timeline_item_cn(item)
         for case in self.state.gray_cases or []:
             case.participant_names = [self._localized_text(name) for name in case.participant_names or []]
             if getattr(case, "resolution_action", None) is None:

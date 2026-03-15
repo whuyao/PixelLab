@@ -165,7 +165,7 @@ const llmApplyBtn = document.getElementById("llmApplyBtn");
 const llmStatusMeta = document.getElementById("llmStatusMeta");
 const llmSwitchStatus = document.getElementById("llmSwitchStatus");
 const llmSwitcherShell = llmToggleBtn?.closest(".llm-switcher-shell") || null;
-const ASSET_VERSION = "20260315h";
+const ASSET_VERSION = "20260315j";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -515,6 +515,22 @@ function formatCompactCurrency(value) {
   if (Math.abs(numeric) >= 1000000) return `$${(numeric / 1000000).toFixed(2)}m`;
   if (Math.abs(numeric) >= 1000) return `$${(numeric / 1000).toFixed(1)}k`;
   return `$${Math.round(numeric)}`;
+}
+
+function touristInvestmentSnapshot(tourist) {
+  const positions = Object.entries(tourist?.market_portfolio || {}).filter(([, shares]) => Number(shares || 0) > 0);
+  const currentValue = positions.reduce((sum, [symbol, shares]) => {
+    const quote = state?.market?.stocks?.find((item) => item.symbol === symbol);
+    return sum + ((quote?.price || 0) * Number(shares || 0));
+  }, 0);
+  const invested = Number(tourist?.market_invested_total || 0);
+  return {
+    holdingCount: positions.length,
+    invested,
+    currentValue: Math.round(currentValue),
+    delta: Math.round(currentValue - invested),
+    holdingsLabel: positions.length ? positions.map(([symbol, shares]) => `${symbol}×${shares}`).join(" · ") : "暂无持仓",
+  };
 }
 
 function aggregateCandlesBySpan(candles, spanDays) {
@@ -2716,6 +2732,27 @@ function renderMarketModule() {
     const trailingCasinoPayouts = recentCasinoSeries(10, "payouts");
     const trailingCasinoTax = recentCasinoSeries(10, "tax");
     const casino = state.casino || {};
+    const touristInvestors = (state.tourists || [])
+      .map((tourist) => ({ tourist, snapshot: touristInvestmentSnapshot(tourist) }))
+      .filter((entry) => entry.snapshot.holdingCount > 0);
+    const touristInvestedTotal = touristInvestors.reduce((sum, entry) => sum + entry.snapshot.invested, 0);
+    const touristCurrentValue = touristInvestors.reduce((sum, entry) => sum + entry.snapshot.currentValue, 0);
+    const touristFloatingDelta = touristInvestors.reduce((sum, entry) => sum + entry.snapshot.delta, 0);
+    const touristPreferenceCounts = touristInvestors.reduce((acc, entry) => {
+      Object.entries(entry.tourist.market_portfolio || {}).forEach(([symbol, shares]) => {
+        acc[symbol] = (acc[symbol] || 0) + Number(shares || 0);
+      });
+      return acc;
+    }, {});
+    const touristPreferenceLabel = Object.entries(touristPreferenceCounts)
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 3)
+      .map(([symbol, shares]) => `${symbol}×${shares}`)
+      .join(" · ");
+    const touristInvestorLeaderboard = touristInvestors
+      .slice()
+      .sort((left, right) => right.snapshot.currentValue - left.snapshot.currentValue)
+      .slice(0, 5);
     const consumptionWindowLabel = `近 ${Math.max(1, trailingConsumption.length)} 个工作日消费流`;
     const governmentWindowLabel = `近 ${Math.max(1, trailingGovernmentRevenue.length)} 个工作日财政资产曲线`;
     const casinoWindowLabel = `近 ${Math.max(1, trailingCasinoDays.length || trailingCasinoWagers.length)} 个工作日赌资`;
@@ -2737,6 +2774,18 @@ function renderMarketModule() {
           ${buildMiniTrendSvg(trailingConsumption, "#cf8850", "rgba(207, 136, 80, 0.28)", "bars-sqrt")}
         </div>
         <div class="metric-meta">${escapeHtml(tourismMessage)}</div>
+      </article>
+    `;
+    const touristInvestmentObservation = `
+      <article class="position-card insight-card">
+        <strong>游客投资状态</strong>
+        <div class="metric-meta">持仓游客 ${touristInvestors.length} 人 · 已投 ${formatCompactCurrency(touristInvestedTotal)} · 当前市值 ${formatCompactCurrency(touristCurrentValue)}</div>
+        <div class="metric-meta">当前浮盈亏 ${touristFloatingDelta >= 0 ? "+" : "-"}${formatCompactCurrency(Math.abs(touristFloatingDelta))} · 偏好 ${escapeHtml(touristPreferenceLabel || "暂时还没有形成明显偏好")}</div>
+        <div class="metric-meta">${escapeHtml(touristInvestorLeaderboard[0] ? `领头持仓：${touristInvestorLeaderboard[0].tourist.name} · ${touristInvestorLeaderboard[0].snapshot.holdingsLabel}` : "游客暂时还没有公开可见的股票持仓。")}</div>
+        <div class="memory-section compact">
+          <strong>游客持仓榜</strong>
+          <div>${touristInvestorLeaderboard.length ? touristInvestorLeaderboard.map((entry) => `<span class="memory-chip">${escapeHtml(`${entry.tourist.name} · ${entry.snapshot.holdingsLabel} · ${formatCompactCurrency(entry.snapshot.currentValue)} · ${entry.snapshot.delta >= 0 ? "+" : "-"}${formatCompactCurrency(Math.abs(entry.snapshot.delta))}`)}</span>`).join("") : '<span class="memory-meta">目前还没有游客形成稳定持仓。</span>'}</div>
+        </div>
       </article>
     `;
     const governmentObservation = `
@@ -2811,7 +2860,7 @@ function renderMarketModule() {
         },
       )
       .join("");
-    marketPositions.innerHTML = `<div class="position-grid">${touristObservation}${governmentObservation}${casinoObservation}${playerPosition}${teamPosition}${agentPositions}</div>`;
+    marketPositions.innerHTML = `<div class="position-grid">${touristObservation}${touristInvestmentObservation}${governmentObservation}${casinoObservation}${playerPosition}${teamPosition}${agentPositions}</div>`;
   }
   if (casinoRecentBox) {
     const recentCasinoRecords = (state.finance_history || [])
@@ -4326,6 +4375,7 @@ function renderMemory() {
   }
   if (subject.kind === "tourist") {
     const tourist = subject.data;
+    const investment = touristInvestmentSnapshot(tourist);
     const recentRecords = (state.dialogue_history || [])
       .filter((record) => (record.participants || []).includes(tourist.id))
       .slice(0, 4)
@@ -4346,6 +4396,10 @@ function renderMemory() {
         <div class="status-pill"><strong>消费意愿</strong><span>${tourist.spending_desire}</span></div>
         <div class="status-pill"><strong>回头客</strong><span>${tourist.is_returning ? "是" : "否"}</span></div>
         <div class="status-pill"><strong>看房意向</strong><span>${tourist.property_interest ? "有" : "无"}</span></div>
+        <div class="status-pill"><strong>股票持仓</strong><span>${investment.holdingCount ? investment.holdingsLabel : "暂无"}</span></div>
+        <div class="status-pill"><strong>已投资金</strong><span>${formatCompactCurrency(investment.invested)}</span></div>
+        <div class="status-pill"><strong>当前市值</strong><span>${formatCompactCurrency(investment.currentValue)}</span></div>
+        <div class="status-pill"><strong>浮动盈亏</strong><span>${investment.delta >= 0 ? "+" : ""}${formatCompactCurrency(investment.delta)}</span></div>
       </div>
       <div class="memory-section">
         <strong>当前活动</strong>
@@ -4362,6 +4416,10 @@ function renderMemory() {
       <div class="memory-section">
         <strong>游客备注</strong>
         <div>${tourist.brief_note || "这是一位更轻量的临时游客，不会像核心智能体那样积累复杂长期关系。"} </div>
+      </div>
+      <div class="memory-section">
+        <strong>投资状态</strong>
+        <div>${tourist.market_last_action ? escapeHtml(tourist.market_last_action) : "这位游客目前还没有公开可见的投资动作。"} </div>
       </div>
       <div class="memory-section">
         <strong>短期记忆</strong>

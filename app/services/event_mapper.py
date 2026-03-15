@@ -20,14 +20,14 @@ KEYWORD_CATEGORY_MAP: dict[str, EventCategory] = {
 }
 
 THEME_CN_HINTS = {
-    "global markets": "全球市场",
-    "central bank": "央行与利率",
-    "geopolitics": "地缘与能源",
-    "housing": "全球住房",
+    "global markets": "全球股市与汇率",
+    "central bank": "全球央行与利率",
+    "geopolitics": "全球地缘与能源",
+    "housing": "全球住房与租金",
     "tourism": "全球旅游与消费",
-    "geospatial ai": "GeoAI 与空间智能",
+    "geospatial ai": "GeoAI 与空间智能资本",
     "funding": "科技融资与就业",
-    "social media": "社会热点",
+    "social media": "全球社会热点",
 }
 
 POSITIVE_MARKET_WORDS = ["增长", "回暖", "提振", "利好", "宽松", "支持", "修复", "上调", "复苏", "融资"]
@@ -78,20 +78,20 @@ def _tone_label(tone_hint: int, category: EventCategory) -> tuple[str, str]:
 def _headline_phrase(theme_hint: str, tone_hint: int, category: EventCategory) -> str:
     if category == "market":
         if tone_hint >= 1:
-            return f"{theme_hint}突发利好"
+            return f"{theme_hint}突发异动，风险偏好转热"
         if tone_hint <= -1:
-            return f"{theme_hint}再起波澜"
-        return f"{theme_hint}出现分歧信号"
+            return f"{theme_hint}骤然承压，全球情绪转冷"
+        return f"{theme_hint}出现剧烈分歧"
     if category == "geoai":
         if tone_hint >= 1:
-            return f"{theme_hint}热度升温"
+            return f"{theme_hint}热度冲高"
         if tone_hint <= -1:
-            return f"{theme_hint}推进承压"
-        return f"{theme_hint}出现新变量"
+            return f"{theme_hint}推进受阻"
+        return f"{theme_hint}爆出新变量"
     if tone_hint >= 1:
-        return f"{theme_hint}讨论升温"
+        return f"{theme_hint}讨论爆热"
     if tone_hint <= -1:
-        return f"{theme_hint}引发担忧"
+        return f"{theme_hint}引爆担忧"
     return f"{theme_hint}突然冲上议程"
 
 
@@ -121,7 +121,7 @@ def map_search_result_to_event(item: dict[str, str], topic: str, slot: TimeSlot,
     tone_label, tone_effect = _tone_label(tone_hint, category)
     source = item.get("profile_name") or item.get("url") or "Brave Search"
     title = _headline_phrase(theme_hint, tone_hint, category)
-    summary = f"{source} 捕捉到一条围绕“{theme_hint}”的全球经济消息。{tone_effect}"
+    summary = f"{source} 刚抛来一条围绕“{theme_hint}”的全球经济消息。{tone_effect}"
     return LabEvent(
         id=f"event-{uuid.uuid4().hex[:8]}",
         category=category,
