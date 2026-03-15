@@ -959,12 +959,13 @@ class GameEngine:
         cleaned = player_text.strip()
         if not cleaned:
             raise ValueError("先输入一句你想说的话。")
+        dialogue_topic = self._dialogue_topic_from_player_text(cleaned, tourist.favorite_topic or "旅途见闻")
         line = self._tourist_reply_line(tourist, cleaned)
         mood_delta = 2 if any(token in cleaned for token in ["欢迎", "慢慢逛", "需要帮忙", "休息", "坐坐"]) else 1
         tourist.mood = self._bounded(tourist.mood + mood_delta)
         tourist.current_bubble = line
-        tourist.current_activity = f"刚和你聊了“{tourist.favorite_topic or '这地方'}”，看起来还想再逛逛。"
-        tourist.brief_note = f"对你刚才那句“{cleaned[:14]}”有印象，今天会更愿意在这里花钱和停留。"
+        tourist.current_activity = f"刚和你聊了“{dialogue_topic or '这地方'}”，看起来还想再逛逛。"
+        tourist.brief_note = f"对你刚才提到的“{dialogue_topic[:16]}”有印象，今天会更愿意在这里花钱和停留。"
         self._remember_tourist(tourist, f"你刚和玩家聊了“{cleaned[:16]}”，觉得这里还值得继续逛。", 2)
         self._remember_tourist(tourist, f"你刚回了一句“{line[:20]}”，心情比刚才更松一点。", 1)
         if observer:
@@ -977,7 +978,7 @@ class GameEngine:
             agent_name=tourist.name,
             player_text=cleaned,
             line=line,
-            topic=tourist.favorite_topic or "旅途见闻",
+            topic=dialogue_topic,
             bubble_text=line,
             effects=["游客心情 +1", "小镇人气 +1"],
         )
@@ -990,9 +991,9 @@ class GameEngine:
                 time_slot=self.state.time_slot,
                 participants=["player", tourist.id],
                 participant_names=[self.state.player.name, tourist.name],
-                topic=tourist.favorite_topic or "旅途见闻",
-                summary=self._natural_player_tourist_summary(tourist.name, tourist.favorite_topic or "旅途见闻"),
-                key_point=self._natural_player_tourist_key_point(tourist.name, tourist.favorite_topic or "旅途体验"),
+                topic=dialogue_topic,
+                summary=self._natural_player_tourist_summary(tourist.name, dialogue_topic),
+                key_point=self._natural_player_tourist_key_point(tourist.name, dialogue_topic),
                 transcript=[f"你：{cleaned}", f"{tourist.name}：{line}"],
                 desire_labels={self.state.player.name: self._player_desire_label(cleaned), tourist.name: "想把这趟行程过得舒服一点"},
                 mood="warm",
@@ -2398,6 +2399,43 @@ class GameEngine:
         }
         return replacements.get(topic, topic)
 
+    def _dialogue_topic_from_player_text(self, player_text: str, fallback: str) -> str:
+        text = re.sub(r"\s+", " ", (player_text or "").strip())
+        if not text:
+            return fallback
+        text = text.replace("你觉得", "").replace("你说", "").replace("你看", "")
+        text = text.replace("你知道吗", "").replace("能不能", "").replace("要不要", "")
+        text = text.strip("，。！？,.!?：: ")
+        if "最值得逛" in text and ("哪一块" in text or "哪里" in text):
+            return "这边最值得逛的地方"
+        m = re.search(r"如果你想(去|看|逛|找)\s+([^，。！？,.!?]{2,18})", text)
+        if m:
+            return self._humanize_dialogue_topic(m.group(2).strip())
+        m = re.search(r"(去|看|逛|找|住)\s+([^，。！？,.!?]{2,18})", text)
+        if m and len(m.group(2).strip()) >= 2:
+            return self._humanize_dialogue_topic(m.group(2).strip())
+        m = re.search(r"[，,:：]?\s*是(.+?)(吗)?$", text)
+        if m:
+            candidate = m.group(1).strip("，。！？,.!?：: ")
+            if len(candidate) >= 2:
+                return self._humanize_dialogue_topic(candidate[:18].rstrip("，。！？,.!?：: "))
+        m = re.search(r"(想知道|在意|关心|最想知道|最在意|最关心)(的)?[，,:：]?\s*(.+)$", text)
+        if m:
+            candidate = m.group(3).strip("，。！？,.!?：: ")
+            candidate = re.sub(r"(吗|吧|呢)$", "", candidate).strip()
+            if len(candidate) >= 2:
+                return self._humanize_dialogue_topic(candidate[:18].rstrip("，。！？,.!?：: "))
+        pieces = [part.strip("，。！？,.!?：: ") for part in re.split(r"[，。！？?!]", text) if part.strip()]
+        candidate = pieces[0] if pieces else text
+        candidate = re.sub(r"^(那|所以|其实|就是|我想问问|我想知道|我想聊聊|想问问|想知道|想聊聊)", "", candidate).strip()
+        candidate = re.sub(r"^(你这趟|你现在|你刚才|你今天|你最近)", "", candidate).strip()
+        candidate = re.sub(r"(是不是|算不算|到底|有没有)$", "", candidate).strip()
+        if len(candidate) > 18:
+            candidate = candidate[:18].rstrip("，。！？,.!?：: ")
+        if len(candidate) < 4:
+            return fallback
+        return self._humanize_dialogue_topic(candidate)
+
     def _pick_fresh_summary_variant(self, candidates: list[str], *, recent_window: int = 18) -> str:
         recent_summaries = [item.summary for item in self.state.dialogue_history[:recent_window] if item.summary]
         fresh = [candidate for candidate in candidates if candidate not in recent_summaries]
@@ -2475,6 +2513,18 @@ class GameEngine:
         ]
         return self.random.choice(variants)
 
+    def _topic_from_player_dialogue_transcript(self, transcript: list[str], fallback: str) -> str:
+        if not transcript:
+            return fallback
+        player_line = ""
+        for line in transcript:
+            if line.startswith("你："):
+                player_line = line.split("：", 1)[1].strip()
+                break
+        if not player_line:
+            return fallback
+        return self._dialogue_topic_from_player_text(player_line, fallback)
+
     def _natural_gray_trade_summary(self, requester_name: str, donor_name: str, topic: str) -> str:
         topic = self._humanize_dialogue_topic(topic)
         variants = [
@@ -2483,6 +2533,27 @@ class GameEngine:
             f"{requester_name} 和 {donor_name} 没走明面，悄悄围着“{topic}”做成了一笔交易。",
         ]
         return self.random.choice(variants)
+
+    def _infer_explicit_gray_trade_type(
+        self,
+        requester: Agent,
+        donor: Agent,
+        request_line: str,
+        response_line: str,
+        topic: str,
+    ) -> str:
+        joined = f"{request_line} {response_line} {topic}"
+        if any(token in joined for token in ["正式挂牌", "不挂牌", "租约", "钥匙", "空屋", "房子", "屋子", "转给你"]):
+            return "rent_rigging"
+        if any(token in joined for token in ["回扣", "额外塞一点", "账外", "不走台账", "派单", "轻活", "多塞一点活"]):
+            return "wage_kickback"
+        if any(token in joined for token in ["私货", "来路不明", "货箱", "塞到你屋后", "箱子", "假货"]):
+            return "counterfeit_goods"
+        if any(token in joined for token in ["拉高出货", "往上顶", "高位", "盘前", "那只票", "灰盘"]):
+            return "pump_dump"
+        if requester.current_location == "compute" or donor.current_location == "compute":
+            return "wage_kickback"
+        return "under_table_exchange"
 
     def _natural_bank_borrow_summary(self, borrower_name: str, bank_name: str, amount: int, term_days: int, amount_due: int) -> str:
         variants = [
@@ -2541,6 +2612,13 @@ class GameEngine:
                     item.key_point = self._natural_tourist_agent_key_point(item.participant_names[0], item.participant_names[1], item.topic or "这里值得看什么")
             if item.topic:
                 item.topic = item.topic.replace("园区", "小镇")
+            if item.kind == "player_dialogue" and "player" in item.participants and len(item.participant_names) >= 2:
+                inferred_topic = self._topic_from_player_dialogue_transcript(item.transcript or [], item.topic or "旅途见闻")
+                if inferred_topic and inferred_topic != (item.topic or ""):
+                    item.topic = inferred_topic
+                    tourist_name = item.participant_names[-1]
+                    item.summary = self._natural_player_tourist_summary(tourist_name, inferred_topic)
+                    item.key_point = self._natural_player_tourist_key_point(tourist_name, inferred_topic)
             if "围绕“" in summary and "接了一轮，整体气氛偏" in summary and len(item.participant_names) >= 2:
                 item.summary = self._natural_dialogue_summary(
                     self._find_agent(item.participants[0]) if item.participants and item.participants[0] in {a.id for a in self.state.agents} else self.state.agents[0],
@@ -9799,8 +9877,41 @@ class GameEngine:
             gray_result = self._execute_gray_trade_plan(requester, donor, topic, mood, gray_plan)
             if gray_result is not None:
                 return gray_result
-        explicit_gray_request = any(token in request_line for token in ["私下", "别挂到账", "别摆到台面", "灰色", "非正式"])
-        explicit_gray_offer = any(token in response_line for token in ["私下给你", "先别挂账", "这笔先不摆到台面", "非正式资源交换", "别往外说"])
+        gray_request_tokens = [
+            "私下",
+            "别挂到账",
+            "别摆到台面",
+            "灰色",
+            "非正式",
+            "不走正式挂牌",
+            "不挂牌",
+            "灰市规矩",
+            "按灰市规矩",
+            "钥匙和租约",
+            "塞给你",
+        ]
+        gray_offer_tokens = [
+            "私下给你",
+            "先别挂账",
+            "这笔先不摆到台面",
+            "非正式资源交换",
+            "别往外说",
+            "我给",
+            "我先给",
+            "别跟别人说",
+            "别跟别人提",
+            "别让别人知道",
+        ]
+        explicit_gray_request = any(token in request_line for token in gray_request_tokens)
+        explicit_gray_offer = any(token in response_line for token in gray_offer_tokens)
+        if not explicit_gray_request and any(token in request_line for token in ["空屋", "租约", "钥匙"]) and any(
+            token in request_line for token in ["不走正式挂牌", "不挂牌", "灰市规矩", "塞给你"]
+        ):
+            explicit_gray_request = True
+        if not explicit_gray_offer and self._extract_money_amount(f"{request_line}{response_line}") and any(
+            token in response_line for token in ["我给", "我出", "我来给", "先给你", "可以，我给", "行，$"]
+        ):
+            explicit_gray_offer = True
         if explicit_gray_request and explicit_gray_offer and donor.cash > 0:
             amount = self._extract_money_amount(f"{request_line}{response_line}") or max(5, requester.money_urgency // 18)
             relation = (donor.relations.get(requester.id, 0) + requester.relations.get(donor.id, 0)) / 2
@@ -9812,12 +9923,13 @@ class GameEngine:
             amount = min(amount, donor.cash)
             if amount <= 0:
                 return None
+            gray_type = self._infer_explicit_gray_trade_type(requester, donor, request_line, response_line, topic)
             donor.cash -= amount
             requester.cash += amount
             self._remember(requester, f"{donor.name} 刚私下塞给你 ${amount}，算一笔不公开的资源交换。", 2)
             self._remember(donor, f"你刚私下给了 {requester.name} ${amount}，这笔没有摆到公开台面上。", 2)
             self._adjust_relation(requester, donor, 1, f"围绕“{topic}”完成了一次不公开的资源交换。")
-            asset_name = self._gray_case_label("under_table_exchange")
+            asset_name = self._gray_case_label(gray_type)
             self._append_finance_record(
                 actor_id=requester.id,
                 actor_name=requester.name,
@@ -9843,9 +9955,9 @@ class GameEngine:
                 donor,
                 topic,
                 {
-                    "type": "under_table_exchange",
-                    "severity": 1,
-                    "note": f"{requester.name} 和 {donor.name} 私下围着“{self._humanize_dialogue_topic(topic)}”做了一笔见不得光的交换。",
+                    "type": gray_type,
+                    "severity": 2 if gray_type in {"rent_rigging", "pump_dump"} else 1,
+                    "note": f"{requester.name} 和 {donor.name} 私下围着“{self._humanize_dialogue_topic(topic)}”做了一笔见不得光的{self._gray_case_label(gray_type)}。",
                 },
                 amount,
             )
@@ -9854,11 +9966,11 @@ class GameEngine:
                 trade={"from": donor.id, "to": requester.id, "amount": amount, "topic": topic},
             )
             return {
-                "note": f"{donor.name} 和 {requester.name} 做了一笔非正式资源交换 ${amount}",
+                "note": f"{donor.name} 和 {requester.name} 做了一笔非正式{self._gray_case_label(gray_type)} ${amount}",
                 "interest_rate": None,
                 "gray_trade": True,
-                "gray_trade_type": "under_table_exchange",
-                "gray_trade_severity": 1,
+                "gray_trade_type": gray_type,
+                "gray_trade_severity": 2 if gray_type in {"rent_rigging", "pump_dump"} else 1,
             }
         explicit_request = any(token in request_line for token in ["借我", "能不能借", "先垫", "能不能报销", "赞助我", "请我", "能不能支一点"])
         explicit_offer = any(token in response_line for token in ["借你", "我先垫", "我报销", "我请", "我来出", "行，我给你"])
@@ -10621,9 +10733,9 @@ class GameEngine:
             "data_theft": "数据窃取",
             "blackmail": "封口费",
             "fraud": "诈骗",
-            "counterfeit_goods": "假货倒卖",
-            "rent_rigging": "私下转租",
-            "wage_kickback": "工资回扣",
+            "counterfeit_goods": "私货过手",
+            "rent_rigging": "房产私下转手",
+            "wage_kickback": "账外回扣",
             "dispatch_rigging": "派单倾斜",
             "wage_laundering": "工资洗钱",
             "labor_for_insider": "劳动换内幕",

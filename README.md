@@ -447,6 +447,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
   - [llm_prompt_tuning_retrospective.md](docs/llm_prompt_tuning_retrospective.md)：OpenAI / Qwen 双模型 prompt 收敛、口吻分流与长期挂念整理复盘
   - [undergrad_system_explainer.md](docs/undergrad_system_explainer.md)：面向本科生的系统解释
   - [system_development_retrospective.md](docs/system_development_retrospective.md)：系统发展过程复盘
+  - 灰色交易链当前已经细分为 `房产私下转手 / 账外回扣 / 私货过手 / 拉高出货` 等更具体类型，不再都显示成笼统的“私下交换”
 - 运行分析与历史案例：
   - [recent_100day_emergence_report.md](docs/recent_100day_emergence_report.md)：最近 100 天系统与智能体涌现报告
 - [recent_100day_government_emergence_report.md](docs/recent_100day_government_emergence_report.md)：最近 100 天政府智能体与大政府模式涌现报告
@@ -793,6 +794,10 @@ LLM 在微博系统里的作用不是“把帖子写长”，而是：
 - 封口费
 - 模糊承诺诈骗
 - 私下交换
+- 房产私下转手
+- 账外回扣
+- 私货过手
+- 拉高出货
 
 案件会继续演化出：
 

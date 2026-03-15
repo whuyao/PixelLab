@@ -1197,6 +1197,10 @@ asset_i = cash_i + deposit_i + stockValue_i + propertyValue_i - liability_i
 - 封口费
 - 模糊承诺诈骗
 - 私下交换
+- 房产私下转手
+- 账外回扣
+- 私货过手
+- 拉高出货
 
 案件从生成到结束通常经历：
 
