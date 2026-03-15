@@ -83,6 +83,9 @@ const marketAnalysisMeta = document.getElementById("marketAnalysisMeta");
 const capitalAnalysisCanvas = document.getElementById("capitalAnalysisCanvas");
 const capitalAnalysisCtx = capitalAnalysisCanvas?.getContext("2d");
 const capitalAnalysisMeta = document.getElementById("capitalAnalysisMeta");
+const capitalFlowAnalysisCanvas = document.getElementById("capitalFlowAnalysisCanvas");
+const capitalFlowAnalysisCtx = capitalFlowAnalysisCanvas?.getContext("2d");
+const capitalFlowAnalysisMeta = document.getElementById("capitalFlowAnalysisMeta");
 const fiscalAnalysisCanvas = document.getElementById("fiscalAnalysisCanvas");
 const fiscalAnalysisCtx = fiscalAnalysisCanvas?.getContext("2d");
 const fiscalAnalysisMeta = document.getElementById("fiscalAnalysisMeta");
@@ -95,6 +98,9 @@ const eventAnalysisMeta = document.getElementById("eventAnalysisMeta");
 const casinoAnalysisCanvas = document.getElementById("casinoAnalysisCanvas");
 const casinoAnalysisCtx = casinoAnalysisCanvas?.getContext("2d");
 const casinoAnalysisMeta = document.getElementById("casinoAnalysisMeta");
+const casinoActivityAnalysisCanvas = document.getElementById("casinoActivityAnalysisCanvas");
+const casinoActivityAnalysisCtx = casinoActivityAnalysisCanvas?.getContext("2d");
+const casinoActivityAnalysisMeta = document.getElementById("casinoActivityAnalysisMeta");
 const peopleAnalysis = document.getElementById("peopleAnalysis");
 const fiscalSummary = document.getElementById("fiscalSummary");
 const marketIntradayBtn = document.getElementById("marketIntradayBtn");
@@ -2199,10 +2205,12 @@ function renderAnalysisPanel() {
   if (!history.length) {
     if (marketAnalysisMeta) marketAnalysisMeta.textContent = "等待分析数据。";
     if (capitalAnalysisMeta) capitalAnalysisMeta.textContent = "等待分析数据。";
+    if (capitalFlowAnalysisMeta) capitalFlowAnalysisMeta.textContent = "等待分析数据。";
     if (fiscalAnalysisMeta) fiscalAnalysisMeta.textContent = "等待分析数据。";
     if (socialAnalysisMeta) socialAnalysisMeta.textContent = "等待分析数据。";
     if (eventAnalysisMeta) eventAnalysisMeta.textContent = "等待分析数据。";
     if (casinoAnalysisMeta) casinoAnalysisMeta.textContent = "等待分析数据。";
+    if (casinoActivityAnalysisMeta) casinoActivityAnalysisMeta.textContent = "等待分析数据。";
     if (peopleAnalysis) peopleAnalysis.innerHTML = '<article class="analysis-person-card"><strong>暂无人物快照</strong><div class="metric-meta">世界再运行一会儿，这里会开始积累实时走势。</div></article>';
     return;
   }
@@ -2225,12 +2233,25 @@ function renderAnalysisPanel() {
     capitalAnalysisCanvas,
     [
       { label: "团队总资产", values: history.map((item) => item.team_assets || item.team_cash), color: "#9b6ad4", axis: "left" },
-      { label: "团队现金", values: history.map((item) => item.team_cash), color: "#c37a4f", axis: "left" },
       { label: "团队存款", values: history.map((item) => item.team_deposits || 0), color: "#6b8fbc", axis: "left" },
     ],
     {
-      leftTopLabel: "团队资金高",
-      leftBottomLabel: "团队资金低",
+      leftTopLabel: "资产/存款高",
+      leftBottomLabel: "资产/存款低",
+      leftCaption: `最近 ${history.length} 段`,
+      rightCaption: `${timeLabels[state.time_slot] || state.time_slot}`,
+    },
+  );
+  drawAnalysisChart(
+    capitalFlowAnalysisCtx,
+    capitalFlowAnalysisCanvas,
+    [
+      { label: "团队现金", values: history.map((item) => item.team_cash || 0), color: "#c37a4f", axis: "left" },
+      { label: "财政储备", values: history.map((item) => item.government_reserve || 0), color: "#6fa06d", axis: "left" },
+    ],
+    {
+      leftTopLabel: "现金/储备高",
+      leftBottomLabel: "现金/储备低",
       leftCaption: `最近 ${history.length} 段`,
       rightCaption: `${timeLabels[state.time_slot] || state.time_slot}`,
     },
@@ -2239,13 +2260,12 @@ function renderAnalysisPanel() {
     fiscalAnalysisCtx,
     fiscalAnalysisCanvas,
     [
-      { label: "财政储备", values: history.map((item) => item.government_reserve || 0), color: "#6fa06d", axis: "left" },
       { label: "玩家总资产", values: history.map((item) => item.player_assets || 0), color: "#c48bcb", axis: "left" },
       { label: "游客日收入", values: history.map((item) => item.tourist_revenue_daily || 0), color: "#4d87a8", axis: "right" },
     ],
     {
-      leftTopLabel: "财政/玩家资产高",
-      leftBottomLabel: "财政/玩家资产低",
+      leftTopLabel: "玩家资产高",
+      leftBottomLabel: "玩家资产低",
       rightTopLabel: "游客收入高",
       rightBottomLabel: "游客收入低",
       leftCaption: `最近 ${history.length} 段`,
@@ -2286,15 +2306,27 @@ function renderAnalysisPanel() {
     casinoAnalysisCtx,
     casinoAnalysisCanvas,
     [
-      { label: "赌场热度", values: history.map((item) => item.casino_heat || 0), color: "#8e5b36", axis: "left" },
-      { label: "今日到场", values: history.map((item) => item.casino_daily_visits || 0), color: "#b08347", axis: "right" },
-      { label: "今日下注", values: history.map((item) => item.casino_daily_wagers || 0), color: "#7f4b8b", axis: "right" },
+      { label: "今日下注", values: history.map((item) => item.casino_daily_wagers || 0), color: "#8e5b36", axis: "left" },
+      { label: "今日返还", values: history.map((item) => item.casino_daily_payouts || 0), color: "#7f4b8b", axis: "left" },
     ],
     {
-      leftTopLabel: "热度高",
-      leftBottomLabel: "热度低",
-      rightTopLabel: "到场/下注高",
-      rightBottomLabel: "到场/下注低",
+      leftTopLabel: "赌资/返还高",
+      leftBottomLabel: "赌资/返还低",
+      leftCaption: `最近 ${history.length} 段`,
+      rightCaption: `${timeLabels[state.time_slot] || state.time_slot}`,
+    },
+  );
+  drawAnalysisChart(
+    casinoActivityAnalysisCtx,
+    casinoActivityAnalysisCanvas,
+    [
+      { label: "赌场热度", values: history.map((item) => item.casino_heat || 0), color: "#8e5b36", axis: "left" },
+      { label: "今日到场", values: history.map((item) => item.casino_daily_visits || 0), color: "#b08347", axis: "left" },
+      { label: "今日大赢", values: history.map((item) => item.casino_daily_big_wins || 0), color: "#7c5c9f", axis: "left" },
+    ],
+    {
+      leftTopLabel: "热度/人数高",
+      leftBottomLabel: "热度/人数低",
       leftCaption: `最近 ${history.length} 段`,
       rightCaption: `${timeLabels[state.time_slot] || state.time_slot}`,
     },
@@ -2307,16 +2339,19 @@ function renderAnalysisPanel() {
     marketAnalysisMeta.textContent = `只看市场和物价，不再混资金量。当前指数 ${latest.market_index.toFixed(1)}（${marketDelta >= 0 ? "+" : ""}${marketDelta.toFixed(2)}），物价指数 ${latest.inflation_index.toFixed(1)}（${inflationDelta >= 0 ? "+" : ""}${inflationDelta.toFixed(2)}）。`;
   }
   if (capitalAnalysisMeta) {
-    const teamCashDelta = latest.team_cash - previous.team_cash;
     const teamAssetDelta = (latest.team_assets || 0) - (previous.team_assets || 0);
     const teamDepositDelta = (latest.team_deposits || 0) - (previous.team_deposits || 0);
-    capitalAnalysisMeta.textContent = `只保留团队量级接近的资金指标。团队现金 $${latest.team_cash}（${teamCashDelta >= 0 ? "+" : ""}${teamCashDelta}），团队总资产 $${latest.team_assets || 0}（${teamAssetDelta >= 0 ? "+" : ""}${teamAssetDelta}），团队存款 $${latest.team_deposits || 0}（${teamDepositDelta >= 0 ? "+" : ""}${teamDepositDelta}）。`;
+    capitalAnalysisMeta.textContent = `这里只放团队大额资金。团队总资产 $${latest.team_assets || 0}（${teamAssetDelta >= 0 ? "+" : ""}${teamAssetDelta}），团队存款 $${latest.team_deposits || 0}（${teamDepositDelta >= 0 ? "+" : ""}${teamDepositDelta}）。`;
+  }
+  if (capitalFlowAnalysisMeta) {
+    const teamCashDelta = latest.team_cash - previous.team_cash;
+    const reserveDelta = (latest.government_reserve || 0) - (previous.government_reserve || 0);
+    capitalFlowAnalysisMeta.textContent = `把流动现金和财政储备拆开单看。团队现金 $${latest.team_cash}（${teamCashDelta >= 0 ? "+" : ""}${teamCashDelta}），财政储备 $${latest.government_reserve || 0}（${reserveDelta >= 0 ? "+" : ""}${reserveDelta}）。`;
   }
   if (fiscalAnalysisMeta) {
-    const reserveDelta = (latest.government_reserve || 0) - (previous.government_reserve || 0);
     const playerAssetDelta = (latest.player_assets || 0) - (previous.player_assets || 0);
     const tourismDelta = (latest.tourist_revenue_daily || 0) - (previous.tourist_revenue_daily || 0);
-    fiscalAnalysisMeta.textContent = `财政、玩家资产和游客收入拆开成独立图。财政储备 $${latest.government_reserve || 0}（${reserveDelta >= 0 ? "+" : ""}${reserveDelta}），玩家总资产 $${latest.player_assets || 0}（${playerAssetDelta >= 0 ? "+" : ""}${playerAssetDelta}），游客日收入 $${latest.tourist_revenue_daily || 0}（${tourismDelta >= 0 ? "+" : ""}${tourismDelta}）。`;
+    fiscalAnalysisMeta.textContent = `这里只保留玩家资产和游客收入，用双轴避免收入被压平。玩家总资产 $${latest.player_assets || 0}（${playerAssetDelta >= 0 ? "+" : ""}${playerAssetDelta}），游客日收入 $${latest.tourist_revenue_daily || 0}（${tourismDelta >= 0 ? "+" : ""}${tourismDelta}）。`;
   }
   if (socialAnalysisMeta) {
     socialAnalysisMeta.textContent = `只看人物状态。平均压力 ${latest.avg_stress}，平均满意 ${(latest.avg_satisfaction || 0).toFixed(1)}，平均信用 ${latest.avg_credit}。`;
@@ -2325,9 +2360,58 @@ function renderAnalysisPanel() {
     eventAnalysisMeta.textContent = `这里只看计数，不再混收入。活跃事件 ${latest.active_events}，地下案件 ${latest.active_gray_cases}，在场游客 ${latest.tourists_active || 0}。`;
   }
   if (casinoAnalysisMeta) {
-    const visitsDelta = (latest.casino_daily_visits || 0) - (previous.casino_daily_visits || 0);
     const wagerDelta = (latest.casino_daily_wagers || 0) - (previous.casino_daily_wagers || 0);
-    casinoAnalysisMeta.textContent = `这里只看赌场。热度 ${latest.casino_heat || 0}，今日到场 ${latest.casino_daily_visits || 0}（${visitsDelta >= 0 ? "+" : ""}${visitsDelta}），今日下注 ${formatCompactCurrency(latest.casino_daily_wagers || 0)}（${wagerDelta >= 0 ? "+" : ""}${formatCompactCurrency(wagerDelta)}）。`;
+    const payoutDelta = (latest.casino_daily_payouts || 0) - (previous.casino_daily_payouts || 0);
+    const taxDelta = (latest.casino_daily_tax || 0) - (previous.casino_daily_tax || 0);
+    const netFlow = (latest.casino_daily_wagers || 0) - (latest.casino_daily_payouts || 0);
+    const previousNetFlow = (previous.casino_daily_wagers || 0) - (previous.casino_daily_payouts || 0);
+    const netFlowDelta = netFlow - previousNetFlow;
+    casinoAnalysisMeta.innerHTML = `
+      <div class="status-grid">
+        <div class="status-pill">
+          <strong>今日下注</strong>
+          <span>${formatCompactCurrency(latest.casino_daily_wagers || 0)}（${wagerDelta >= 0 ? "+" : ""}${formatCompactCurrency(wagerDelta)}）</span>
+        </div>
+        <div class="status-pill">
+          <strong>今日返还</strong>
+          <span>${formatCompactCurrency(latest.casino_daily_payouts || 0)}（${payoutDelta >= 0 ? "+" : ""}${formatCompactCurrency(payoutDelta)}）</span>
+        </div>
+        <div class="status-pill">
+          <strong>今日净流</strong>
+          <span>${formatCompactCurrency(netFlow)}（${netFlowDelta >= 0 ? "+" : ""}${formatCompactCurrency(netFlowDelta)}）</span>
+        </div>
+        <div class="status-pill">
+          <strong>今日赌税</strong>
+          <span>${formatCompactCurrency(latest.casino_daily_tax || 0)}（${taxDelta >= 0 ? "+" : ""}${formatCompactCurrency(taxDelta)}）</span>
+        </div>
+      </div>
+      <div class="mini-note">左侧这张卡只看赌场资金流：下注、返还、净流和赌税，不再重复显示热度和到场人数。</div>
+    `;
+  }
+  if (casinoActivityAnalysisMeta) {
+    const heatDelta = (latest.casino_heat || 0) - (previous.casino_heat || 0);
+    const bigWinDelta = (latest.casino_daily_big_wins || 0) - (previous.casino_daily_big_wins || 0);
+    casinoActivityAnalysisMeta.innerHTML = `
+      <div class="status-grid">
+        <div class="status-pill">
+          <strong>赌场热度</strong>
+          <span>${latest.casino_heat || 0}（${heatDelta >= 0 ? "+" : ""}${heatDelta}）</span>
+        </div>
+        <div class="status-pill">
+          <strong>今日到场</strong>
+          <span>${latest.casino_daily_visits || 0}</span>
+        </div>
+        <div class="status-pill">
+          <strong>今日大赢</strong>
+          <span>${latest.casino_daily_big_wins || 0}（${bigWinDelta >= 0 ? "+" : ""}${bigWinDelta}）</span>
+        </div>
+        <div class="status-pill">
+          <strong>庄家池</strong>
+          <span>${formatCompactCurrency(latest.casino_house_pool || 0)}</span>
+        </div>
+      </div>
+      <div class="mini-note">这张图只看赌场热度、到场人数和大赢次数，不再和赌资金额混画。</div>
+    `;
   }
   const actors = [
     {

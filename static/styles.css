@@ -2110,6 +2110,12 @@ canvas {
   font-weight: 700;
 }
 
+.mini-note {
+  margin-top: 10px;
+  color: rgba(56, 49, 40, 0.82);
+  line-height: 1.45;
+}
+
 .memory-box p,
 .memory-box div,
 .memory-box span,
