@@ -90,6 +90,11 @@ const businessTrendBox = document.getElementById("businessTrendBox");
 const businessBoard = document.getElementById("businessBoard");
 const businessLifecycleBox = document.getElementById("businessLifecycleBox");
 const businessSideStats = document.getElementById("businessSideStats");
+const tourismHero = document.getElementById("tourismHero");
+const tourismTrendBox = document.getElementById("tourismTrendBox");
+const tourismBoard = document.getElementById("tourismBoard");
+const tourismFocusBox = document.getElementById("tourismFocusBox");
+const tourismSideStats = document.getElementById("tourismSideStats");
 const marketAnalysisCanvas = document.getElementById("marketAnalysisCanvas");
 const marketAnalysisCtx = marketAnalysisCanvas?.getContext("2d");
 const marketAnalysisMeta = document.getElementById("marketAnalysisMeta");
@@ -190,7 +195,7 @@ const weatherLabels = {
   drizzle: "小雨",
 };
 
-const availableViews = new Set(["home", "market", "business", "life", "government", "journal", "bulletin", "feed", "teaching"]);
+const availableViews = new Set(["home", "market", "business", "tourism", "life", "government", "journal", "bulletin", "feed", "teaching"]);
 
 function routeForTargetKind(targetKind) {
   if (["market", "stock"].includes(targetKind)) return "market";
@@ -811,6 +816,63 @@ function recentBusinessSeries(days = 10, key = "revenue") {
   return [];
 }
 
+function recentTouristMarketSeries(days = 10, action = "invest") {
+  const touristIds = new Set((state.tourists || []).map((tourist) => tourist.id));
+  const values = [];
+  const startDay = Math.max(1, (state.day || 1) - days + 1);
+  for (let day = startDay; day <= (state.day || 1); day += 1) {
+    const total = (state.finance_history || [])
+      .filter((record) => (
+        record.day === day
+        && touristIds.has(record.actor_id)
+        && record.category === "market"
+        && record.action === action
+      ))
+      .reduce((sum, record) => sum + Math.abs(Number(record.amount || 0)), 0);
+    values.push(total);
+  }
+  return values;
+}
+
+function recentTouristCasinoSeries(days = 10, key = "wagers") {
+  const touristIds = new Set((state.tourists || []).map((tourist) => tourist.id));
+  const values = [];
+  const startDay = Math.max(1, (state.day || 1) - days + 1);
+  for (let day = startDay; day <= (state.day || 1); day += 1) {
+    const dayRecords = (state.finance_history || []).filter((record) => (
+      record.day === day
+      && touristIds.has(record.actor_id)
+      && record.category === "casino"
+    ));
+    if (key === "visits") {
+      values.push(new Set(dayRecords.map((record) => `${record.actor_type}:${record.actor_id}`)).size);
+      continue;
+    }
+    if (key === "wagers") {
+      values.push(dayRecords.filter((record) => record.action === "gamble").reduce((sum, record) => sum + Math.abs(Number(record.amount || 0)), 0));
+      continue;
+    }
+    if (key === "payouts") {
+      values.push(dayRecords.reduce((sum, record) => sum + Number(record.metadata?.payout || 0), 0));
+      continue;
+    }
+    if (key === "tax") {
+      values.push(dayRecords.reduce((sum, record) => sum + Number(record.metadata?.tax || 0), 0));
+      continue;
+    }
+    values.push(0);
+  }
+  return values;
+}
+
+function recentTouristActiveSeries(days = 12) {
+  return (state.analysis_history || []).slice(-days).map((point) => Number(point.tourists_active || 0));
+}
+
+function recentTouristRevenueSeries(days = 12) {
+  return (state.analysis_history || []).slice(-days).map((point) => Number(point.tourist_revenue_daily || 0));
+}
+
 function topConsumptionItems(limit = 3) {
   const totals = new Map();
   (state.finance_history || [])
@@ -971,6 +1033,10 @@ const roomNames = {
   meeting: "麦田广场",
   lounge: "湖畔营地",
 };
+
+function locationDisplayName(value) {
+  return roomNames[value] || value || "未定位置";
+}
 
 const lightingBySlot = {
   morning: "rgba(249, 224, 164, 0.07)",
@@ -1622,6 +1688,24 @@ function renderPanels() {
         [state.businesses, state.daily_business_history?.slice(-120), state.feed_timeline?.slice(0, 120), state.gray_cases, state.finance_history?.slice(0, 160), state.government],
       ),
       () => renderBusinessPanel(),
+    );
+  }
+  if (isViewVisible("tourism")) {
+    renderIfChanged(
+      "tourism-panel",
+      serverSignature(
+        "tourism",
+        [
+          state.tourists,
+          state.tourism,
+          state.market,
+          state.analysis_history?.slice(-120),
+          state.finance_history?.slice(0, 260),
+          state.feed_timeline?.slice(0, 220),
+          state.daily_casino_history?.slice(-60),
+        ],
+      ),
+      () => renderTourismPanel(),
     );
   }
   if (isViewVisible("life")) {
@@ -3227,6 +3311,236 @@ function renderBusinessPanel() {
       <strong>最近经营流水</strong>
       <div class="memory-section compact">
         <div>${recentBusinessFinance.length ? recentBusinessFinance.slice(0, 8).map((record) => `<span class="memory-chip">${escapeHtml(`${record.actor_name} · ${formatCompactCurrency(record.amount || 0)} · ${record.counterparty || "经营流水"}`)}</span>`).join("") : '<span class="memory-meta">最近还没有新的企业经营记录。</span>'}</div>
+      </div>
+    </article>
+  `;
+}
+
+function renderTourismPanel() {
+  if (!state || !tourismHero || !tourismTrendBox || !tourismBoard || !tourismFocusBox || !tourismSideStats) return;
+  const tourists = (state.tourists || []).slice();
+  const activeTourists = activeTouristsForState(state);
+  const activeIds = new Set(activeTourists.map((tourist) => tourist.id));
+  const investorSnapshots = tourists.map((tourist) => ({ tourist, snapshot: touristInvestmentSnapshot(tourist) }));
+  const touristInvestors = investorSnapshots.filter((entry) => entry.snapshot.holdingCount > 0);
+  const touristInvestorIds = new Set(tourists.map((tourist) => tourist.id));
+  const totalCash = tourists.reduce((sum, tourist) => sum + Number(tourist.cash || 0), 0);
+  const totalBudget = tourists.reduce((sum, tourist) => sum + Number(tourist.budget || 0), 0);
+  const investedTotal = touristInvestors.reduce((sum, entry) => sum + entry.snapshot.invested, 0);
+  const currentValue = touristInvestors.reduce((sum, entry) => sum + entry.snapshot.currentValue, 0);
+  const floatingDelta = touristInvestors.reduce((sum, entry) => sum + entry.snapshot.delta, 0);
+  const repeatCount = tourists.filter((tourist) => tourist.archetype === "repeat" || tourist.returner).length;
+  const vipCount = tourists.filter((tourist) => tourist.visitor_tier === "vip").length;
+  const buyerCount = tourists.filter((tourist) => tourist.property_interest).length;
+  const activePosts = (state.feed_timeline || []).filter((post) => post.author_type === "tourist");
+  const recentTouristTrades = (state.finance_history || [])
+    .filter((record) => touristInvestorIds.has(record.actor_id) && record.category === "market" && ["invest", "exit"].includes(record.action))
+    .slice(0, 10);
+  const recentTouristCasino = (state.finance_history || [])
+    .filter((record) => touristInvestorIds.has(record.actor_id) && record.category === "casino")
+    .slice(0, 10);
+  const touristBuyCount = recentTouristTrades.filter((record) => record.action === "invest").length;
+  const touristSellCount = recentTouristTrades.filter((record) => record.action === "exit").length;
+  const touristNetInflow = recentTouristTrades
+    .filter((record) => record.action === "invest")
+    .reduce((sum, record) => sum + Number(record.amount || 0), 0);
+  const touristNetOutflow = recentTouristTrades
+    .filter((record) => record.action === "exit")
+    .reduce((sum, record) => sum + Number(record.amount || 0), 0);
+  const activeSeries = recentTouristActiveSeries(12);
+  const revenueSeries = recentTouristRevenueSeries(12);
+  const marketBuySeries = recentTouristMarketSeries(10, "invest");
+  const marketSellSeries = recentTouristMarketSeries(10, "exit");
+  const casinoWagerSeries = recentTouristCasinoSeries(10, "wagers");
+  const casinoPayoutSeries = recentTouristCasinoSeries(10, "payouts");
+  const casinoTaxSeries = recentTouristCasinoSeries(10, "tax");
+  const preferenceCounts = new Map();
+  const topicCounts = new Map();
+  tourists.forEach((tourist) => {
+    const topic = tourist.favorite_topic || "随走随看";
+    topicCounts.set(topic, (topicCounts.get(topic) || 0) + 1);
+    const preference = tourist.market_preference || "暂未偏向";
+    preferenceCounts.set(preference, (preferenceCounts.get(preference) || 0) + 1);
+  });
+  const topTopics = [...topicCounts.entries()].sort((left, right) => right[1] - left[1]).slice(0, 6);
+  const topPreferences = [...preferenceCounts.entries()].sort((left, right) => right[1] - left[1]).slice(0, 6);
+
+  const spendByTourist = new Map();
+  const gambleByTourist = new Map();
+  (state.finance_history || []).forEach((record) => {
+    if (!touristInvestorIds.has(record.actor_id)) return;
+    if (["tourism", "consume"].includes(record.category)) {
+      spendByTourist.set(record.actor_id, (spendByTourist.get(record.actor_id) || 0) + Math.abs(Number(record.amount || 0)));
+    }
+    if (record.category === "casino") {
+      gambleByTourist.set(record.actor_id, (gambleByTourist.get(record.actor_id) || 0) + Math.abs(Number(record.amount || 0)));
+    }
+  });
+  const feedHeatByTourist = new Map();
+  activePosts.forEach((post) => {
+    feedHeatByTourist.set(post.author_id, Math.max(feedHeatByTourist.get(post.author_id) || 0, Number(post.heat || 0)));
+  });
+  const topSpender = tourists
+    .map((tourist) => ({ tourist, amount: spendByTourist.get(tourist.id) || 0 }))
+    .sort((left, right) => right.amount - left.amount)[0];
+  const topInvestor = touristInvestors.slice().sort((left, right) => right.snapshot.currentValue - left.snapshot.currentValue)[0];
+  const topGambler = tourists
+    .map((tourist) => ({ tourist, amount: gambleByTourist.get(tourist.id) || 0 }))
+    .sort((left, right) => right.amount - left.amount)[0];
+  const topHotPoster = tourists
+    .map((tourist) => ({ tourist, heat: feedHeatByTourist.get(tourist.id) || 0 }))
+    .sort((left, right) => right.heat - left.heat)[0];
+  const buyerLead = tourists
+    .filter((tourist) => tourist.property_interest)
+    .sort((left, right) => Number(right.cash || 0) - Number(left.cash || 0))[0];
+
+  tourismHero.innerHTML = [
+    ["游客池 / 活跃", `${tourists.length} / ${activeTourists.length}`, `${repeatCount} 回头客 · ${vipCount} 高消费`],
+    ["看房与投资", `${buyerCount} 看房`, `${touristInvestors.length} 人持仓 · 已投 ${formatCompactCurrency(investedTotal)}`],
+    ["游客现金", formatCompactCurrency(totalCash), `预算总额 ${formatCompactCurrency(totalBudget)}`],
+    ["游客持仓市值", formatCompactCurrency(currentValue), `浮盈亏 ${floatingDelta >= 0 ? "+" : "-"}${formatCompactCurrency(Math.abs(floatingDelta))}`],
+    ["今日游客收入", formatCompactCurrency(state.tourism?.daily_revenue || 0), `今日消费 ${formatCompactCurrency(Math.abs((state.finance_history || []).filter((record) => record.day === state.day && record.category === "tourism").reduce((sum, record) => sum + Number(record.amount || 0), 0)))}`],
+    ["今日赌资 / 赌税", `${formatCompactCurrency(state.casino?.daily_wagers || 0)} / ${formatCompactCurrency(state.casino?.daily_tax || 0)}`, `${state.casino?.daily_visits || 0} 人到场 · 大赢 ${state.casino?.daily_big_wins || 0}`],
+    ["游客微博", `${activePosts.length} 条`, `${activePosts.filter((post) => (post.heat || 0) >= 100).length} 条高热帖`],
+    ["当前信号", tourismSeasonLabel(state.tourism?.season_mode), state.tourism?.latest_signal || state.tourism?.last_note || "旅馆、集市和股市会一起影响游客流向。"],
+  ]
+    .map(([label, value, meta]) => `
+      <article class="metric-summary-card tourism-entry-card">
+        <strong>${escapeHtml(label)}</strong>
+        <div class="cockpit-value">${escapeHtml(value)}</div>
+        <div class="metric-meta">${escapeHtml(meta)}</div>
+      </article>
+    `)
+    .join("");
+
+  tourismTrendBox.innerHTML = `
+    <article class="position-card insight-card">
+      <strong>近 ${Math.max(1, activeSeries.length)} 个记录点活跃游客</strong>
+      <div class="metric-meta">当前活跃 ${activeTourists.length} / 总量 ${tourists.length}</div>
+      ${buildMiniTrendSvg(activeSeries, "#6e9271", "rgba(110, 146, 113, 0.18)", "bars-sqrt")}
+    </article>
+    <article class="position-card insight-card">
+      <strong>近 ${Math.max(1, revenueSeries.length)} 个记录点游客收入</strong>
+      <div class="metric-meta">累计 ${formatCompactCurrency(revenueSeries.reduce((sum, value) => sum + value, 0))}</div>
+      ${buildMiniTrendSvg(revenueSeries, "#cf8850", "rgba(207, 136, 80, 0.24)", "bars-sqrt")}
+    </article>
+    <article class="position-card insight-card">
+      <strong>近 ${Math.max(1, marketBuySeries.length)} 天游客投资</strong>
+      <div class="metric-meta">买入 ${formatCompactCurrency(marketBuySeries.reduce((sum, value) => sum + value, 0))} · 卖出 ${formatCompactCurrency(marketSellSeries.reduce((sum, value) => sum + value, 0))}</div>
+      ${buildMiniTrendSvg(marketBuySeries, "#8b6db2", "rgba(139, 109, 178, 0.18)", "bars-sqrt")}
+    </article>
+    <article class="position-card insight-card">
+      <strong>近 ${Math.max(1, casinoWagerSeries.length)} 天游客赌局</strong>
+      <div class="metric-meta">赌资 ${formatCompactCurrency(casinoWagerSeries.reduce((sum, value) => sum + value, 0))} · 返还 ${formatCompactCurrency(casinoPayoutSeries.reduce((sum, value) => sum + value, 0))} · 赌税 ${formatCompactCurrency(casinoTaxSeries.reduce((sum, value) => sum + value, 0))}</div>
+      ${buildMiniTrendSvg(casinoWagerSeries, "#9c5a40", "rgba(156, 90, 64, 0.28)", "bars-sqrt")}
+    </article>
+  `;
+
+  tourismBoard.innerHTML = tourists
+    .slice()
+    .sort((left, right) => {
+      const leftSnapshot = touristInvestmentSnapshot(left);
+      const rightSnapshot = touristInvestmentSnapshot(right);
+      const leftWeight = (left.active_in_scene !== false ? 1000 : 0) + (left.property_interest ? 120 : 0) + (left.visitor_tier === "vip" ? 90 : left.visitor_tier === "buyer" ? 75 : left.archetype === "repeat" ? 40 : 0) + leftSnapshot.currentValue;
+      const rightWeight = (right.active_in_scene !== false ? 1000 : 0) + (right.property_interest ? 120 : 0) + (right.visitor_tier === "vip" ? 90 : right.visitor_tier === "buyer" ? 75 : right.archetype === "repeat" ? 40 : 0) + rightSnapshot.currentValue;
+      return rightWeight - leftWeight;
+    })
+    .map((tourist) => {
+      const snapshot = touristInvestmentSnapshot(tourist);
+      return `
+        <article class="position-card tourism-entry-card">
+          <div class="analysis-person-head">
+            <strong>${escapeHtml(tourist.name)}</strong>
+            <span class="business-stage-chip ${tourist.active_in_scene !== false ? "stage-expanding" : ""}">${escapeHtml(tourist.active_in_scene !== false ? "地图活跃" : "轻量更新")}</span>
+          </div>
+          <div class="metric-meta">${escapeHtml(touristTierLabel(tourist.visitor_tier))} · ${escapeHtml(tourist.archetype || "regular")} · ${escapeHtml(locationDisplayName(tourist.current_location || ""))}</div>
+          <div class="metric-meta">${escapeHtml(tourist.current_activity || tourist.brief_note || "正在小镇里四处看看。")}</div>
+          <div class="business-stat-grid">
+            <div class="business-kpi-chip"><strong>现金 / 预算</strong><span>${formatCompactCurrency(tourist.cash || 0)} / ${formatCompactCurrency(tourist.budget || 0)}</span></div>
+            <div class="business-kpi-chip"><strong>心情 / 消费欲</strong><span>${tourist.mood || 0} / ${tourist.spending_desire || 0}</span></div>
+            <div class="business-kpi-chip"><strong>喜好</strong><span>${escapeHtml(tourist.favorite_topic || "随走随看")}</span></div>
+            <div class="business-kpi-chip"><strong>投资偏好</strong><span>${escapeHtml(tourist.market_preference || "未形成")}</span></div>
+            <div class="business-kpi-chip"><strong>持仓 / 市值</strong><span>${escapeHtml(snapshot.holdingsLabel)} · ${formatCompactCurrency(snapshot.currentValue)}</span></div>
+            <div class="business-kpi-chip"><strong>浮盈亏 / 看房</strong><span>${snapshot.delta >= 0 ? "+" : "-"}${formatCompactCurrency(Math.abs(snapshot.delta))} · ${tourist.property_interest ? "是" : "否"}</span></div>
+          </div>
+          <div class="metric-meta">${escapeHtml(tourist.market_last_action || tourist.market_preference_note || tourist.brief_note || "这位游客这轮还没有特别显眼的动作。")}</div>
+        </article>
+      `;
+    })
+    .join("");
+
+  const focusCards = [
+    topSpender?.amount ? {
+      title: "最大消费游客",
+      meta: `${topSpender.tourist.name} · 累计消费 ${formatCompactCurrency(topSpender.amount)}`,
+      note: topSpender.tourist.brief_note || topSpender.tourist.current_activity || "最近一直在消费和四处打听。",
+    } : null,
+    topInvestor ? {
+      title: "最大投资游客",
+      meta: `${topInvestor.tourist.name} · 当前市值 ${formatCompactCurrency(topInvestor.snapshot.currentValue)}`,
+      note: topInvestor.tourist.market_last_action || topInvestor.snapshot.preferenceLabel,
+    } : null,
+    buyerLead ? {
+      title: "潜在购房者",
+      meta: `${buyerLead.name} · 现金 ${formatCompactCurrency(buyerLead.cash || 0)}`,
+      note: buyerLead.brief_note || buyerLead.current_activity || "正在四处问房、看价和比较位置。",
+    } : null,
+    topGambler?.amount ? {
+      title: "赌场高频游客",
+      meta: `${topGambler.tourist.name} · 累计赌资 ${formatCompactCurrency(topGambler.amount)}`,
+      note: topGambler.tourist.brief_note || topGambler.tourist.current_activity || "最近总往后巷那边钻。",
+    } : null,
+    topHotPoster?.heat ? {
+      title: "微博高热游客",
+      meta: `${topHotPoster.tourist.name} · 热度 ${topHotPoster.heat}`,
+      note: activePosts.find((post) => post.author_id === topHotPoster.tourist.id)?.content || "这位游客最近在微博上很容易带起讨论。",
+    } : null,
+  ].filter(Boolean);
+  tourismFocusBox.innerHTML = focusCards.length
+    ? focusCards.map((item) => `
+        <article class="position-card tourism-focus-card">
+          <strong>${escapeHtml(item.title)}</strong>
+          <div class="metric-meta">${escapeHtml(item.meta)}</div>
+          <div class="mini-note">${escapeHtml(item.note)}</div>
+        </article>
+      `).join("")
+    : `
+      <article class="position-card tourism-focus-card">
+        <strong>重点游客还没分化出来</strong>
+        <div class="metric-meta">再跑几轮，消费、投资、赌博和看房会把重点游客拉开。</div>
+      </article>
+    `;
+
+  tourismSideStats.innerHTML = `
+    <article class="position-card insight-card">
+      <strong>偏好热词</strong>
+      <div class="memory-section compact">
+        <div>${topTopics.length ? topTopics.map(([topic, count]) => `<span class="memory-chip">${escapeHtml(`${topic} · ${count}人`)}</span>`).join("") : '<span class="memory-meta">游客偏好还没形成明显集中。</span>'}</div>
+      </div>
+    </article>
+    <article class="position-card insight-card">
+      <strong>投资偏好</strong>
+      <div class="memory-section compact">
+        <div>${topPreferences.length ? topPreferences.map(([topic, count]) => `<span class="memory-chip">${escapeHtml(`${topic} · ${count}人`)}</span>`).join("") : '<span class="memory-meta">游客当前还没有明显的投资偏好。</span>'}</div>
+      </div>
+      <div class="metric-meta">最近买入 ${touristBuyCount} 次 · 最近卖出 ${touristSellCount} 次 · 净流入 ${formatCompactCurrency(touristNetInflow)} · 净流出 ${formatCompactCurrency(touristNetOutflow)}</div>
+    </article>
+    <article class="position-card insight-card">
+      <strong>最近买卖记录</strong>
+      <div class="memory-section compact">
+        <div>${recentTouristTrades.length ? recentTouristTrades.map((record) => `<span class="memory-chip">${escapeHtml(`${record.actor_name} · ${record.action === "invest" ? "买入" : "卖出"} · ${record.asset_name || "股票"} · ${formatCompactCurrency(record.amount || 0)}`)}</span>`).join("") : '<span class="memory-meta">最近还没有新的游客买卖记录。</span>'}</div>
+      </div>
+    </article>
+    <article class="position-card insight-card">
+      <strong>最近赌局记录</strong>
+      <div class="memory-section compact">
+        <div>${recentTouristCasino.length ? recentTouristCasino.map((record) => `<span class="memory-chip">${escapeHtml(`${record.actor_name} · ${record.summary}`)}</span>`).join("") : '<span class="memory-meta">最近还没有新的游客赌局。</span>'}</div>
+      </div>
+    </article>
+    <article class="position-card insight-card">
+      <strong>游客微博热帖</strong>
+      <div class="memory-section compact">
+        <div>${activePosts.slice(0, 8).map((post) => `<span class="memory-chip">${escapeHtml(`${post.author_name} · 热度 ${post.heat || 0} · ${truncateText(post.content, 26)}`)}</span>`).join("") || '<span class="memory-meta">最近还没有游客帖子冲上来。</span>'}</div>
       </div>
     </article>
   `;

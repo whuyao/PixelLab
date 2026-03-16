@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GeoAI Pixel Lab Test (UrbanComp Lab)</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260315k" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260316e" />
   </head>
   <body>
     <div class="project-banner">
@@ -36,6 +36,7 @@
         <button type="button" class="view-tab is-active" data-view="home">首页</button>
         <button type="button" class="view-tab" data-view="market">市场</button>
         <button type="button" class="view-tab" data-view="business">企业竞争</button>
+        <button type="button" class="view-tab" data-view="tourism">游客观察</button>
         <button type="button" class="view-tab" data-view="life">生活与地产</button>
         <button type="button" class="view-tab" data-view="government">财政与政府</button>
         <button type="button" class="view-tab" data-view="feed">小镇微博</button>
@@ -272,6 +273,50 @@
                 <span class="panel-tag">营业税 / 微博 / 灰市</span>
               </div>
               <div id="businessSideStats" class="stack"></div>
+            </section>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view" data-view="tourism">
+        <div class="tourism-layout">
+          <div class="tourism-main-block">
+            <section class="panel tourism-panel">
+              <div class="panel-head">
+                <h2>游客总览</h2>
+                <span class="panel-tag">活跃 / 消费 / 投资 / 赌博</span>
+              </div>
+              <div id="tourismHero" class="metric-summary-grid"></div>
+            </section>
+            <section class="panel tourism-panel">
+              <div class="panel-head">
+                <h2>游客走势</h2>
+                <span class="panel-tag">活跃度 / 消费 / 投资 / 赌资</span>
+              </div>
+              <div id="tourismTrendBox" class="position-grid"></div>
+            </section>
+            <section class="panel tourism-panel">
+              <div class="panel-head">
+                <h2>游客名录</h2>
+                <span class="panel-tag">类型 / 位置 / 喜好 / 投资 / 看房</span>
+              </div>
+              <div id="tourismBoard" class="stack"></div>
+            </section>
+          </div>
+          <aside class="tourism-side-block">
+            <section class="panel tourism-panel">
+              <div class="panel-head">
+                <h2>重点游客跟踪</h2>
+                <span class="panel-tag">消费 / 投资 / 赌博 / 看房</span>
+              </div>
+              <div id="tourismFocusBox" class="stack"></div>
+            </section>
+            <section class="panel tourism-panel">
+              <div class="panel-head">
+                <h2>偏好与行为观察</h2>
+                <span class="panel-tag">热点 / 最近动作 / 微博</span>
+              </div>
+              <div id="tourismSideStats" class="stack"></div>
             </section>
           </aside>
         </div>
@@ -745,7 +790,7 @@
               <span class="panel-tag">本科生 / 研究生学习入口</span>
             </div>
             <div class="teaching-hero-copy">
-              <p>这个页面不是操作台，而是一份面向课堂讲解的系统说明。它解释这套像素 GeoAI 实验室里，什么是智能体、什么是 GeoAI、为什么经济约束是底层驱动，以及市场、企业竞争、微博、政府、主线新闻、地下赌场和 LLM prompt 工程怎样共同长出复杂行为。</p>
+              <p>这个页面不是操作台，而是一份面向课堂讲解的系统说明。它解释这套像素 GeoAI 实验室里，什么是智能体、什么是 GeoAI、为什么经济约束是底层驱动，以及市场、企业竞争、游客需求层、微博、政府、主线新闻、地下赌场和 LLM prompt 工程怎样共同长出复杂行为。</p>
               <div class="teaching-chip-row">
                 <span class="memory-chip">多智能体</span>
                 <span class="memory-chip">GeoAI</span>
@@ -753,6 +798,7 @@
                 <span class="memory-chip">经济底层机制</span>
                 <span class="memory-chip">制度与公共服务</span>
                 <span class="memory-chip">企业竞争</span>
+                <span class="memory-chip">游客观察</span>
                 <span class="memory-chip">地下赌场</span>
               </div>
             </div>
@@ -898,6 +944,10 @@
                   <div>旅馆、集市、工坊、合作社和后街商行会围绕价格、品质、客流、微博舆情和灰色引流互相抢客。</div>
                 </article>
                 <article class="event-card">
+                  <strong>游客观察系统</strong>
+                  <div>游客不再只是背景流量，而是被单独观察的需求层：他们会消费、投资、赌博、看房、发微博，并带着外部消息改变小镇。</div>
+                </article>
+                <article class="event-card">
                   <strong>开放系统</strong>
                   <div>游客、Brave 新闻或系统新闻、节庆活动和随机事件把外部冲击带进小镇。</div>
                 </article>
@@ -1020,7 +1070,26 @@
 
             <section class="panel teaching-panel">
               <div class="panel-head">
-                <h2>13. 灰色交易现在怎么分</h2>
+                <h2>13. 游客为什么需要单独观察</h2>
+                <span class="panel-tag">外来需求层</span>
+              </div>
+              <div class="teaching-block">
+                <p>游客现在不只是“来消费的人”，而是小镇里的外来需求层。他们会带来现金流、微博热度、股票试水、赌场热度和房产兴趣。如果把这些都继续塞在市场页边角里，学生很难看出游客到底在改变什么。</p>
+                <ul class="teaching-list">
+                  <li>游客会消费，也会试水投资、轻量卖出、赌博和看房</li>
+                  <li>游客会把外部消息和情绪带进小镇</li>
+                  <li>游客会在微博上放大“值不值得来、值不值得买、这地方靠不靠谱”</li>
+                  <li>系统现在采用 `总游客池 10 / 活跃游客 7` 的分层机制，让世界更热闹，但不把地图和日志噪声打爆</li>
+                </ul>
+                <div class="teaching-mini-formula">
+                  <code>游客层 = 消费 + 投资 + 赌博 + 看房 + 微博 + 外部消息</code>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel teaching-panel">
+              <div class="panel-head">
+                <h2>14. 灰色交易现在怎么分</h2>
                 <span class="panel-tag">地下行为细分</span>
               </div>
               <div class="teaching-block">
@@ -1039,7 +1108,7 @@
 
             <section class="panel teaching-panel">
               <div class="panel-head">
-                <h2>14. 最近的系统平衡怎么调</h2>
+                <h2>15. 最近的系统平衡怎么调</h2>
                 <span class="panel-tag">机制优化</span>
               </div>
               <div class="teaching-block">
@@ -1096,6 +1165,6 @@
       <span>UrbanComp Lab (<a href="https://urbancomp.net" target="_blank" rel="noreferrer">https://urbancomp.net</a>) 开发</span>
       <span>GitHub：<a href="https://github.com/whuyao/PixelLab" target="_blank" rel="noreferrer">https://github.com/whuyao/PixelLab</a></span>
     </footer>
-    <script src="/static/app.js?v=20260316c" type="module"></script>
+    <script src="/static/app.js?v=20260316e" type="module"></script>
   </body>
 </html>

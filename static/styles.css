@@ -950,6 +950,13 @@ canvas {
   align-items: start;
 }
 
+.tourism-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.16fr) minmax(360px, 0.84fr);
+  gap: 14px;
+  align-items: start;
+}
+
 .lifestyle-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.08fr) minmax(360px, 0.92fr);
@@ -961,6 +968,8 @@ canvas {
 .market-side-block,
 .business-main-block,
 .business-side-block,
+.tourism-main-block,
+.tourism-side-block,
 .lifestyle-main-block,
 .lifestyle-side-block {
   display: grid;
@@ -972,6 +981,7 @@ canvas {
 .market-chart-block,
 .market-position-block,
 .business-panel,
+.tourism-panel,
 .market-subpanel {
   border: 3px solid rgba(58, 50, 43, 0.56);
   background: rgba(255, 251, 241, 0.9);
@@ -980,7 +990,9 @@ canvas {
 
 .business-hero-card,
 .business-lifecycle-card,
-.business-entry-card {
+.business-entry-card,
+.tourism-entry-card,
+.tourism-focus-card {
   display: grid;
   gap: 8px;
 }
@@ -2734,18 +2746,21 @@ canvas {
     grid-column: 1;
   }
 
-  .market-layout {
+  .market-layout,
+  .business-layout,
+  .tourism-layout,
+  .lifestyle-layout {
     grid-template-columns: 1fr;
   }
 
   .market-main-block,
   .market-side-block,
+  .business-main-block,
+  .business-side-block,
+  .tourism-main-block,
+  .tourism-side-block,
   .lifestyle-main-block,
   .lifestyle-side-block {
-    grid-template-columns: 1fr;
-  }
-
-  .lifestyle-layout {
     grid-template-columns: 1fr;
   }
 
