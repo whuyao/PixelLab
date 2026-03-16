@@ -25,6 +25,10 @@ Files used by the current frontend:
   Source: OpenGameArt, "Outdoor Tileset"
   URL: https://opengameart.org/content/outdoor-tileset-1
 
+- `tilesets/oga_town_tiles_cc0.png`
+  Source: OpenGameArt, "Town Tiles"
+  URL: https://opengameart.org/sites/default/files/town_tiles.png
+
 - `labnpcs.png`
   Source: local sprite sheet used for four-direction lab NPC walk cycles
   Notes: bundled directly in the repository for the project frontend

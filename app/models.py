@@ -193,7 +193,7 @@ class DialogueRecord(BaseModel):
 
 class FeedPost(BaseModel):
     id: str
-    author_type: Literal["player", "agent", "tourist", "government", "system"]
+    author_type: Literal["player", "agent", "tourist", "government", "system", "business"]
     author_id: str
     author_name: str
     day: int
@@ -411,6 +411,7 @@ class GovernmentState(BaseModel):
             "market": 0,
             "property": 0,
             "consumption": 0,
+            "business": 0,
             "fine": 0,
             "government_asset": 0,
             "tourism_public": 0,
@@ -469,13 +470,50 @@ class PropertyAsset(BaseModel):
     description: str = ""
 
 
+class BusinessEntity(BaseModel):
+    id: str
+    name: str
+    category: Literal["inn", "market", "workshop", "co_op", "backstreet"]
+    owner_type: Literal["market", "government", "company", "gray"]
+    owner_id: str = ""
+    property_id: str = ""
+    location_label: str = ""
+    target_segment: Literal["resident", "tourist", "mixed", "producer"] = "mixed"
+    strategy: Literal["steady", "premium", "low_price", "gray", "service"] = "steady"
+    price_level: int = 50
+    quality_level: int = 50
+    reputation: int = 60
+    capacity: int = 10
+    gray_risk: int = 0
+    government_support: int = 0
+    daily_customers: int = 0
+    daily_resident_customers: int = 0
+    daily_tourist_customers: int = 0
+    daily_revenue: int = 0
+    daily_cost: int = 0
+    daily_profit: int = 0
+    total_customers: int = 0
+    total_revenue: int = 0
+    total_profit: int = 0
+    daily_tax_paid: int = 0
+    total_tax_paid: int = 0
+    market_share_hint: int = 0
+    lifecycle_stage: Literal["operating", "expanding", "contracting", "closed", "acquired"] = "operating"
+    expansion_level: int = 0
+    growth_streak_days: int = 0
+    loss_streak_days: int = 0
+    merged_into_id: str = ""
+    public_heat: int = 0
+    last_note: str = ""
+
+
 class FinanceRecord(BaseModel):
     id: str
     day: int
     time_slot: TimeSlot
     actor_id: str
     actor_name: str
-    category: Literal["market", "consume", "property", "bank", "loan", "work", "gray", "tax", "welfare", "tourism", "government", "casino"]
+    category: Literal["market", "consume", "property", "bank", "loan", "work", "gray", "tax", "welfare", "tourism", "government", "casino", "business"]
     action: str
     summary: str
     amount: int = 0
@@ -618,6 +656,9 @@ class AnalysisPoint(BaseModel):
     casino_daily_visits: int = 0
     casino_daily_wagers: int = 0
     casino_daily_tax: int = 0
+    business_daily_revenue: int = 0
+    business_daily_customers: int = 0
+    business_competition_heat: int = 0
 
 
 class DailyEconomyPoint(BaseModel):
@@ -650,6 +691,24 @@ class DailyCasinoPoint(BaseModel):
     heat: int = 0
 
 
+class DailyBusinessPoint(BaseModel):
+    day: int
+    business_id: str
+    business_name: str
+    category: str
+    customers: int = 0
+    resident_customers: int = 0
+    tourist_customers: int = 0
+    revenue: int = 0
+    cost: int = 0
+    profit: int = 0
+    tax_paid: int = 0
+    reputation: int = 0
+    price_level: int = 0
+    quality_level: int = 0
+    lifecycle_stage: str = "operating"
+
+
 class CasinoState(BaseModel):
     name: str = "后巷地下赌场"
     daily_visits: int = 0
@@ -668,7 +727,7 @@ class CasinoState(BaseModel):
 
 
 class WorldState(BaseModel):
-    version: int = 59
+    version: int = 64
     world_width: int = 44
     world_height: int = 26
     day: int
@@ -702,11 +761,13 @@ class WorldState(BaseModel):
     gray_cases: list[GrayCase] = Field(default_factory=list)
     lifestyle_catalog: list[ConsumableItem] = Field(default_factory=list)
     properties: list[PropertyAsset] = Field(default_factory=list)
+    businesses: list[BusinessEntity] = Field(default_factory=list)
     finance_history: list[FinanceRecord] = Field(default_factory=list)
     analysis_history: list[AnalysisPoint] = Field(default_factory=list)
     daily_economy_history: list[DailyEconomyPoint] = Field(default_factory=list)
     daily_bank_history: list[DailyBankPoint] = Field(default_factory=list)
     daily_casino_history: list[DailyCasinoPoint] = Field(default_factory=list)
+    daily_business_history: list[DailyBusinessPoint] = Field(default_factory=list)
     casino: CasinoState = Field(default_factory=CasinoState)
     section_signatures: dict[str, str] = Field(default_factory=dict)
 

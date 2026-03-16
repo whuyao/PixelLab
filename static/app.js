@@ -85,6 +85,11 @@ const marketCtx = marketCanvas.getContext("2d");
 const marketMeta = document.getElementById("marketMeta");
 const marketSummary = document.getElementById("marketSummary");
 const marketPositions = document.getElementById("marketPositions");
+const businessHero = document.getElementById("businessHero");
+const businessTrendBox = document.getElementById("businessTrendBox");
+const businessBoard = document.getElementById("businessBoard");
+const businessLifecycleBox = document.getElementById("businessLifecycleBox");
+const businessSideStats = document.getElementById("businessSideStats");
 const marketAnalysisCanvas = document.getElementById("marketAnalysisCanvas");
 const marketAnalysisCtx = marketAnalysisCanvas?.getContext("2d");
 const marketAnalysisMeta = document.getElementById("marketAnalysisMeta");
@@ -165,7 +170,7 @@ const llmApplyBtn = document.getElementById("llmApplyBtn");
 const llmStatusMeta = document.getElementById("llmStatusMeta");
 const llmSwitchStatus = document.getElementById("llmSwitchStatus");
 const llmSwitcherShell = llmToggleBtn?.closest(".llm-switcher-shell") || null;
-const ASSET_VERSION = "20260315k";
+const ASSET_VERSION = "20260316b";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -185,7 +190,7 @@ const weatherLabels = {
   drizzle: "小雨",
 };
 
-const availableViews = new Set(["home", "market", "life", "government", "journal", "bulletin", "feed", "teaching"]);
+const availableViews = new Set(["home", "market", "business", "life", "government", "journal", "bulletin", "feed", "teaching"]);
 
 function routeForTargetKind(targetKind) {
   if (["market", "stock"].includes(targetKind)) return "market";
@@ -355,6 +360,22 @@ const grayTradeTypeLabels = {
   labor_for_insider: "劳动换内幕",
   wage_arrears: "工资拖欠",
   pump_dump: "拉高出货",
+};
+
+const businessStrategyLabels = {
+  steady: "稳住口碑",
+  premium: "高价高质",
+  low_price: "低价走量",
+  gray: "灰色抢客",
+  service: "靠服务留人",
+};
+
+const businessStageLabels = {
+  operating: "正常经营",
+  expanding: "扩张中",
+  contracting: "收缩中",
+  closed: "已停业",
+  acquired: "已并购",
 };
 
 const resourceLabels = {
@@ -761,6 +782,33 @@ function recentCasinoSeries(days = 10, key = "wagers") {
   return values;
 }
 
+function recentActiveBusinessDays(limit = 10) {
+  const grouped = new Map();
+  for (const point of state.daily_business_history || []) {
+    const entry = grouped.get(point.day) || {
+      day: point.day,
+      revenue: 0,
+      customers: 0,
+      profit: 0,
+      tax_paid: 0,
+    };
+    entry.revenue += Number(point.revenue || 0);
+    entry.customers += Number(point.customers || 0);
+    entry.profit += Number(point.profit || 0);
+    entry.tax_paid += Number(point.tax_paid || 0);
+    grouped.set(point.day, entry);
+  }
+  return [...grouped.values()].filter((point) => point.revenue > 0 || point.customers > 0).slice(-limit);
+}
+
+function recentBusinessSeries(days = 10, key = "revenue") {
+  const activeDays = recentActiveBusinessDays(days);
+  if (activeDays.length) {
+    return activeDays.map((point) => Number(point[key] || 0));
+  }
+  return [];
+}
+
 function topConsumptionItems(limit = 3) {
   const totals = new Map();
   (state.finance_history || [])
@@ -1079,6 +1127,7 @@ const artAssets = {
   beachTiles: null,
   forestTiles: null,
   treesSheet: null,
+  townTiles: null,
   npcSheet: null,
   bgTiles: null,
 };
@@ -1096,6 +1145,8 @@ const buildAnchors = [
   { id: "rental-lakeside", x: 39, y: 12, kind: "build", label: "出租屋地块" },
   { id: "tourist-inn", x: 34, y: 12, kind: "build", label: "旅馆地块" },
   { id: "tourist-market", x: 6, y: 14, kind: "build", label: "集市地块" },
+  { id: "qingsong-coop", x: 11, y: 12, kind: "build", label: "合作社" },
+  { id: "backstreet-store", x: 28, y: 11, kind: "build", label: "后街商行" },
 ];
 
 const activityAnchors = [
@@ -1303,11 +1354,12 @@ function loadAssets() {
     loadImageAsset(`/static/assets/tilesets/oga_beach_tileset_ccby4.png?v=${ASSET_VERSION}`, { transparentBlack: true }),
     loadImageAsset(`/static/assets/tilesets/oga_forest_tileset_ccby4.png?v=${ASSET_VERSION}`, { transparentBlack: true }),
     loadImageAsset(`/static/assets/tilesets/oga_trees_ccby4.png?v=${ASSET_VERSION}`, { transparentBlack: true }),
+    loadImageAsset(`/static/assets/tilesets/oga_town_tiles_cc0.png?v=${ASSET_VERSION}`, { transparentBlack: true }),
     loadImageAsset(`/static/assets/tilesets/oga_water_frames_ccby4.png?v=${ASSET_VERSION}`, { transparentBlack: true }),
     loadImageAsset(`/static/assets/labnpcs.png?v=${ASSET_VERSION}`, { transparentBlack: true }),
     loadImageAsset(`/static/assets/bgtiles.png?v=${ASSET_VERSION}`, { transparentBlack: true }),
   ])
-    .then(([farmTiles, wheatSheet, cratesRow, hayProps, beachTiles, forestTiles, treesSheet, waterFrames, npcSheet, bgTiles]) => {
+    .then(([farmTiles, wheatSheet, cratesRow, hayProps, beachTiles, forestTiles, treesSheet, townTiles, waterFrames, npcSheet, bgTiles]) => {
       artAssets.farmTiles = farmTiles;
       artAssets.wheatSheet = wheatSheet;
       artAssets.cratesRow = cratesRow;
@@ -1315,6 +1367,7 @@ function loadAssets() {
       artAssets.beachTiles = beachTiles;
       artAssets.forestTiles = forestTiles;
       artAssets.treesSheet = treesSheet;
+      artAssets.townTiles = townTiles;
       artAssets.waterFrames = waterFrames;
       artAssets.npcSheet = npcSheet;
       artAssets.bgTiles = bgTiles;
@@ -1553,6 +1606,16 @@ function renderPanels() {
       "trade-meta",
       serverSignature("market", [state.player, state.market?.stocks, state.bank_loans], [tradeSymbol?.value, busy]),
       () => renderTradeMeta(),
+    );
+  }
+  if (isViewVisible("business")) {
+    renderIfChanged(
+      "business-panel",
+      serverSignature(
+        "business",
+        [state.businesses, state.daily_business_history?.slice(-120), state.feed_timeline?.slice(0, 120), state.gray_cases, state.finance_history?.slice(0, 160), state.government],
+      ),
+      () => renderBusinessPanel(),
     );
   }
   if (isViewVisible("life")) {
@@ -2780,10 +2843,28 @@ function renderMarketModule() {
     const touristNetOutflow = recentTouristTrades
       .filter((record) => record.action === "exit")
       .reduce((sum, record) => sum + Number(record.amount || 0), 0);
+    const businesses = state.businesses || [];
+    const trailingBusinessRevenue = recentBusinessSeries(10, "revenue");
+    const trailingBusinessCustomers = recentBusinessSeries(10, "customers");
+    const businessLeaders = businesses
+      .slice()
+      .sort((left, right) => (right.daily_revenue || 0) - (left.daily_revenue || 0))
+      .slice(0, 4);
+    const businessPriceSpread = businesses.length
+      ? Math.max(...businesses.map((business) => business.price_level || 0)) - Math.min(...businesses.map((business) => business.price_level || 0))
+      : 0;
+    const businessCompetitionHeat = Math.max(
+      state.analysis_history?.slice(-1)[0]?.business_competition_heat || 0,
+      18 + businessPriceSpread + Math.round((businessLeaders[0]?.daily_customers || 0) * 1.4),
+    );
+    const businessResidentFlow = businesses.reduce((sum, business) => sum + Number(business.daily_resident_customers || 0), 0);
+    const businessTouristFlow = businesses.reduce((sum, business) => sum + Number(business.daily_tourist_customers || 0), 0);
     const consumptionWindowLabel = `近 ${Math.max(1, trailingConsumption.length)} 个工作日消费流`;
     const governmentWindowLabel = `近 ${Math.max(1, trailingGovernmentRevenue.length)} 个工作日财政资产曲线`;
     const casinoWindowLabel = `近 ${Math.max(1, trailingCasinoDays.length || trailingCasinoWagers.length)} 个工作日赌资`;
     const casinoPayoutLabel = `近 ${Math.max(1, trailingCasinoDays.length || trailingCasinoPayouts.length)} 个工作日返还`;
+    const businessRevenueLabel = `近 ${Math.max(1, trailingBusinessRevenue.length)} 个工作日营业额`;
+    const businessCustomerLabel = `近 ${Math.max(1, trailingBusinessCustomers.length)} 个工作日客流`;
     const popularItems = topConsumptionItems(3);
     const governmentDailyRevenue = trailingGovernmentRevenue[trailingGovernmentRevenue.length - 1] || 0;
     const latestGovernmentFinance = (state.finance_history || []).find((record) => record.category === "government");
@@ -2835,6 +2916,26 @@ function renderMarketModule() {
         <div class="metric-meta">${governmentAssets.length ? escapeHtml(governmentAssets.slice(0, 3).map((asset) => `${asset.name}${facilityKindLabel(asset.facility_kind) ? `（${facilityKindLabel(asset.facility_kind)}）` : ""}`).join(" · ")) : "财政暂未持有园区资产。"}</div>
         <div class="metric-meta">${escapeHtml(latestGovernmentFinance?.summary || state.government?.last_distribution_note || "下一轮财政动作会从这里体现。")}</div>
         <div class="metric-meta">${escapeHtml((state.government?.known_signals || []).slice(0, 2).join(" · ") || "政府仍在观察游客、市场和住房信号。")}</div>
+      </article>
+    `;
+    const businessObservation = `
+      <article class="position-card insight-card">
+        <strong>企业竞争</strong>
+        <div class="metric-meta">活跃企业 ${businesses.length} 家 · 竞争热度 ${businessCompetitionHeat} · 价差带 ${businessPriceSpread}</div>
+        <div class="metric-meta">居民客流 ${businessResidentFlow} · 游客客流 ${businessTouristFlow}</div>
+        <div class="metric-meta">${escapeHtml(businessLeaders[0] ? `这一时段领跑的是 ${businessLeaders[0].name}，收入 ${formatCompactCurrency(businessLeaders[0].daily_revenue || 0)}，净流 ${businessLeaders[0].daily_profit >= 0 ? "+" : "-"}${formatCompactCurrency(Math.abs(businessLeaders[0].daily_profit || 0))}。` : "几家企业今天都还没真正抢出头部。")}</div>
+        <div class="mini-trend-block">
+          <div class="mini-trend-head"><span>${businessRevenueLabel}</span><strong>${formatCompactCurrency(trailingBusinessRevenue.reduce((sum, value) => sum + value, 0))}</strong></div>
+          ${buildMiniTrendSvg(trailingBusinessRevenue, "#9b7548", "rgba(155, 117, 72, 0.24)", "bars-sqrt")}
+        </div>
+        <div class="mini-trend-block">
+          <div class="mini-trend-head"><span>${businessCustomerLabel}</span><strong>${trailingBusinessCustomers.reduce((sum, value) => sum + value, 0)} 人次</strong></div>
+          ${buildMiniTrendSvg(trailingBusinessCustomers, "#6e9271", "rgba(110, 146, 113, 0.18)", "bars-sqrt")}
+        </div>
+        <div class="memory-section compact">
+          <strong>抢客榜</strong>
+          <div>${businessLeaders.length ? businessLeaders.map((business) => `<span class="memory-chip">${escapeHtml(`${business.name} · ${business.daily_customers || 0} 单 · ${formatCompactCurrency(business.daily_revenue || 0)} · ${businessStrategyLabels[business.strategy] || business.strategy}`)}</span>`).join("") : '<span class="memory-meta">今天暂时还看不出谁在明显抢客。</span>'}</div>
+        </div>
       </article>
     `;
     const casinoObservation = `
@@ -2893,7 +2994,7 @@ function renderMarketModule() {
         },
       )
       .join("");
-    marketPositions.innerHTML = `<div class="position-grid">${touristObservation}${touristInvestmentObservation}${governmentObservation}${casinoObservation}${playerPosition}${teamPosition}${agentPositions}</div>`;
+    marketPositions.innerHTML = `<div class="position-grid">${touristObservation}${touristInvestmentObservation}${businessObservation}${governmentObservation}${casinoObservation}${playerPosition}${teamPosition}${agentPositions}</div>`;
   }
   if (casinoRecentBox) {
     const recentCasinoRecords = (state.finance_history || [])
@@ -2940,6 +3041,184 @@ function renderMarketModule() {
       </article>
     `;
   }
+}
+
+function renderBusinessPanel() {
+  if (!state || !businessHero || !businessTrendBox || !businessBoard || !businessLifecycleBox || !businessSideStats) return;
+  const businesses = (state.businesses || []).slice();
+  const activeBusinesses = businesses.filter((business) => !["closed", "acquired"].includes(business.lifecycle_stage || "operating") && (business.capacity || 0) > 0);
+  const expanding = businesses.filter((business) => (business.lifecycle_stage || "operating") === "expanding");
+  const contracting = businesses.filter((business) => (business.lifecycle_stage || "operating") === "contracting");
+  const closed = businesses.filter((business) => (business.lifecycle_stage || "operating") === "closed");
+  const acquired = businesses.filter((business) => (business.lifecycle_stage || "operating") === "acquired");
+  const totalRevenue = activeBusinesses.reduce((sum, business) => sum + Number(business.daily_revenue || 0), 0);
+  const totalProfit = activeBusinesses.reduce((sum, business) => sum + Number(business.daily_profit || 0), 0);
+  const totalCustomers = activeBusinesses.reduce((sum, business) => sum + Number(business.daily_customers || 0), 0);
+  const totalTax = activeBusinesses.reduce((sum, business) => sum + Number(business.daily_tax_paid || 0), 0);
+  const dailySeries = recentActiveBusinessDays(12);
+  const revenueSeries = recentBusinessSeries(12, "revenue");
+  const customerSeries = recentBusinessSeries(12, "customers");
+  const profitSeries = recentBusinessSeries(12, "profit");
+  const taxSeries = recentBusinessSeries(12, "tax_paid");
+  const feedMentions = (state.feed_timeline || []).filter((post) => businesses.some((business) => `${post.content} ${(post.topic_tags || []).join(" ")}`.includes(business.name)));
+  const grayCases = (state.gray_cases || []).filter((item) => /^business_/.test(item.case_type || ""));
+  const recentBusinessFinance = (state.finance_history || []).filter((record) => record.category === "business").slice(0, 18);
+  const recentBusinessTax = (state.finance_history || []).filter((record) => record.category === "tax" && record.asset_name === "营业税").slice(0, 18);
+  const leaders = businesses.slice().sort((left, right) => (right.daily_profit || 0) - (left.daily_profit || 0));
+  const businessHeroCards = [
+    ["活跃企业", String(activeBusinesses.length), `${expanding.length} 扩张 · ${contracting.length} 收缩`],
+    ["今日营业额", formatCompactCurrency(totalRevenue), `${totalCustomers} 人次客流`],
+    ["今日净利", `${totalProfit >= 0 ? "+" : "-"}${formatCompactCurrency(Math.abs(totalProfit))}`, totalProfit >= 0 ? "今天整体还在赚钱" : "今天整体利润承压"],
+    ["今日营业税", formatCompactCurrency(totalTax), `财政累计企业税 ${formatCompactCurrency((state.government?.revenues || {}).business || 0)}`],
+    ["负面舆情", `${feedMentions.filter((post) => (post.mood || "neutral") === "tense").length}`, `总提及 ${feedMentions.length}`],
+    ["灰市竞争", `${grayCases.filter((item) => item.status === "active").length} 起`, `累计案件 ${grayCases.length}`],
+  ];
+  businessHero.innerHTML = businessHeroCards
+    .map(
+      ([label, value, meta]) => `
+        <article class="metric-summary-card business-hero-card">
+          <strong>${escapeHtml(label)}</strong>
+          <div class="cockpit-value">${escapeHtml(value)}</div>
+          <div class="metric-meta">${escapeHtml(meta)}</div>
+        </article>
+      `,
+    )
+    .join("");
+
+  businessTrendBox.innerHTML = `
+    <article class="position-card insight-card">
+      <strong>近 ${Math.max(1, revenueSeries.length)} 个工作日营业额</strong>
+      <div class="metric-meta">总营业额 ${formatCompactCurrency(revenueSeries.reduce((sum, value) => sum + value, 0))}</div>
+      ${buildMiniTrendSvg(revenueSeries, "#9b7548", "rgba(155, 117, 72, 0.24)", "bars-sqrt")}
+    </article>
+    <article class="position-card insight-card">
+      <strong>近 ${Math.max(1, customerSeries.length)} 个工作日客流</strong>
+      <div class="metric-meta">总客流 ${customerSeries.reduce((sum, value) => sum + value, 0)} 人次</div>
+      ${buildMiniTrendSvg(customerSeries, "#6e9271", "rgba(110, 146, 113, 0.18)", "bars-sqrt")}
+    </article>
+    <article class="position-card insight-card">
+      <strong>近 ${Math.max(1, profitSeries.length)} 个工作日净利</strong>
+      <div class="metric-meta">累计净利 ${formatCompactCurrency(profitSeries.reduce((sum, value) => sum + value, 0))}</div>
+      ${buildMiniTrendSvg(profitSeries, "#8b6db2", "rgba(139, 109, 178, 0.18)", "bars-sqrt")}
+    </article>
+    <article class="position-card insight-card">
+      <strong>近 ${Math.max(1, taxSeries.length)} 个工作日营业税</strong>
+      <div class="metric-meta">累计营业税 ${formatCompactCurrency(taxSeries.reduce((sum, value) => sum + value, 0))}</div>
+      ${buildMiniTrendSvg(taxSeries, "#b17d45", "rgba(177, 125, 69, 0.18)", "bars-sqrt")}
+    </article>
+  `;
+
+  businessBoard.innerHTML = businesses
+    .slice()
+    .sort((left, right) => {
+      const stageWeight = {
+        expanding: 3,
+        operating: 2,
+        contracting: 1,
+        closed: 0,
+        acquired: -1,
+      };
+      return (stageWeight[right.lifecycle_stage || "operating"] || 0) - (stageWeight[left.lifecycle_stage || "operating"] || 0)
+        || (right.daily_revenue || 0) - (left.daily_revenue || 0);
+    })
+    .map((business) => {
+      const stage = business.lifecycle_stage || "operating";
+      const relatedProperty = (state.properties || []).find((asset) => asset.id === business.property_id);
+      const mergedInto = business.merged_into_id ? businesses.find((item) => item.id === business.merged_into_id) : null;
+      return `
+        <article class="position-card business-entry-card">
+          <div class="analysis-person-head">
+            <strong>${escapeHtml(business.name)}</strong>
+            <span class="business-stage-chip stage-${escapeHtml(stage)}">${escapeHtml(businessStageLabels[stage] || stage)}</span>
+          </div>
+          <div class="metric-meta">${escapeHtml((relatedProperty?.name || business.location_label || "小镇商点"))} · ${escapeHtml(businessStrategyLabels[business.strategy] || business.strategy)} · ${escapeHtml(business.target_segment === "tourist" ? "偏游客" : business.target_segment === "resident" ? "偏居民" : business.target_segment === "producer" ? "偏生产" : "居民游客混合")}</div>
+          <div class="business-stat-grid">
+            <div class="business-kpi-chip"><strong>今日客流</strong><span>${business.daily_customers || 0} 人次</span></div>
+            <div class="business-kpi-chip"><strong>今日营业额</strong><span>${formatCompactCurrency(business.daily_revenue || 0)}</span></div>
+            <div class="business-kpi-chip"><strong>今日净利</strong><span>${business.daily_profit >= 0 ? "+" : "-"}${formatCompactCurrency(Math.abs(business.daily_profit || 0))}</span></div>
+            <div class="business-kpi-chip"><strong>今日营业税</strong><span>${formatCompactCurrency(business.daily_tax_paid || 0)}</span></div>
+            <div class="business-kpi-chip"><strong>价格 / 品质</strong><span>${business.price_level || 0} / ${business.quality_level || 0}</span></div>
+            <div class="business-kpi-chip"><strong>口碑 / 热度</strong><span>${business.reputation || 0} / ${business.public_heat || 0}</span></div>
+            <div class="business-kpi-chip"><strong>容量 / 扩张层级</strong><span>${business.capacity || 0} / ${business.expansion_level || 0}</span></div>
+            <div class="business-kpi-chip"><strong>累计利润</strong><span>${formatCompactCurrency(business.total_profit || 0)}</span></div>
+          </div>
+          <div class="metric-meta">${escapeHtml(
+            mergedInto
+              ? `${business.name} 已并入 ${mergedInto.name}。`
+              : business.last_note || `${business.name} 还在盯着利润、客流和口碑。`,
+          )}</div>
+        </article>
+      `;
+    })
+    .join("");
+
+  const lifecycleEntries = [
+    ...expanding.map((business) => ({
+      title: `${business.name} 正在扩张`,
+      meta: `客流 ${business.daily_customers || 0} · 净利 ${formatCompactCurrency(business.daily_profit || 0)}`,
+      note: business.last_note || "这轮开始扩大规模和接客能力。",
+    })),
+    ...contracting.map((business) => ({
+      title: `${business.name} 正在收缩`,
+      meta: `连续承压 ${business.loss_streak_days || 0} 天`,
+      note: business.last_note || "这轮正在缩掉一部分规模止损。",
+    })),
+    ...closed.map((business) => ({
+      title: `${business.name} 已停业`,
+      meta: `累计利润 ${formatCompactCurrency(business.total_profit || 0)}`,
+      note: business.last_note || "这家企业已经退出当前竞争。",
+    })),
+    ...acquired.map((business) => ({
+      title: `${business.name} 已被并购`,
+      meta: business.merged_into_id ? `并入 ${(businesses.find((item) => item.id === business.merged_into_id)?.name) || "其他企业"}` : "已并入其他企业",
+      note: business.last_note || "这家企业已经被其他企业吃下。",
+    })),
+  ];
+  businessLifecycleBox.innerHTML = lifecycleEntries.length
+    ? lifecycleEntries.map((entry) => `
+        <article class="position-card business-lifecycle-card">
+          <strong>${escapeHtml(entry.title)}</strong>
+          <div class="metric-meta">${escapeHtml(entry.meta)}</div>
+          <div class="mini-note">${escapeHtml(entry.note)}</div>
+        </article>
+      `).join("")
+    : `
+      <article class="position-card business-lifecycle-card">
+        <strong>经营生命周期暂时平稳</strong>
+        <div class="metric-meta">目前还没有企业进入扩张、收缩、倒闭或并购节点。</div>
+      </article>
+    `;
+
+  const grayTradeMentions = grayCases.slice(0, 5).map((item) => `${item.participant_names?.join(" × ") || "企业"} · ${grayTradeTypeLabels[item.case_type] || item.case_type}`);
+  businessSideStats.innerHTML = `
+    <article class="position-card insight-card">
+      <strong>营业税与财政反馈</strong>
+      <div class="metric-meta">企业累计营业税 ${formatCompactCurrency((state.government?.revenues || {}).business || 0)} · 今日营业税 ${formatCompactCurrency(totalTax)}</div>
+      <div class="metric-meta">${escapeHtml(recentBusinessTax[0]?.summary || "今天暂时还没有新的营业税动作。")}</div>
+    </article>
+    <article class="position-card insight-card">
+      <strong>企业微博与舆情</strong>
+      <div class="metric-meta">近端提及 ${feedMentions.length} 条 · 企业官方帖 ${feedMentions.filter((post) => post.author_type === "business").length} 条</div>
+      <div class="memory-section compact">
+        <strong>舆情焦点</strong>
+        <div>${feedMentions.slice(0, 6).map((post) => `<span class="memory-chip">${escapeHtml(`${post.author_name} · ${(post.topic_tags || []).slice(0, 2).join(" / ") || "企业舆情"}`)}</span>`).join("") || '<span class="memory-meta">这一轮微博还没明显围住某家企业。</span>'}</div>
+      </div>
+    </article>
+    <article class="position-card insight-card">
+      <strong>灰色竞争链</strong>
+      <div class="metric-meta">活跃灰案 ${grayCases.filter((item) => item.status === "active").length} 起</div>
+      <div class="memory-section compact">
+        <strong>最近灰市竞争</strong>
+        <div>${grayTradeMentions.length ? grayTradeMentions.map((text) => `<span class="memory-chip">${escapeHtml(text)}</span>`).join("") : '<span class="memory-meta">最近还没有新的灰色企业竞争案件。</span>'}</div>
+      </div>
+    </article>
+    <article class="position-card insight-card">
+      <strong>最近经营流水</strong>
+      <div class="memory-section compact">
+        <div>${recentBusinessFinance.length ? recentBusinessFinance.slice(0, 8).map((record) => `<span class="memory-chip">${escapeHtml(`${record.actor_name} · ${formatCompactCurrency(record.amount || 0)} · ${record.counterparty || "经营流水"}`)}</span>`).join("") : '<span class="memory-meta">最近还没有新的企业经营记录。</span>'}</div>
+      </div>
+    </article>
+  `;
 }
 
 function renderBankModule() {
@@ -3797,6 +4076,15 @@ function postMatchesFeedKind(post) {
   if (feedFilterKindValue === "casino") {
     return /赌场|赌局|地下赌博|后巷|牌桌|筹码|赌税/.test(text);
   }
+  if (feedFilterKindValue === "business-official") {
+    return post?.author_type === "business";
+  }
+  if (feedFilterKindValue === "business-quality") {
+    return /品质|质量|值回票价|新鲜|做糙|货架|体验|口碑|服务体验|品质口碑|商品质量/.test(text);
+  }
+  if (feedFilterKindValue === "business-staff") {
+    return /员工|工人|待遇|工资|赶工|没歇|太累|压榨|干活的人|员工状态/.test(text);
+  }
   return true;
 }
 
@@ -3828,6 +4116,7 @@ function feedAuthorLabel(post) {
     player: "玩家",
     agent: "智能体",
     tourist: "游客",
+    business: "企业",
     government: "政府",
     system: "系统",
   }[post.author_type] || "角色";
@@ -3928,6 +4217,12 @@ function renderFeedTimeline() {
           ? "政府回应"
           : feedFilterKindValue === "casino"
             ? "赌场传闻"
+            : feedFilterKindValue === "business-official"
+              ? "企业发帖"
+              : feedFilterKindValue === "business-quality"
+                ? "商品质量"
+                : feedFilterKindValue === "business-staff"
+                  ? "员工待遇"
             : "公开帖子";
     feedTimelineBox.innerHTML = `<div class="feed-empty">当前筛选下没有${moodLabel}${kindLabel}。换个主题、情绪，或者推进几轮让新的公开发言长出来。</div>`;
     return;
@@ -4770,6 +5065,79 @@ function propertyById(propertyId) {
   return (state?.properties || []).find((asset) => asset.id === propertyId) || null;
 }
 
+function businessByPropertyId(propertyId) {
+  return (state?.businesses || []).find((business) => business.property_id === propertyId) || null;
+}
+
+function businessById(businessId) {
+  return (state?.businesses || []).find((business) => business.id === businessId) || null;
+}
+
+function drawCrowdCluster(x, y, count, palette = ["#7d5b47", "#5e7d9b", "#b36b5b"]) {
+  const actual = Math.max(1, Math.min(4, count));
+  for (let index = 0; index < actual; index += 1) {
+    const dx = index * 9;
+    const tone = palette[index % palette.length];
+    ctx.fillStyle = tone;
+    roundRect(x + dx, y + 7, 5, 7, 2, true);
+    ctx.fillStyle = shadeColor(tone, 18);
+    ctx.beginPath();
+    ctx.arc(x + dx + 2.5, y + 4, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawBusinessSign(x, y, label, fill, text = "#3e2b20") {
+  ctx.fillStyle = fill;
+  roundRect(x, y, 28, 10, 4, true);
+  ctx.fillStyle = text;
+  ctx.font = '8px "PingFang SC", sans-serif';
+  ctx.fillText(label, x + 5, y + 8);
+}
+
+function drawBusinessActivityOverlay(business, x, y, width, height, now) {
+  if (!business) return;
+  const customers = Number(business.daily_customers || 0);
+  const touristCustomers = Number(business.daily_tourist_customers || 0);
+  const residentCustomers = Number(business.daily_resident_customers || 0);
+  const isBusy = customers >= 3;
+  const isDiscount = business.strategy === "low_price" || (business.price_level || 0) <= 36;
+  const isGrayPull = business.strategy === "gray";
+  const isWorkshopRush = business.category === "workshop" && (customers >= 2 || (business.daily_profit || 0) > 0);
+  const needsResponse = (business.public_heat || 0) >= 42;
+
+  if (isBusy) {
+    drawCrowdCluster(x + 6, y + height + 4, Math.min(4, Math.ceil(customers / 2)), touristCustomers > residentCustomers ? ["#c99052", "#6ea0ba", "#8b6bb2"] : ["#7d5b47", "#5e7d9b", "#5b8d57"]);
+  }
+  if (isDiscount) {
+    drawBusinessSign(x + width - 30, y - 10, "低价", "#f7d99a");
+  }
+  if (isGrayPull) {
+    drawBusinessSign(x + width - 32, y + 10, "拉客", "#d1a0d6");
+    ctx.strokeStyle = "rgba(150, 92, 164, 0.78)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x + width - 14, y + 24);
+    ctx.lineTo(x + width + 6 + Math.sin(now / 200) * 2, y + 24);
+    ctx.lineTo(x + width + 1, y + 20);
+    ctx.moveTo(x + width + 6 + Math.sin(now / 200) * 2, y + 24);
+    ctx.lineTo(x + width + 1, y + 28);
+    ctx.stroke();
+  }
+  if (isWorkshopRush) {
+    ctx.fillStyle = "rgba(228, 195, 108, 0.9)";
+    ctx.fillRect(x + 8, y + height - 2, width - 16, 3);
+    drawSparkPulse(x + width - 10, y + 10 + Math.sin(now / 180) * 2, 3, "rgba(255,214,125,0.95)");
+    drawBusinessSign(x + 2, y - 10, "忙线", "#d9c58a");
+  }
+  if (needsResponse) {
+    ctx.strokeStyle = "rgba(215, 118, 96, 0.88)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x - 3, y - 3, width + 6, height + 6);
+    drawBusinessSign(x + 2, y + 4, "舆情", "#f0b7a9");
+  }
+}
+
 function buildDevelopmentAnchors() {
   if (!state) return [];
   const overlays = [];
@@ -5524,6 +5892,7 @@ function drawCompanyHub(now) {
   ctx.lineTo(point.x + 24, y + 22);
   ctx.closePath();
   ctx.fill();
+  drawBusinessActivityOverlay(businessById("business-workshop"), x, y + 4, 50, 36, now);
 }
 
 function drawTourismFacilities(now) {
@@ -5563,6 +5932,7 @@ function drawTouristInn(x, y, now) {
   ctx.fillStyle = "#5d8745";
   ctx.fillRect(x + 4, y + 37, 8, 4);
   ctx.fillRect(x + 42, y + 36, 9, 4);
+  drawBusinessActivityOverlay(businessById("business-lakeside-inn"), x, y + 4, 50, 36, now);
 }
 
 function drawTouristMarket(x, y, now) {
@@ -5605,6 +5975,27 @@ function drawTouristMarket(x, y, now) {
   ctx.fillRect(x + 24, y + 31, 8, 5);
   ctx.fillStyle = "#84a76b";
   ctx.fillRect(x + 36, y + 31, 8, 5);
+  drawBusinessActivityOverlay(businessById("business-woodland-market"), x + 4, y + 16, 50, 24, now);
+}
+
+function drawTownSheetFacade(kind, x, y, width, height) {
+  const sheet = artAssets.townTiles;
+  if (!sheet) return false;
+  const spriteMap = {
+    co_op: { sx: 32, sy: 0, sw: 32, sh: 32, label: "合作社", sign: "合" },
+    backstreet_store: { sx: 0, sy: 0, sw: 32, sh: 32, label: "后街商行", sign: "街" },
+    shop: { sx: 64, sy: 0, sw: 32, sh: 32, label: "商铺", sign: "铺" },
+  };
+  const sprite = spriteMap[kind];
+  if (!sprite) return false;
+  ctx.drawImage(sheet, sprite.sx, sprite.sy, sprite.sw, sprite.sh, x, y, width, height);
+  drawSignPill(x + 2, y - 12, Math.min(60, width), sprite.label, "#f5e4ba");
+  ctx.fillStyle = "#f5e4ba";
+  roundRect(x + width - 15, y + 4, 10, 10, 4, true);
+  ctx.fillStyle = "#3c2d22";
+  ctx.font = '8px "PingFang SC", sans-serif';
+  ctx.fillText(sprite.sign, x + width - 12, y + 12);
+  return true;
 }
 
 function propertyOwnerColor(asset) {
@@ -5771,6 +6162,24 @@ function drawPropertyAssets(now) {
       })[asset.facility_kind] || "";
       if (asset.owner_type === "government") {
         drawGovernmentFacilityShell(asset, bodyX, bodyY - 4, bodyWidth, bodyHeight + 4, now);
+      } else if (asset.facility_kind === "co_op" || asset.facility_kind === "backstreet_store") {
+        const usedTownFacade = drawTownSheetFacade(asset.facility_kind, bodyX - 2, bodyY - 8, bodyWidth + 6, bodyHeight + 10);
+        if (!usedTownFacade) {
+          drawDetailedBuilding(bodyX, bodyY - 4, bodyWidth, bodyHeight + 4, {
+            wall: shadeColor(ownerColor, 28),
+            wallShade: shadeColor(ownerColor, -10),
+            roof: shadeColor(ownerColor, -18),
+            roofShade: shadeColor(ownerColor, -34),
+            trim: "#f6ebd6",
+            door: "#6b4b34",
+            signText: asset.facility_kind === "co_op" ? "合作" : "后街",
+            signFill: "#f2e1bf",
+            pulseKind: asset.facility_kind === "co_op" ? "tourism" : "market",
+            windowRows: 1,
+            windowCols: 2,
+          });
+        }
+        drawBusinessActivityOverlay(businessByPropertyId(asset.id), bodyX - 2, bodyY - 8, bodyWidth + 6, bodyHeight + 10, now);
       } else {
         drawDetailedBuilding(bodyX, bodyY - 4, bodyWidth, bodyHeight + 4, {
           wall: shadeColor(ownerColor, 28),
@@ -5783,8 +6192,9 @@ function drawPropertyAssets(now) {
           signFill: "#f2e1bf",
           pulseKind: asset.property_type === "shop" ? "tourism" : "market",
           windowRows: 1,
-          windowCols: bodyWidth >= 44 ? 3 : 2,
-        });
+            windowCols: bodyWidth >= 44 ? 3 : 2,
+          });
+        drawBusinessActivityOverlay(businessByPropertyId(asset.id), bodyX, bodyY - 4, bodyWidth, bodyHeight + 4, now);
       }
       if (asset.property_type === "shop") {
         ctx.fillStyle = "#f4d48a";

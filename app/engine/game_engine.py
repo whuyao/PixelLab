@@ -22,7 +22,7 @@ from app.engine.social_engine import SocialEngine
 from app.engine.task_system import apply_task_progress
 from app.engine.time_system import advance_time
 from app.engine.world_state import build_initial_world
-from app.models import AnalysisPoint, Agent, BankLoanRecord, CasinoState, ConsumableItem, DailyBankPoint, DailyBriefItem, DailyBriefing, DailyCasinoPoint, DailyEconomyPoint, DialogueOutcome, DialogueRecord, FeedPost, FinanceRecord, GrayCase, IndexCandle, LabEvent, LoanRecord, MemoryEntry, NewsTimelineItem, Point, PropertyAsset, SocialThread, StateDiffResponse, StoryBeat, Task, TimeSlot, TouristAgent, TourismState, WorldState
+from app.models import AnalysisPoint, Agent, BankLoanRecord, BusinessEntity, CasinoState, ConsumableItem, DailyBankPoint, DailyBriefItem, DailyBriefing, DailyBusinessPoint, DailyCasinoPoint, DailyEconomyPoint, DialogueOutcome, DialogueRecord, FeedPost, FinanceRecord, GrayCase, IndexCandle, LabEvent, LoanRecord, MemoryEntry, NewsTimelineItem, Point, PropertyAsset, SocialThread, StateDiffResponse, StoryBeat, Task, TimeSlot, TouristAgent, TourismState, WorldState
 from app.services.activity_logger import ActivityLogger
 
 
@@ -121,6 +121,8 @@ PROPERTY_LAYOUT_ANCHORS: dict[str, list[tuple[int, int]]] = {
     "property-tourist-inn": [(34, 12)],
     "property-tourist-market": [(6, 14)],
     "property-underground-casino": [(30, 8)],
+    "property-qingsong-coop": [(11, 12)],
+    "property-backstreet-store": [(28, 11)],
 }
 
 ACTIVITY_ANCHORS: dict[str, list[tuple[int, int]]] = {
@@ -133,6 +135,8 @@ ACTIVITY_ANCHORS: dict[str, list[tuple[int, int]]] = {
     "buyer_tour": [(34, 19), (23, 18), (35, 8), (24, 7)],
     "vip_stroll": [(29, 20), (34, 6), (24, 7), (37, 20)],
     "noon_social": [(17, 18), (24, 18), (33, 18)],
+    "coop_stop": [(12, 14), (13, 12)],
+    "backstreet_stop": [(29, 13), (30, 11)],
 }
 
 SLOT_ACTIVITY_ANCHORS: dict[str, list[str]] = {
@@ -1167,6 +1171,7 @@ class GameEngine:
         self._trigger_work_activity()
         self._trigger_bank_activity()
         self._run_tourism_activity()
+        self._tick_business_competition()
         self._trigger_casino_activity()
         self._trigger_gray_market_activity()
         self.lifestyle_engine.run_tick()
@@ -1911,6 +1916,14 @@ class GameEngine:
             return max(12, min(95, int((agent.credit_score + agent.state.focus + max(0, 100 - agent.state.stress)) / 3)))
         if post.author_type == "government":
             return max(40, min(98, 52 + self.state.government.public_service_level // 2))
+        if post.author_type == "business":
+            business = next((item for item in self.state.businesses or [] if item.id == post.author_id), None)
+            if business is None:
+                return 46
+            base = 32 + business.reputation // 2 + business.quality_level // 5
+            if business.strategy == "gray":
+                base -= 6
+            return max(24, min(90, base))
         if post.author_type == "tourist":
             tourist = next((item for item in self.state.tourists if item.id == post.author_id), None)
             if tourist is None:
@@ -2071,6 +2084,7 @@ class GameEngine:
             if parent and post.author_type == "agent" and parent.author_type == "player":
                 agent = self.get_agent(post.author_id)
                 self._adjust_player_relation(agent, 1 if tone >= 0 else 0, "你在小镇微博上的公开互动被对方看见了。", observer=True)
+        self._apply_business_public_reaction(post)
 
     def _append_feed_post(self, post: FeedPost, remember: bool = False, apply_impacts: bool = False) -> bool:
         if getattr(self.state, "feed_timeline", None) is None:
@@ -2559,7 +2573,28 @@ class GameEngine:
         topic: str,
     ) -> str:
         joined = f"{request_line} {response_line} {topic}"
-        if any(token in joined for token in ["正式挂牌", "不挂牌", "租约", "钥匙", "空屋", "房子", "屋子", "转给你"]):
+        if any(
+            token in joined
+            for token in [
+                "正式挂牌",
+                "不挂牌",
+                "不走正式挂牌",
+                "挂牌",
+                "租约",
+                "钥匙",
+                "空屋",
+                "房子",
+                "屋子",
+                "转给你",
+                "转手",
+                "转租",
+                "租给你",
+                "租出去",
+                "房租",
+                "房东",
+                "租客",
+            ]
+        ):
             return "rent_rigging"
         if any(token in joined for token in ["回扣", "额外塞一点", "账外", "不走台账", "派单", "轻活", "多塞一点活"]):
             return "wage_kickback"
@@ -7398,6 +7433,7 @@ class GameEngine:
         self._sync_market_clock()
         self.trigger_scheduled_news()
         if slot == "morning":
+            self._evaluate_business_lifecycle()
             self._record_daily_economy_point(
                 previous_day,
                 tourism_private_income=self.state.tourism.daily_private_income,
@@ -7406,6 +7442,7 @@ class GameEngine:
             )
             self._record_daily_bank_point(previous_day)
             self._record_daily_casino_point(previous_day)
+            self._record_daily_business_point(previous_day)
             self._apply_daily_market_and_consumption_feedback(previous_day)
             self._refresh_tourism_cycle()
             self.state.tourism.daily_revenue = 0
@@ -7422,6 +7459,7 @@ class GameEngine:
             self.state.casino.daily_tax = 0
             self.state.casino.daily_big_wins = 0
             self.state.casino.current_heat = max(12, int(self.state.casino.current_heat * 0.7))
+            self._reset_daily_business_metrics()
 
     def _apply_daily_market_and_consumption_feedback(self, day: int) -> None:
         slot = self.state.time_slot
@@ -7924,7 +7962,7 @@ class GameEngine:
             "home_upgrade": [(6, 22), (9, 2), (11, 22), (21, 2), (24, 22), (38, 2)],
             "farm_plot": [(14, 14), (18, 14)],
             "rental_house": [(39, 12), (34, 12), (24, 22)],
-            "shop": [(6, 14), (35, 8), (12, 14)],
+            "shop": [(6, 14), (11, 12), (28, 11), (35, 8), (12, 14)],
             "greenhouse": [(23, 18), (22, 18), (23, 6)],
         }
         return fallback_map.get(asset.property_type, [(asset.position.x, asset.position.y)])
@@ -9168,6 +9206,15 @@ class GameEngine:
         avg_satisfaction = round(sum(agent.life_satisfaction for agent in self.state.agents) / max(1, len(self.state.agents)), 2)
         avg_credit = round(sum(agent.credit_score for agent in self.state.agents) / max(1, len(self.state.agents)), 2)
         team_deposits = sum(agent.deposit_balance for agent in self.state.agents)
+        business_daily_revenue = sum(max(0, business.daily_revenue) for business in self.state.businesses or [])
+        business_daily_customers = sum(max(0, business.daily_customers) for business in self.state.businesses or [])
+        competition_heat = 0
+        active_businesses = [business for business in self.state.businesses or [] if business.capacity > 0]
+        if active_businesses:
+            reputations = [business.reputation for business in active_businesses]
+            price_gap = max(business.price_level for business in active_businesses) - min(business.price_level for business in active_businesses)
+            reputation_gap = max(reputations) - min(reputations)
+            competition_heat = max(8, min(100, 24 + price_gap + reputation_gap + business_daily_customers // 2))
         return AnalysisPoint(
             day=self.state.day,
             time_slot=self.state.time_slot,
@@ -9191,6 +9238,9 @@ class GameEngine:
             casino_daily_visits=self.state.casino.daily_visits if self.state.casino else 0,
             casino_daily_wagers=self.state.casino.daily_wagers if self.state.casino else 0,
             casino_daily_tax=self.state.casino.daily_tax if self.state.casino else 0,
+            business_daily_revenue=business_daily_revenue,
+            business_daily_customers=business_daily_customers,
+            business_competition_heat=competition_heat,
         )
 
     def _record_analysis_point(self) -> None:
@@ -9222,6 +9272,9 @@ class GameEngine:
                 and last.casino_daily_visits == point.casino_daily_visits
                 and last.casino_daily_wagers == point.casino_daily_wagers
                 and last.casino_daily_tax == point.casino_daily_tax
+                and last.business_daily_revenue == point.business_daily_revenue
+                and last.business_daily_customers == point.business_daily_customers
+                and last.business_competition_heat == point.business_competition_heat
             )
             if same_frame:
                 return
@@ -9326,6 +9379,708 @@ class GameEngine:
         else:
             self.state.daily_casino_history.append(point)
             self.state.daily_casino_history = self.state.daily_casino_history[-90:]
+
+    def _record_daily_business_point(self, day: int) -> None:
+        if self.state.daily_business_history is None:
+            self.state.daily_business_history = []
+        self.state.daily_business_history = [point for point in self.state.daily_business_history if point.day != day]
+        for business in self.state.businesses or []:
+            self.state.daily_business_history.append(
+                DailyBusinessPoint(
+                    day=day,
+                    business_id=business.id,
+                    business_name=business.name,
+                    category=business.category,
+                    customers=int(business.daily_customers or 0),
+                    resident_customers=int(business.daily_resident_customers or 0),
+                    tourist_customers=int(business.daily_tourist_customers or 0),
+                    revenue=int(business.daily_revenue or 0),
+                    cost=int(business.daily_cost or 0),
+                    profit=int(business.daily_profit or 0),
+                    tax_paid=int(business.daily_tax_paid or 0),
+                    reputation=int(business.reputation or 0),
+                    price_level=int(business.price_level or 0),
+                    quality_level=int(business.quality_level or 0),
+                    lifecycle_stage=business.lifecycle_stage or "operating",
+                )
+            )
+        self.state.daily_business_history.sort(key=lambda item: (item.day, item.business_name))
+        self.state.daily_business_history = self.state.daily_business_history[-540:]
+
+    def _reset_daily_business_metrics(self) -> None:
+        for business in self.state.businesses or []:
+            business.daily_customers = 0
+            business.daily_resident_customers = 0
+            business.daily_tourist_customers = 0
+            business.daily_revenue = 0
+            business.daily_cost = 0
+            business.daily_profit = 0
+            business.daily_tax_paid = 0
+            business.market_share_hint = 0
+
+    def _business_property(self, business: BusinessEntity) -> PropertyAsset | None:
+        if not business.property_id:
+            return None
+        return next((asset for asset in self.state.properties if asset.id == business.property_id), None)
+
+    def _active_businesses(self) -> list[BusinessEntity]:
+        return [
+            business
+            for business in (self.state.businesses or [])
+            if business.lifecycle_stage not in {"closed", "acquired"} and business.capacity > 0
+        ]
+
+    def _business_tax_rate_pct(self) -> float:
+        government = self.state.government
+        base = max(1.8, (government.consumption_tax_rate_pct or 0) * 0.58)
+        if government.big_mode_enabled and government.can_tune_taxes:
+            base += 0.8
+        if government.enforcement_level >= 72:
+            base += 0.4
+        return round(min(6.2, base), 2)
+
+    def _collect_business_tax(self, business: BusinessEntity, base_amount: int) -> int:
+        if base_amount <= 0:
+            return 0
+        rate_pct = self._business_tax_rate_pct()
+        actual = max(1, int(round(base_amount * rate_pct / 100)))
+        self.state.government.total_revenue += actual
+        self.state.government.reserve_balance += actual
+        self.state.government.revenues["business"] = self.state.government.revenues.get("business", 0) + actual
+        business.daily_tax_paid += actual
+        business.total_tax_paid += actual
+        business.daily_profit -= actual
+        business.total_profit -= actual
+        self._append_finance_record(
+            actor_id=business.id,
+            actor_name=business.name,
+            category="tax",
+            action="tax",
+            summary=f"{business.name} 按营业额缴了 ${actual} 营业税。",
+            amount=-actual,
+            asset_name="营业税",
+            counterparty=self.state.government.name,
+        )
+        return actual
+
+    def _emit_business_lifecycle_event(self, title: str, summary: str) -> None:
+        self.state.events.insert(
+            0,
+            build_internal_event(
+                title=title,
+                summary=summary,
+                slot=self.state.time_slot,
+                category="market",
+            ),
+        )
+        self.state.events = self.state.events[:8]
+
+    def _evaluate_business_lifecycle(self) -> None:
+        businesses = list(self.state.businesses or [])
+        active_businesses = [business for business in businesses if business.lifecycle_stage not in {"closed", "acquired"}]
+        for business in active_businesses:
+            strong_profit = business.daily_profit >= max(18, int((business.daily_revenue or 0) * 0.18))
+            weak_day = business.daily_profit < -max(10, int((business.daily_cost or 0) * 0.18)) or (
+                business.daily_customers == 0 and business.capacity >= 8
+            )
+            business.growth_streak_days = business.growth_streak_days + 1 if strong_profit else 0
+            business.loss_streak_days = business.loss_streak_days + 1 if weak_day else max(0, business.loss_streak_days - 1)
+            business.public_heat = max(
+                0,
+                min(
+                    100,
+                    12
+                    + int(business.market_share_hint or 0) // 2
+                    + max(0, 60 - business.reputation) // 3
+                    + (8 if business.strategy == "gray" else 0),
+                ),
+            )
+            if business.lifecycle_stage in {"expanding", "contracting"} and not strong_profit and not weak_day:
+                business.lifecycle_stage = "operating"
+
+        for business in active_businesses:
+            if business.growth_streak_days >= 3 and business.capacity < 28:
+                business.lifecycle_stage = "expanding"
+                business.expansion_level += 1
+                business.capacity = min(32, business.capacity + 2)
+                business.quality_level = self._bounded(business.quality_level + 1)
+                business.reputation = self._bounded(business.reputation + 1)
+                business.last_note = f"{business.name} 这几天客流和利润都稳，已经开始扩张。"
+                self._emit_business_lifecycle_event(
+                    f"{business.name} 开始扩张",
+                    f"{business.name} 连续几天利润和客流都稳住了，决定把规模往上抬一格。",
+                )
+                business.growth_streak_days = 0
+
+        for business in list(active_businesses):
+            if business.loss_streak_days < 2:
+                continue
+            if business.loss_streak_days >= 5:
+                acquirer = next(
+                    (
+                        candidate
+                        for candidate in sorted(active_businesses, key=lambda item: item.daily_profit, reverse=True)
+                        if candidate.id != business.id
+                        and candidate.lifecycle_stage not in {"closed", "acquired"}
+                        and candidate.daily_profit > 0
+                        and candidate.target_segment in {business.target_segment, "mixed"}
+                    ),
+                    None,
+                )
+                if acquirer is not None and self.random.random() < 0.48:
+                    absorbed_capacity = max(2, min(6, max(2, business.capacity // 2)))
+                    acquirer.capacity = min(36, acquirer.capacity + absorbed_capacity)
+                    acquirer.reputation = max(18, min(92, int(round((acquirer.reputation * 3 + business.reputation) / 4))))
+                    acquirer.last_note = f"{acquirer.name} 刚把 {business.name} 的生意并进来，准备吃下它原来的客流。"
+                    business.lifecycle_stage = "acquired"
+                    business.merged_into_id = acquirer.id
+                    business.capacity = 0
+                    business.last_note = f"{business.name} 这轮扛不住了，已经被 {acquirer.name} 并了进去。"
+                    property_asset = self._business_property(business)
+                    if property_asset is not None:
+                        property_asset.status = "acquired"
+                    self._emit_business_lifecycle_event(
+                        f"{business.name} 被并购",
+                        f"{business.name} 连续亏损后被 {acquirer.name} 吃下，原本的客流和位置开始并进更强的一方。",
+                    )
+                    continue
+                business.lifecycle_stage = "closed"
+                business.capacity = 0
+                business.last_note = f"{business.name} 连续几天扛不住亏损，这轮已经停业。"
+                property_asset = self._business_property(business)
+                if property_asset is not None:
+                    property_asset.status = "closed"
+                self._emit_business_lifecycle_event(
+                    f"{business.name} 停业",
+                    f"{business.name} 因为连续亏损和客流下滑，已经暂时停业退出竞争。",
+                )
+                continue
+            if business.capacity > 6:
+                business.lifecycle_stage = "contracting"
+                business.capacity = max(6, business.capacity - 2)
+                business.price_level = max(18, business.price_level - 1)
+                business.last_note = f"{business.name} 连着几天没稳住，这轮先收缩规模。"
+                self._emit_business_lifecycle_event(
+                    f"{business.name} 开始收缩",
+                    f"{business.name} 最近几天利润和客流都在掉，只能先缩掉一部分规模止损。",
+                )
+                business.loss_streak_days = max(2, business.loss_streak_days - 1)
+
+    def _business_ticket_value(self, business: BusinessEntity, segment: str) -> int:
+        base = {
+            "inn": 34,
+            "market": 16,
+            "workshop": 26,
+            "co_op": 11,
+            "backstreet": 14,
+        }.get(business.category, 12)
+        value = base + business.price_level // 4 + business.quality_level // 9
+        if business.strategy == "premium" and segment == "tourist":
+            value += 12
+        if business.strategy == "low_price":
+            value = max(7, value - 6)
+        if business.strategy == "gray":
+            value = max(9, value - 2)
+        return max(6, value)
+
+    def _business_segment_weight(self, business: BusinessEntity, segment: str) -> float:
+        if business.target_segment == "mixed":
+            return 1.0
+        if business.target_segment == segment:
+            return 1.22
+        if business.target_segment == "producer" and segment == "resident":
+            return 0.88
+        return 0.42
+
+    def _business_competition_score(self, business: BusinessEntity, segment: str) -> float:
+        reputation = business.reputation * 0.44
+        quality = business.quality_level * 0.31
+        price = business.price_level * 0.28
+        support = business.government_support * 0.26
+        gray_bonus = business.gray_risk * (0.1 if segment == "resident" else 0.06)
+        tourist_bias = 5.0 if segment == "tourist" and business.category in {"inn", "market"} else 0.0
+        resident_bias = 6.0 if segment == "resident" and business.category == "co_op" else 0.0
+        if segment == "resident" and self.state.market.living_cost_pressure >= 55 and business.strategy == "low_price":
+            resident_bias += 8.0
+        if segment == "tourist" and (
+            self.state.tourism.event_day_title or self.state.tourism.latest_signal
+        ):
+            tourist_bias += 3.0
+        if business.strategy == "gray":
+            gray_bonus += 6.0
+            if self.state.government.enforcement_level >= 65:
+                gray_bonus -= 5.0
+        return (
+            self._business_segment_weight(business, segment) * 12.0
+            + reputation
+            + quality
+            - price
+            + support
+            + gray_bonus
+            + tourist_bias
+            + resident_bias
+            + self.random.uniform(-6.0, 6.0)
+        )
+
+    def _weighted_business_pick(self, businesses: list[BusinessEntity], segment: str) -> BusinessEntity | None:
+        if not businesses:
+            return None
+        scored = [(business, max(0.1, self._business_competition_score(business, segment))) for business in businesses]
+        total = sum(score for _, score in scored)
+        if total <= 0:
+            return self.random.choice(businesses)
+        roll = self.random.uniform(0.0, total)
+        running = 0.0
+        for business, score in scored:
+            running += score
+            if running >= roll:
+                return business
+        return scored[-1][0]
+
+    def _businesses_for_segment(self, segment: str) -> list[BusinessEntity]:
+        businesses = self._active_businesses()
+        if segment == "tourist":
+            return [business for business in businesses if business.target_segment in {"tourist", "mixed"}]
+        if segment == "resident":
+            return [business for business in businesses if business.target_segment in {"resident", "mixed", "producer"}]
+        return businesses
+
+    def _business_feed_category(self, business: BusinessEntity) -> str:
+        if business.category in {"inn", "market"}:
+            return "tourism"
+        if business.category == "backstreet":
+            return "gossip"
+        return "market"
+
+    def _business_topic_tags(self, business: BusinessEntity, extra: list[str] | None = None) -> list[str]:
+        base = [business.name]
+        base.append(
+            {
+                "inn": "住宿服务",
+                "market": "集市零售",
+                "workshop": "手作工坊",
+                "co_op": "生活供给",
+                "backstreet": "后街生意",
+            }.get(business.category, "生意"),
+        )
+        if business.strategy == "low_price":
+            base.append("低价抢客")
+        elif business.strategy == "premium":
+            base.append("品质口碑")
+        elif business.strategy == "gray":
+            base.append("灰色引流")
+        elif business.strategy == "service":
+            base.append("服务体验")
+        if extra:
+            base.extend(extra)
+        return list(dict.fromkeys(base))
+
+    def _build_business_feed_post(self, business: BusinessEntity, *, reason: str = "daily", context: str = "") -> FeedPost:
+        category = self._business_feed_category(business)
+        mood = "neutral"
+        if business.daily_profit >= max(36, business.daily_revenue // 3):
+            mood = "spark"
+        elif business.daily_profit < 0 or business.reputation <= 40:
+            mood = "tense"
+        tags: list[str] = []
+        if reason == "pressure":
+            tags.extend(["价格", "服务调整"])
+        elif reason == "staff":
+            tags.extend(["员工状态", "赶工压力"])
+        elif reason == "gray":
+            tags.extend(["后街风声", "抢客"])
+            mood = "tense"
+        elif business.daily_tourist_customers > business.daily_resident_customers:
+            tags.append("游客口碑")
+            mood = "warm"
+        else:
+            tags.append("客流")
+        if business.category == "inn":
+            options = [
+                f"{business.name} 今天客流明显动了起来。房间、热水和夜里那点安静，我们都会盯得更细一点。",
+                f"{business.name} 今天住客比预想多。房间收拾和夜里的安静不能掉，我宁可慢一点，也不想把口碑砸了。",
+                f"{business.name} 这轮客流上来了。住一晚值不值，最后还是看房间和人有没有把客人当回事。",
+            ]
+        elif business.category == "market":
+            options = [
+                f"{business.name} 今天人流比昨天更挤。东西新不新鲜、摊位顺不顺眼，决定大家愿不愿意再回来。",
+                f"{business.name} 这轮客人多，最怕的不是忙，是忙到最后只剩吆喝没剩体验。",
+                f"{business.name} 今天抢到了一波人流。便宜是一回事，大家最后还是记得住好不好逛。",
+            ]
+        elif business.category == "workshop":
+            options = [
+                f"{business.name} 这两天单子压得更满。做得快不难，难的是别把活做糙、别把人用得太狠。",
+                f"{business.name} 现在最难的不是接单，是接了单以后还能把品质守住。",
+                f"{business.name} 干活的人撑着，外面的人也盯着结果。工坊这口碑，经不起糊弄。",
+            ]
+        elif business.category == "co_op":
+            options = [
+                f"{business.name} 这几天盯的是大家每天都要买的那点东西。价要稳，货要足，不然小镇日子会先拧巴起来。",
+                f"{business.name} 做的是日常供给，赚快钱没意义。东西别断，价别乱，大家才愿意一直来。",
+                f"{business.name} 说到底拼的不是热闹，是谁能把生活必需的东西一直稳稳摆在那儿。",
+            ]
+        else:
+            options = [
+                f"{business.name} 今天后街又热了一点。有人图便宜，有人图快，但这种生意最怕风声一大就翻车。",
+                f"{business.name} 这边客流起来得快，掉下去也快。价压得太狠、货来得太野，最后都会反噬。",
+                f"{business.name} 靠的是抢客和速度，可大家真开始盯着品质和路数的时候，这种生意就难装没事了。",
+            ]
+        content = options[self.random.randint(0, len(options) - 1)]
+        if reason == "pressure" and context:
+            content = f"{business.name} 记下了今天这波“{context}”的抱怨。接下来会先把价格、货架和招呼人的方式收拾清楚。"
+        elif reason == "staff":
+            content = f"{business.name} 也听见了“{context}”这类议论。单子可以慢一点，别把里面干活的人先耗空。"
+        elif reason == "gray":
+            content = f"{business.name} 这几天被人拿“{context}”反复念叨。后街生意再想抢客，也扛不住大家一直盯着它的路数。"
+        post = FeedPost(
+            id=f"feed-{uuid4().hex[:8]}",
+            author_type="business",
+            author_id=business.id,
+            author_name=business.name,
+            day=self.state.day,
+            time_slot=self.state.time_slot,
+            category=category,
+            mood=self._normalize_feed_mood(mood),
+            content=self._clean_feed_text(content),
+            topic_tags=self._business_topic_tags(business, tags),
+            desire_tags=["利润最大化", "留住客流", "压低负面舆情"],
+            likes=4 + max(0, business.reputation // 18) + self.random.randint(0, 3),
+            views=36 + business.daily_customers * 10 + self.random.randint(0, 22),
+            summary=f"{business.name} 发了一条公开经营动态。",
+            impacts=["影响客流判断", "影响微博讨论"],
+        )
+        post.credibility = self._feed_credibility_for_post(post)
+        post.heat = self._compute_feed_heat(post)
+        return post
+
+    def _build_business_public_comment(self, business: BusinessEntity, *, tone: str, topic: str) -> FeedPost | None:
+        use_tourist = business.category in {"inn", "market"} and self.state.tourists and self.random.random() < 0.62
+        if use_tourist:
+            tourist = self.random.choice(self.state.tourists)
+            if tone == "positive":
+                options = [
+                    f"{business.name} 这轮让我愿意多停一会儿。东西不一定最便宜，但起码让人觉得钱没白花。",
+                    f"我今天在 {business.name} 绕了两圈，最后记住的不是热闹，是它没有把人当流水线上的钱包。",
+                    f"{business.name} 这边体验顺，价和品质至少对得上，不像有些地方只会把人往里拽。",
+                ]
+            else:
+                options = [
+                    f"{business.name} 这边今天有点拧巴。{topic} 这种事一冒出来，游客的脚马上就会慢下来。",
+                    f"{business.name} 这两天被人念得最多的就是“{topic}”。外面的人其实很简单，感觉不舒服就不想多花钱。",
+                    f"说游客视角的话，{business.name} 一旦被盯上“{topic}”，停留和消费都会先掉一截。",
+                ]
+            author_type = "tourist"
+            author_id = tourist.id
+            author_name = tourist.name
+            category = "tourism"
+            desire_tags = [tourist.favorite_topic or "体验感"]
+        else:
+            agent = self.random.choice(self.state.agents)
+            if tone == "positive":
+                options = [
+                    f"{business.name} 这轮客流上得不冤。价、品质和做事的路数，至少看得出是在认真守口碑。",
+                    f"现在大家都在比谁更会抢人，但 {business.name} 这种能把品质守住的，最后更容易把客留住。",
+                    f"{business.name} 今天跑得顺，不只是因为热闹，是因为它没把东西做糙、也没把人逼得太狠。",
+                ]
+            else:
+                options = [
+                    f"{business.name} 这边现在最伤的是“{topic}”。客可能还能抢回来，口碑和人心一散就没那么好补了。",
+                    f"{business.name} 这轮被人拿“{topic}”说得很多。价格、货路和怎么对自己人，迟早都会在微博上翻出来。",
+                    f"{business.name} 要是真继续往“{topic}”上拖，眼前那点利润，很快就会被负面舆情吃掉。",
+                ]
+            author_type = "agent"
+            author_id = agent.id
+            author_name = agent.name
+            category = "gossip" if tone != "positive" else "market"
+            desire_tags = [DESIRE_LABELS.get(dominant_desire_for_agent(self.state, agent)[0], "眼前这件事")]
+        post = FeedPost(
+            id=f"feed-{uuid4().hex[:8]}",
+            author_type=author_type,
+            author_id=author_id,
+            author_name=author_name,
+            day=self.state.day,
+            time_slot=self.state.time_slot,
+            category=category,
+            mood="warm" if tone == "positive" else "tense",
+            content=self._clean_feed_text(options[self.random.randint(0, len(options) - 1)]),
+            topic_tags=self._business_topic_tags(business, [topic]),
+            desire_tags=desire_tags,
+            likes=3 + self.random.randint(0, 5),
+            views=28 + business.daily_customers * 8 + self.random.randint(0, 18),
+            summary=f"{author_name} 在微博上谈到了 {business.name}。",
+            impacts=["影响客流判断", "影响企业口碑"],
+        )
+        post.credibility = self._feed_credibility_for_post(post)
+        post.heat = self._compute_feed_heat(post)
+        return post
+
+    def _businesses_mentioned_in_post(self, post: FeedPost) -> list[BusinessEntity]:
+        text = f"{post.content} {' '.join(post.topic_tags or [])}"
+        matches = [business for business in self.state.businesses or [] if business.name and business.name in text]
+        return matches
+
+    def _apply_business_public_reaction(self, post: FeedPost) -> None:
+        businesses = self._businesses_mentioned_in_post(post)
+        if not businesses or post.author_type == "business":
+            return
+        tone = self._feed_tone(post.content)
+        heat_weight = max(1, min(6, post.heat // 35 + 1))
+        text = f"{post.content} {' '.join(post.topic_tags or [])}"
+        topic = "口碑"
+        if re.search(r"贵|涨价|不值|宰人|价", text):
+            topic = "价格"
+        elif re.search(r"工人|员工|太累|没歇|压榨|赶工", text):
+            topic = "员工状态"
+        elif re.search(r"质量|糙|假|货路|灰货|不踏实|服务|慢", text):
+            topic = "品质和服务"
+        for business in businesses:
+            if tone > 0:
+                business.reputation = max(18, min(92, business.reputation + heat_weight))
+                if business.strategy in {"premium", "steady"} and business.daily_customers >= max(2, business.capacity // 3):
+                    business.price_level = max(18, min(90, business.price_level + 1))
+                business.last_note = f"{business.name} 刚被微博夸到“{topic}”，眼下客流更愿意往这边靠。"
+                continue
+            if tone < 0:
+                business.reputation = max(18, min(92, business.reputation - heat_weight * 2))
+                if topic == "价格":
+                    business.price_level = max(18, business.price_level - max(1, heat_weight // 2))
+                elif topic == "品质和服务":
+                    business.quality_level = max(18, min(92, business.quality_level + max(1, heat_weight // 2)))
+                elif topic == "员工状态":
+                    business.capacity = max(5, business.capacity - 1)
+                    business.quality_level = max(18, min(92, business.quality_level + 1))
+                if business.strategy == "gray":
+                    business.gray_risk = max(0, min(100, business.gray_risk + heat_weight))
+                business.last_note = f"{business.name} 被微博抓着“{topic}”不放，眼下不得不先回应这波舆情。"
+
+    def _emit_business_public_discourse(self) -> None:
+        businesses = sorted(self.state.businesses or [], key=lambda item: item.daily_revenue, reverse=True)
+        if not businesses:
+            return
+        current_slot_posts = [
+            post for post in (self.state.feed_timeline or [])[:40]
+            if post.day == self.state.day and post.time_slot == self.state.time_slot
+        ]
+        if sum(1 for post in current_slot_posts if post.author_type == "business") >= 2:
+            return
+        leader = businesses[0]
+        laggard = businesses[-1]
+        recent_mentions = {
+            business.id: [
+                post for post in (self.state.feed_timeline or [])[:24]
+                if business.name in f"{post.content} {' '.join(post.topic_tags or [])}"
+            ]
+            for business in businesses
+        }
+        if leader.daily_customers >= 2 and self.random.random() < 0.38:
+            self._append_feed_post(self._build_business_feed_post(leader), remember=True, apply_impacts=True)
+        if laggard.daily_profit < 0 and self.random.random() < 0.26:
+            self._append_feed_post(self._build_business_feed_post(laggard, reason="pressure", context="价格和品质"), remember=True, apply_impacts=True)
+        if leader.category == "backstreet" and leader.daily_customers >= 2 and self.random.random() < 0.42:
+            comment = self._build_business_public_comment(leader, tone="negative", topic="灰色引流和压价")
+            if comment is not None:
+                self._append_feed_post(comment, remember=True, apply_impacts=True)
+        spotlight = next(
+            (
+                business
+                for business in businesses
+                if business.category != "backstreet"
+                and business.daily_customers >= 2
+                and business.reputation >= 58
+            ),
+            None,
+        )
+        if spotlight is not None and self.random.random() < 0.28:
+            comment = self._build_business_public_comment(spotlight, tone="positive", topic="品质和做事路数")
+            if comment is not None:
+                self._append_feed_post(comment, remember=True, apply_impacts=True)
+        for business in businesses[:3]:
+            mentions = recent_mentions.get(business.id) or []
+            if not mentions:
+                continue
+            negative_mentions = [post for post in mentions if self._feed_tone(post.content) < 0 and post.author_type != "business"]
+            if negative_mentions and not any(post.author_type == "business" and post.author_id == business.id for post in current_slot_posts):
+                issue = "价格和品质"
+                merged = " ".join(post.content for post in negative_mentions[:2])
+                if re.search(r"工人|员工|太累|赶工|没歇", merged):
+                    issue = "员工状态"
+                    reason = "staff"
+                elif re.search(r"灰货|后街|路数|不踏实|货路", merged):
+                    issue = "灰色引流"
+                    reason = "gray"
+                else:
+                    reason = "pressure"
+                self._append_feed_post(
+                    self._build_business_feed_post(business, reason=reason, context=issue),
+                    remember=True,
+                    apply_impacts=True,
+                )
+                break
+
+    def _emit_business_competition_signals(self) -> None:
+        businesses = sorted(self.state.businesses or [], key=lambda item: item.daily_revenue, reverse=True)
+        if len(businesses) < 2:
+            return
+        leader = businesses[0]
+        runner_up = businesses[1]
+        if leader.daily_revenue <= 0:
+            return
+        if leader.daily_revenue - runner_up.daily_revenue >= 48 and self.random.random() < 0.14:
+            self.state.events.insert(
+                0,
+                build_internal_event(
+                    title=f"{leader.name} 把今天的客流吃得更满",
+                    summary=f"{leader.name} 这一时段抢走了更多客流，{runner_up.name} 开始明显感到压力。",
+                    slot=self.state.time_slot,
+                    category="market",
+                ),
+            )
+            self.state.events = self.state.events[:8]
+        if leader.category == "backstreet" and leader.daily_revenue >= 48 and self.random.random() < 0.2:
+            self.state.gray_cases.insert(
+                0,
+                GrayCase(
+                    id=f"gray-{uuid4().hex[:8]}",
+                    case_type="business_gray_competition",
+                    participants=["gray-market"],
+                    participant_names=[leader.name],
+                    topic="低价和灰货同时抢客",
+                    summary=f"{leader.name} 用低价和灰货把客流往后街带，正规生意已经开始抱怨。",
+                    amount=leader.daily_revenue,
+                    severity=2,
+                    start_day=self.state.day,
+                    exposure_risk=34,
+                    status="active",
+                ),
+            )
+            self.state.gray_cases = self.state.gray_cases[:12]
+        if leader.price_level + 12 <= runner_up.price_level and leader.daily_customers >= 2 and self.random.random() < 0.18:
+            self.state.gray_cases.insert(
+                0,
+                GrayCase(
+                    id=f"gray-{uuid4().hex[:8]}",
+                    case_type="business_price_undercut",
+                    participants=[leader.id, runner_up.id],
+                    participant_names=[leader.name, runner_up.name],
+                    topic="低价抢客",
+                    summary=f"{leader.name} 这轮把价格压得更低，{runner_up.name} 已经开始怀疑对方是不是在拿灰色货源抢客。",
+                    amount=max(0, leader.daily_revenue - runner_up.daily_revenue),
+                    severity=2,
+                    start_day=self.state.day,
+                    exposure_risk=28,
+                    status="active",
+                ),
+            )
+            self.state.gray_cases = self.state.gray_cases[:12]
+
+    def _tick_business_competition(self) -> None:
+        businesses = self._active_businesses()
+        if not businesses:
+            return
+        slot_stats = {
+            business.id: {
+                "customers": 0,
+                "resident": 0,
+                "tourist": 0,
+                "revenue": 0,
+                "cost": 0,
+            }
+            for business in businesses
+        }
+        resident_slot_weight = {
+            "morning": 0.6,
+            "noon": 1.15,
+            "afternoon": 0.85,
+            "evening": 1.05,
+            "night": 0.45,
+        }.get(self.state.time_slot, 0.8)
+        tourist_slot_weight = {
+            "morning": 0.5,
+            "noon": 0.95,
+            "afternoon": 1.1,
+            "evening": 1.18,
+            "night": 0.9,
+        }.get(self.state.time_slot, 0.9)
+        resident_pool = max(
+            1,
+            int((len(self.state.agents) + 1) * resident_slot_weight + self.state.lab.team_atmosphere / 55),
+        )
+        tourist_pool = max(0, int(len(self.state.tourists or []) * tourist_slot_weight))
+        for _ in range(resident_pool):
+            business = self._weighted_business_pick(self._businesses_for_segment("resident"), "resident")
+            if business is None:
+                continue
+            spend = self._business_ticket_value(business, "resident") + self.random.randint(-4, 6)
+            spend = max(6, spend)
+            business.daily_customers += 1
+            business.daily_resident_customers += 1
+            business.daily_revenue += spend
+            cost = max(3, int(spend * 0.48))
+            business.daily_cost += cost
+            slot_stats[business.id]["customers"] += 1
+            slot_stats[business.id]["resident"] += 1
+            slot_stats[business.id]["revenue"] += spend
+            slot_stats[business.id]["cost"] += cost
+        for _ in range(tourist_pool):
+            business = self._weighted_business_pick(self._businesses_for_segment("tourist"), "tourist")
+            if business is None:
+                continue
+            spend = self._business_ticket_value(business, "tourist") + self.random.randint(-5, 12)
+            spend = max(8, spend)
+            business.daily_customers += 1
+            business.daily_tourist_customers += 1
+            business.daily_revenue += spend
+            cost = max(4, int(spend * 0.46))
+            business.daily_cost += cost
+            slot_stats[business.id]["customers"] += 1
+            slot_stats[business.id]["tourist"] += 1
+            slot_stats[business.id]["revenue"] += spend
+            slot_stats[business.id]["cost"] += cost
+        for business in businesses:
+            slot_overhead = max(2, business.capacity // 6)
+            business.daily_cost += slot_overhead
+            slot_stats[business.id]["cost"] += slot_overhead
+            business.daily_profit = business.daily_revenue - business.daily_cost
+            business.total_customers += slot_stats[business.id]["customers"]
+            business.total_revenue += slot_stats[business.id]["revenue"]
+            business.total_profit += slot_stats[business.id]["revenue"] - slot_stats[business.id]["cost"]
+            if slot_stats[business.id]["revenue"] > 0:
+                self._collect_business_tax(business, slot_stats[business.id]["revenue"])
+            share_hint = business.daily_customers * 4 + max(0, business.daily_tourist_customers * 3)
+            business.market_share_hint = max(0, min(100, share_hint))
+            reputation_shift = 0
+            if business.daily_customers >= max(3, business.capacity // 2):
+                reputation_shift += 1
+            if business.daily_profit < 0:
+                reputation_shift -= 1
+            if business.strategy == "gray" and self.state.government.enforcement_level >= 60 and business.daily_customers > 0:
+                reputation_shift -= 1
+            business.reputation = max(18, min(92, business.reputation + reputation_shift))
+            if business.id == "business-workshop" and business.daily_profit > 0:
+                self.state.company.total_work_sessions += 0
+            if business.id == "business-qingsong-coop" and business.daily_profit > 0:
+                self.state.market.living_cost_pressure = max(0, self.state.market.living_cost_pressure - 1)
+            business.last_note = (
+                f"{business.name} 这一时段接了 {business.daily_customers} 单，净流 {business.daily_profit:+}。"
+                if business.daily_customers
+                else f"{business.name} 这一时段客流偏淡，大家暂时还在观望。"
+            )
+            if slot_stats[business.id]["customers"] > 0:
+                self._append_finance_record(
+                    actor_id=business.id,
+                    actor_name=business.name,
+                    category="business",
+                    action="operate",
+                    summary=(
+                        f"{business.name} 这一时段接了 {slot_stats[business.id]['customers']} 单，"
+                        f"收入 ${slot_stats[business.id]['revenue']}，净流 ${slot_stats[business.id]['revenue'] - slot_stats[business.id]['cost']}。"
+                    ),
+                    amount=slot_stats[business.id]["revenue"],
+                    asset_name=business.location_label or business.name,
+                    counterparty=f"{slot_stats[business.id]['resident']} 位居民 / {slot_stats[business.id]['tourist']} 位游客",
+                )
+        self._emit_business_competition_signals()
+        self._emit_business_public_discourse()
 
     def _backfill_daily_economy_history_from_finance(self) -> None:
         if self.state.daily_economy_history:
@@ -10018,6 +10773,9 @@ class GameEngine:
             "别跟别人说",
             "别跟别人提",
             "别让别人知道",
+            "按灰市规矩",
+            "不走正式挂牌",
+            "不挂牌",
         ]
         explicit_gray_request = any(token in request_line for token in gray_request_tokens)
         explicit_gray_offer = any(token in response_line for token in gray_offer_tokens)
@@ -10032,10 +10790,32 @@ class GameEngine:
         if explicit_gray_request and explicit_gray_offer and donor.cash > 0:
             amount = self._extract_money_amount(f"{request_line}{response_line}") or max(5, requester.money_urgency // 18)
             relation = (donor.relations.get(requester.id, 0) + requester.relations.get(donor.id, 0)) / 2
-            judgement = self._loan_judgement_score(donor, requester, amount) + int(relation // 3)
+            joined = f"{request_line} {response_line} {topic}"
+            strong_gray_signal = sum(
+                1
+                for token in [
+                    "不走正式挂牌",
+                    "不挂牌",
+                    "灰市规矩",
+                    "按灰市规矩",
+                    "钥匙和租约",
+                    "钥匙",
+                    "租约",
+                    "塞给你",
+                    "账外",
+                    "回扣",
+                    "私货",
+                    "拉高出货",
+                    "灰盘",
+                ]
+                if token in joined
+            )
+            judgement = self._loan_judgement_score(donor, requester, amount) + int(relation // 3) + strong_gray_signal * 5
             if mood == "tense":
-                judgement -= 8
-            if judgement < 34 or relation < 18:
+                judgement -= 4
+            relation_floor = 8 if strong_gray_signal >= 2 else 18
+            judgement_floor = 20 if strong_gray_signal >= 2 else 34
+            if judgement < judgement_floor or relation < relation_floor:
                 return None
             amount = min(amount, donor.cash)
             if amount <= 0:
@@ -10858,6 +11638,8 @@ class GameEngine:
             "labor_for_insider": "劳动换内幕",
             "wage_arrears": "工资拖欠",
             "pump_dump": "拉高出货",
+            "business_gray_competition": "灰色引流抢客",
+            "business_price_undercut": "压价抢客",
         }.get(case_type, case_type)
 
     def _gray_case_market_target(self, case_type: str) -> str:
@@ -10876,6 +11658,8 @@ class GameEngine:
             "labor_for_insider": "SIG",
             "wage_arrears": "broad",
             "pump_dump": "SIG",
+            "business_gray_competition": "AGR",
+            "business_price_undercut": "AGR",
         }.get(case_type, "broad")
 
     def _gray_resolution_label(self, action: str) -> str:
@@ -11322,7 +12106,7 @@ class GameEngine:
 
     def _ensure_agent_runtime_fields(self) -> None:
         previous_version = self.state.version or 0
-        self.state.version = max(self.state.version, 62)
+        self.state.version = max(self.state.version, 63)
         if self.state.loans is None:
             self.state.loans = []
         if self.state.archived_tasks is None:
@@ -11366,10 +12150,15 @@ class GameEngine:
             self.state.lifestyle_catalog = build_initial_world().lifestyle_catalog
         if self.state.properties is None or not self.state.properties:
             self.state.properties = build_initial_world().properties
+        if getattr(self.state, "businesses", None) is None or not self.state.businesses:
+            self.state.businesses = build_initial_world().businesses
         if not any(asset.id == "property-underground-casino" for asset in self.state.properties):
             self.state.properties.append(
                 next(asset for asset in build_initial_world().properties if asset.id == "property-underground-casino").model_copy(deep=True)
             )
+        for seed_id in {"property-qingsong-coop", "property-backstreet-store"}:
+            if not any(asset.id == seed_id for asset in self.state.properties):
+                self.state.properties.append(next(asset for asset in build_initial_world().properties if asset.id == seed_id).model_copy(deep=True))
         for asset in self.state.properties or []:
             if asset.owner_type == "government" and not asset.facility_kind:
                 if "旅馆" in asset.name or asset.property_type == "rental_house":
@@ -11762,11 +12551,31 @@ class GameEngine:
         if self.state.government.welfare_bankruptcy_support is None:
             self.state.government.welfare_bankruptcy_support = 22
         if self.state.government.revenues is None:
-            self.state.government.revenues = {"wage": 0, "market": 0, "property": 0, "consumption": 0, "gambling": 0, "fine": 0, "government_asset": 0, "tourism_public": 0}
+            self.state.government.revenues = {"wage": 0, "market": 0, "property": 0, "consumption": 0, "business": 0, "gambling": 0, "fine": 0, "government_asset": 0, "tourism_public": 0}
+        self.state.government.revenues.setdefault("business", 0)
         self.state.government.revenues.setdefault("gambling", 0)
         self.state.government.revenues.setdefault("government_asset", 0)
         self.state.government.revenues.setdefault("tourism_public", 0)
         self._refresh_government_agent_state()
+        if self.state.businesses is None:
+            self.state.businesses = []
+        for business in self.state.businesses or []:
+            if getattr(business, "daily_tax_paid", None) is None:
+                business.daily_tax_paid = 0
+            if getattr(business, "total_tax_paid", None) is None:
+                business.total_tax_paid = 0
+            if getattr(business, "lifecycle_stage", None) is None:
+                business.lifecycle_stage = "operating"
+            if getattr(business, "expansion_level", None) is None:
+                business.expansion_level = 0
+            if getattr(business, "growth_streak_days", None) is None:
+                business.growth_streak_days = 0
+            if getattr(business, "loss_streak_days", None) is None:
+                business.loss_streak_days = 0
+            if getattr(business, "merged_into_id", None) is None:
+                business.merged_into_id = ""
+            if getattr(business, "public_heat", None) is None:
+                business.public_heat = 0
         if self.state.company is None:
             self.state.company = build_initial_world().company
         if self.state.bank_loans is None:
@@ -11835,12 +12644,16 @@ class GameEngine:
             self.state.daily_bank_history = []
         if self.state.daily_casino_history is None:
             self.state.daily_casino_history = []
+        if getattr(self.state, "daily_business_history", None) is None:
+            self.state.daily_business_history = []
         if not self.state.daily_economy_history:
             self._backfill_daily_economy_history_from_finance()
         if not self.state.daily_bank_history:
             self._backfill_daily_bank_history_from_finance()
         if not self.state.daily_casino_history:
             self._backfill_daily_casino_history_from_finance()
+        if not self.state.daily_business_history:
+            self._record_daily_business_point(self.state.day)
         self._backfill_casino_dialogue_history_from_finance()
         if not self.state.daily_economy_history:
             self._record_daily_economy_point(
@@ -11853,6 +12666,8 @@ class GameEngine:
             self._record_daily_bank_point(self.state.day)
         if not self.state.daily_casino_history:
             self._record_daily_casino_point(self.state.day)
+        if not self.state.daily_business_history:
+            self._record_daily_business_point(self.state.day)
         if not self.state.analysis_history:
             self._record_analysis_point()
             record.transcript = [self._localized_text(line) for line in record.transcript or []]

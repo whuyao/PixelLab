@@ -943,6 +943,13 @@ canvas {
   align-items: start;
 }
 
+.business-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.18fr) minmax(360px, 0.82fr);
+  gap: 14px;
+  align-items: start;
+}
+
 .lifestyle-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.08fr) minmax(360px, 0.92fr);
@@ -952,6 +959,8 @@ canvas {
 
 .market-main-block,
 .market-side-block,
+.business-main-block,
+.business-side-block,
 .lifestyle-main-block,
 .lifestyle-side-block {
   display: grid;
@@ -962,10 +971,62 @@ canvas {
 
 .market-chart-block,
 .market-position-block,
+.business-panel,
 .market-subpanel {
   border: 3px solid rgba(58, 50, 43, 0.56);
   background: rgba(255, 251, 241, 0.9);
   padding: 12px;
+}
+
+.business-hero-card,
+.business-lifecycle-card,
+.business-entry-card {
+  display: grid;
+  gap: 8px;
+}
+
+.business-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 8px;
+}
+
+.business-kpi-chip {
+  border: 2px solid rgba(58, 50, 43, 0.18);
+  background: rgba(252, 247, 232, 0.92);
+  padding: 8px 9px;
+  display: grid;
+  gap: 4px;
+}
+
+.business-kpi-chip strong {
+  margin: 0;
+}
+
+.business-stage-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 2px solid rgba(58, 50, 43, 0.24);
+  background: rgba(248, 242, 224, 0.92);
+  font-size: 0.76rem;
+}
+
+.business-stage-chip.stage-expanding {
+  border-color: rgba(88, 132, 78, 0.46);
+  background: rgba(236, 248, 232, 0.95);
+}
+
+.business-stage-chip.stage-contracting {
+  border-color: rgba(176, 116, 69, 0.46);
+  background: rgba(252, 240, 227, 0.95);
+}
+
+.business-stage-chip.stage-closed,
+.business-stage-chip.stage-acquired {
+  border-color: rgba(128, 101, 93, 0.46);
+  background: rgba(242, 237, 232, 0.95);
 }
 
 .market-summary-grid {

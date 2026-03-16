@@ -35,6 +35,7 @@
       <nav class="view-nav">
         <button type="button" class="view-tab is-active" data-view="home">首页</button>
         <button type="button" class="view-tab" data-view="market">市场</button>
+        <button type="button" class="view-tab" data-view="business">企业竞争</button>
         <button type="button" class="view-tab" data-view="life">生活与地产</button>
         <button type="button" class="view-tab" data-view="government">财政与政府</button>
         <button type="button" class="view-tab" data-view="feed">小镇微博</button>
@@ -230,6 +231,50 @@
             </div>
           </div>
         </section>
+      </section>
+
+      <section class="view" data-view="business">
+        <div class="business-layout">
+          <div class="business-main-block">
+            <section class="panel business-panel">
+              <div class="panel-head">
+                <h2>企业竞争台</h2>
+                <span class="panel-tag">利润 / 客流 / 舆情 / 生命周期</span>
+              </div>
+              <div id="businessHero" class="metric-summary-grid"></div>
+            </section>
+            <section class="panel business-panel">
+              <div class="panel-head">
+                <h2>企业走势</h2>
+                <span class="panel-tag">营业额 / 客流 / 税费 / 净利</span>
+              </div>
+              <div id="businessTrendBox" class="position-grid"></div>
+            </section>
+            <section class="panel business-panel">
+              <div class="panel-head">
+                <h2>企业名录</h2>
+                <span class="panel-tag">经营状态</span>
+              </div>
+              <div id="businessBoard" class="stack"></div>
+            </section>
+          </div>
+          <aside class="business-side-block">
+            <section class="panel business-panel">
+              <div class="panel-head">
+                <h2>经营生命周期</h2>
+                <span class="panel-tag">扩张 / 收缩 / 倒闭 / 并购</span>
+              </div>
+              <div id="businessLifecycleBox" class="stack"></div>
+            </section>
+            <section class="panel business-panel">
+              <div class="panel-head">
+                <h2>税务与舆情</h2>
+                <span class="panel-tag">营业税 / 微博 / 灰市</span>
+              </div>
+              <div id="businessSideStats" class="stack"></div>
+            </section>
+          </aside>
+        </div>
       </section>
 
       <section class="view" data-view="life">
@@ -656,6 +701,9 @@
                     <option value="tourist-invest">只看游客投资</option>
                     <option value="government">只看政府回应</option>
                     <option value="casino">只看赌场传闻</option>
+                    <option value="business-official">只看企业发帖</option>
+                    <option value="business-quality">只看商品质量</option>
+                    <option value="business-staff">只看员工待遇</option>
                   </select>
                   <select id="feedFilterMood" class="feed-filter-select" aria-label="按情绪筛选微博">
                     <option value="all">全部情绪</option>
@@ -697,13 +745,14 @@
               <span class="panel-tag">本科生 / 研究生学习入口</span>
             </div>
             <div class="teaching-hero-copy">
-              <p>这个页面不是操作台，而是一份面向课堂讲解的系统说明。它解释这套像素 GeoAI 实验室里，什么是智能体、什么是 GeoAI、为什么经济约束是底层驱动，以及市场、微博、政府、主线新闻、地下赌场和 LLM prompt 工程怎样共同长出复杂行为。</p>
+              <p>这个页面不是操作台，而是一份面向课堂讲解的系统说明。它解释这套像素 GeoAI 实验室里，什么是智能体、什么是 GeoAI、为什么经济约束是底层驱动，以及市场、企业竞争、微博、政府、主线新闻、地下赌场和 LLM prompt 工程怎样共同长出复杂行为。</p>
               <div class="teaching-chip-row">
                 <span class="memory-chip">多智能体</span>
                 <span class="memory-chip">GeoAI</span>
                 <span class="memory-chip">行为涌现</span>
                 <span class="memory-chip">经济底层机制</span>
                 <span class="memory-chip">制度与公共服务</span>
+                <span class="memory-chip">企业竞争</span>
                 <span class="memory-chip">地下赌场</span>
               </div>
             </div>
@@ -845,6 +894,10 @@
                   <div>税率、监管、保障、财政结算、公共服务和政府投资提供制度性反馈。</div>
                 </article>
                 <article class="event-card">
+                  <strong>企业竞争系统</strong>
+                  <div>旅馆、集市、工坊、合作社和后街商行会围绕价格、品质、客流、微博舆情和灰色引流互相抢客。</div>
+                </article>
+                <article class="event-card">
                   <strong>开放系统</strong>
                   <div>游客、Brave 新闻或系统新闻、节庆活动和随机事件把外部冲击带进小镇。</div>
                 </article>
@@ -946,7 +999,26 @@
 
             <section class="panel teaching-panel">
               <div class="panel-head">
-                <h2>12. 灰色交易现在怎么分</h2>
+                <h2>12. 企业竞争为什么会自己长出来</h2>
+                <span class="panel-tag">利润 / 客流 / 舆情</span>
+              </div>
+              <div class="teaching-block">
+                <p>企业竞争不是只改价格。现在小镇里的企业会同时追求利润最大化、吸引更多客流，并尽量减少负面舆情带来的损害。</p>
+                <ul class="teaching-list">
+                  <li>企业会按价格、品质、目标客群和策略争抢居民与游客</li>
+                  <li>玩家、智能体和游客会在微博讨论企业的质量、态度、员工状态和灰色路数</li>
+                  <li>企业自己也会发帖回应，决定是压价、提质、解释还是继续硬抢客流</li>
+                  <li>后街商行这类灰色企业，还会把抢客、压价和灰色引流带进灰案与监管链</li>
+                </ul>
+                <div class="teaching-mini-formula">
+                  <code>企业竞争 = 价格 / 品质 / 客流 / 舆论 / 监管 的同时博弈</code>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel teaching-panel">
+              <div class="panel-head">
+                <h2>13. 灰色交易现在怎么分</h2>
                 <span class="panel-tag">地下行为细分</span>
               </div>
               <div class="teaching-block">
@@ -965,7 +1037,7 @@
 
             <section class="panel teaching-panel">
               <div class="panel-head">
-                <h2>13. 最近的系统平衡怎么调</h2>
+                <h2>14. 最近的系统平衡怎么调</h2>
                 <span class="panel-tag">机制优化</span>
               </div>
               <div class="teaching-block">
