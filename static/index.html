@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GeoAI Pixel Lab Test (UrbanComp Lab)</title>
-    <link rel="stylesheet" href="/static/styles.css?v=20260316e" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260316j" />
   </head>
   <body>
     <div class="project-banner">
@@ -37,7 +37,7 @@
         <button type="button" class="view-tab" data-view="market">市场</button>
         <button type="button" class="view-tab" data-view="business">企业竞争</button>
         <button type="button" class="view-tab" data-view="tourism">游客观察</button>
-        <button type="button" class="view-tab" data-view="life">生活与地产</button>
+        <button type="button" class="view-tab" data-view="life">生活与住房</button>
         <button type="button" class="view-tab" data-view="government">财政与政府</button>
         <button type="button" class="view-tab" data-view="feed">小镇微博</button>
         <button type="button" class="view-tab" data-view="bulletin">晨报与案件</button>
@@ -131,6 +131,11 @@
               <button id="marketDailyBtn" type="button">日K</button>
               <button id="marketMonthlyBtn" type="button">月K</button>
               <button id="marketYearlyBtn" type="button">年K</button>
+              <select id="marketInstrumentSelect" class="market-instrument-select" aria-label="切换市场K线对象">
+                <option value="PX100">PX100</option>
+                <option value="PX-Tour">PX-Tour</option>
+                <option value="PX-Life">PX-Life</option>
+              </select>
             </div>
           </div>
           <div class="market-subnav">
@@ -183,9 +188,7 @@
                 </div>
                 <form id="tradeForm" class="signal-form market-form">
                   <select id="tradeSymbol" name="symbol">
-                    <option value="GEO">GEO</option>
-                    <option value="AGR">AGR</option>
-                    <option value="SIG">SIG</option>
+                    <option value="GEO">加载中…</option>
                   </select>
                   <select id="tradeSide" name="side">
                     <option value="buy">买入</option>
@@ -325,35 +328,52 @@
       <section class="view" data-view="life">
         <section class="panel lifestyle-panel">
           <div class="panel-head">
-            <h2>生活与地产</h2>
-            <span class="panel-tag">消费 / 满意度 / 房产</span>
+            <h2>生活与住房</h2>
+            <span class="panel-tag">生活压力 / 消费结构 / 居住质量 / 房产市场</span>
           </div>
-          <div class="lifestyle-layout">
-            <div class="lifestyle-main-block">
-              <section class="market-subpanel">
-                <div class="panel-head compact-head">
-                  <h3>生活满意度</h3>
-                  <span class="panel-tag">玩家 + 团队</span>
-                </div>
-                <div id="lifestyleSummary" class="stack"></div>
-              </section>
-              <section class="market-subpanel">
-                <div class="panel-head compact-head">
-                  <h3>消费目录</h3>
-                  <span class="panel-tag">可贷款购买</span>
-                </div>
-                <div id="consumeCatalog" class="stack"></div>
-              </section>
-            </div>
-            <div class="lifestyle-side-block">
-              <section class="market-subpanel">
-                <div class="panel-head compact-head">
-                  <h3>地产资产</h3>
-                  <span class="panel-tag">买入 / 卖出 / 建造</span>
-                </div>
-                <div id="propertyList" class="stack"></div>
-              </section>
-            </div>
+          <div class="lifestyle-dashboard-grid">
+            <section class="market-subpanel lifestyle-hero-row">
+              <div class="panel-head compact-head">
+                <h3>生活总览</h3>
+                <span class="panel-tag">玩家 / 团队 / 游客</span>
+              </div>
+              <div id="lifeHero" class="stack"></div>
+            </section>
+            <section class="market-subpanel">
+              <div class="panel-head compact-head">
+                <h3>生活成本与物价</h3>
+                <span class="panel-tag">开销 / 物价 / 满意</span>
+              </div>
+              <div id="lifestyleSummary" class="stack"></div>
+            </section>
+            <section class="market-subpanel">
+              <div class="panel-head compact-head">
+                <h3>居住与房产</h3>
+                <span class="panel-tag">自住 / 持有 / 月负担</span>
+              </div>
+              <div id="propertyList" class="stack"></div>
+            </section>
+            <section class="market-subpanel">
+              <div class="panel-head compact-head">
+                <h3>居民住房市场</h3>
+                <span class="panel-tag">挂牌 / 看房 / 公共住房</span>
+              </div>
+              <div id="lifeHousingMarketBox" class="stack"></div>
+            </section>
+            <section class="market-subpanel">
+              <div class="panel-head compact-head">
+                <h3>生活消费</h3>
+                <span class="panel-tag">目录 / 热销 / 工作日消费</span>
+              </div>
+              <div id="consumeCatalog" class="stack"></div>
+            </section>
+            <section class="market-subpanel lifestyle-event-row">
+              <div class="panel-head compact-head">
+                <h3>生活事件</h3>
+                <span class="panel-tag">消费 / 房产 / 政策 / 微博</span>
+              </div>
+              <div id="lifeEventBox" class="stack"></div>
+            </section>
           </div>
           <p id="lifestyleStatus" class="signal-status"></p>
         </section>
@@ -364,10 +384,17 @@
           <div class="government-main-stack">
             <section class="panel fiscal-panel fiscal-summary-panel">
               <div class="panel-head">
-                <h2>税务与财政总览</h2>
-                <span class="panel-tag">财政状态 / 运营结果</span>
+                <h2>财政与政府驾驶台</h2>
+                <span class="panel-tag">财政状态 / 政府经营 / 监管结果</span>
               </div>
               <div id="fiscalSummary" class="metric-list"></div>
+            </section>
+            <section class="panel fiscal-panel government-event-panel">
+              <div class="panel-head">
+                <h2>政府事件流</h2>
+                <span class="panel-tag">政策 / 建设 / 经营 / 征税</span>
+              </div>
+              <div id="governmentHighlights" class="stack scroll-panel-list government-event-stream"></div>
             </section>
           </div>
           <aside class="government-side-stack">
@@ -377,8 +404,8 @@
                 <span class="panel-tag">政策控制台</span>
               </div>
               <div class="policy-mode-box">
-                <div id="governmentModeSummary" class="policy-mode-summary">当前仍采用常规政府模式。</div>
-                <div id="governmentModeBtn" class="policy-toggle" role="button" tabindex="0" aria-disabled="false">大政府模式：关</div>
+                <div id="governmentModeSummary" class="policy-mode-summary">大政府模式默认开启，政府会主动看税基、游客、住房和资产回报。</div>
+                <div id="governmentModeBtn" class="policy-toggle" role="button" tabindex="0" aria-disabled="false">大政府模式：开</div>
               </div>
               <div class="policy-capability-box">
                 <p class="policy-group-title">大政府权限</p>
@@ -461,13 +488,6 @@
                 <button id="taxPolicySubmitBtn" type="submit">更新税制</button>
               </form>
               <p id="taxPolicyStatus" class="signal-status"></p>
-            </section>
-            <section class="panel event-panel">
-              <div class="panel-head">
-                <h2>政府事件摘要</h2>
-                <span class="panel-tag">监管 / 投资 / 保障</span>
-              </div>
-              <div id="governmentHighlights" class="stack"></div>
             </section>
             <section class="panel event-panel">
               <div class="panel-head">
@@ -1080,6 +1100,7 @@
                   <li>游客会把外部消息和情绪带进小镇</li>
                   <li>游客会在微博上放大“值不值得来、值不值得买、这地方靠不靠谱”</li>
                   <li>系统现在采用 `总游客池 10 / 活跃游客 7` 的分层机制，让世界更热闹，但不把地图和日志噪声打爆</li>
+                  <li>游客名字现在优先使用自然中文名，旧状态里的数字后缀会自动清洗，避免游客像“临时编号对象”而不是外来人口</li>
                 </ul>
                 <div class="teaching-mini-formula">
                   <code>游客层 = 消费 + 投资 + 赌博 + 看房 + 微博 + 外部消息</code>
@@ -1165,6 +1186,6 @@
       <span>UrbanComp Lab (<a href="https://urbancomp.net" target="_blank" rel="noreferrer">https://urbancomp.net</a>) 开发</span>
       <span>GitHub：<a href="https://github.com/whuyao/PixelLab" target="_blank" rel="noreferrer">https://github.com/whuyao/PixelLab</a></span>
     </footer>
-    <script src="/static/app.js?v=20260316e" type="module"></script>
+    <script src="/static/app.js?v=20260316i" type="module"></script>
   </body>
 </html>

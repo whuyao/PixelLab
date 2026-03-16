@@ -218,7 +218,8 @@ body.llm-dev-visible .llm-switcher-shell,
 }
 
 .government-board {
-  grid-template-columns: minmax(0, 1.2fr) minmax(380px, 0.95fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(340px, 0.92fr);
+  align-items: start;
 }
 
 .home-main,
@@ -964,6 +965,18 @@ canvas {
   align-items: start;
 }
 
+.lifestyle-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.lifestyle-hero-row,
+.lifestyle-event-row {
+  grid-column: 1 / -1;
+}
+
 .market-main-block,
 .market-side-block,
 .business-main-block,
@@ -1047,12 +1060,58 @@ canvas {
   gap: 10px;
 }
 
+.market-instrument-select {
+  min-width: 120px;
+  min-height: 38px;
+  border: 2px solid rgba(58, 50, 43, 0.45);
+  background: rgba(248, 242, 224, 0.96);
+  color: rgba(46, 39, 31, 0.92);
+  padding: 0 10px;
+}
+
 .market-stock-card,
 .market-state-card,
 .position-card {
   border: 2px solid rgba(58, 50, 43, 0.38);
   background: rgba(248, 242, 224, 0.92);
   padding: 9px 10px;
+}
+
+.market-index-board,
+.market-sector-board {
+  display: grid;
+  gap: 6px;
+}
+
+.market-sector-list {
+  display: grid;
+  gap: 6px;
+}
+
+.market-sector-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid rgba(58, 50, 43, 0.18);
+  background: rgba(255, 252, 244, 0.86);
+  padding: 6px 7px;
+}
+
+.market-sector-meta {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+}
+
+.market-sector-heat {
+  color: var(--accent-green);
+  font-weight: 700;
+}
+
+.market-sector-change {
+  color: rgba(46, 39, 31, 0.8);
+  font-size: 0.88rem;
 }
 
 .bank-loan-card {
@@ -1064,6 +1123,65 @@ canvas {
 .property-card {
   display: grid;
   gap: 8px;
+}
+
+.life-overview-grid,
+.life-stat-grid,
+.life-chip-grid,
+.life-event-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.life-overview-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.life-stat-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.life-chip-grid {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.life-chip-card {
+  border: 2px solid rgba(58, 50, 43, 0.16);
+  background: rgba(252, 247, 232, 0.92);
+  padding: 9px 10px;
+  display: grid;
+  gap: 4px;
+}
+
+.life-chip-card strong {
+  margin: 0;
+}
+
+.life-card-note {
+  color: rgba(47, 42, 34, 0.82);
+  font-size: 0.84rem;
+}
+
+.life-mini-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.life-event-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.life-event-card {
+  border: 2px solid rgba(58, 50, 43, 0.18);
+  background: rgba(252, 247, 232, 0.94);
+  padding: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.life-event-card .memory-chip {
+  margin-right: 6px;
+  margin-bottom: 6px;
 }
 
 .selection-card {
@@ -1381,12 +1499,20 @@ canvas {
   padding-bottom: 16px;
 }
 
+.government-event-panel {
+  min-height: 0;
+}
+
 .fiscal-panel .metric-list {
   gap: 12px;
 }
 
 .fiscal-hero-card {
   padding: 14px 16px;
+}
+
+.fiscal-hero-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .fiscal-dashboard-grid {
@@ -1398,7 +1524,8 @@ canvas {
 .fiscal-dashboard-card {
   border: 3px solid rgba(58, 50, 43, 0.26);
   background: rgba(255, 251, 241, 0.9);
-  padding: 10px;
+  padding: 12px;
+  min-height: 0;
 }
 
 .government-main-stack .fiscal-dashboard-grid {
@@ -1407,6 +1534,16 @@ canvas {
 
 .government-side-stack .event-card {
   min-height: 0;
+}
+
+.government-main-stack {
+  grid-template-columns: 1fr;
+}
+
+.government-side-stack {
+  grid-template-columns: 1fr;
+  position: sticky;
+  top: 12px;
 }
 
 .fiscal-settlement-card {
@@ -1431,6 +1568,10 @@ canvas {
 
 .fiscal-policy-card {
   background: linear-gradient(180deg, rgba(240, 245, 228, 0.98), rgba(225, 234, 206, 0.94));
+}
+
+.fiscal-market-card {
+  background: linear-gradient(180deg, rgba(243, 236, 249, 0.98), rgba(228, 220, 240, 0.94));
 }
 
 .metric-summary-grid {
@@ -1713,20 +1854,42 @@ canvas {
 
 .tax-rate-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
   gap: 8px;
 }
 
 .tax-rate-item {
   border: 2px solid rgba(58, 50, 43, 0.22);
   background: rgba(252, 247, 232, 0.92);
-  padding: 8px 9px;
+  padding: 9px 10px;
   display: grid;
   gap: 4px;
+  align-content: start;
+  min-height: 78px;
 }
 
 .tax-rate-item strong {
   font-size: 0.84rem;
+}
+
+.government-event-stream {
+  max-height: 980px;
+  min-height: 420px;
+}
+
+.government-event-stream .event-card {
+  border-left-width: 6px;
+}
+
+.event-government-revenue {
+  background: linear-gradient(180deg, rgba(243, 250, 234, 0.96), rgba(231, 241, 218, 0.94));
+  border-color: rgba(89, 118, 53, 0.54);
+}
+
+.event-policy-vote {
+  border-left: 8px solid rgba(170, 112, 54, 0.94);
+  background: linear-gradient(180deg, rgba(254, 246, 233, 0.97), rgba(246, 236, 216, 0.93));
+  box-shadow: inset 0 0 0 1px rgba(166, 122, 72, 0.16);
 }
 
 .fiscal-list {
@@ -2768,6 +2931,9 @@ canvas {
   .analysis-people-grid,
   .metric-compact-grid,
   .metric-summary-grid,
+  .lifestyle-dashboard-grid,
+  .life-overview-grid,
+  .life-event-grid,
   .teaching-grid,
   .teaching-system-grid {
     grid-template-columns: 1fr;
@@ -2775,8 +2941,14 @@ canvas {
 
   .metrics-panel .metric-summary-grid,
   .metrics-panel .metric-compact-grid,
+  .fiscal-hero-grid,
   .fiscal-dashboard-grid {
     grid-template-columns: 1fr;
+  }
+
+  .government-side-stack {
+    position: static;
+    top: auto;
   }
 
   .analysis-panel .analysis-people-grid {

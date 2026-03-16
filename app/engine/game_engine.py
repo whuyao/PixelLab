@@ -178,10 +178,10 @@ LEGACY_NAME_REPLACEMENTS = {
 FORCED_REST_THRESHOLD = 8
 MARKET_SYMBOL_PREFERENCE = {
     "rational": "GEO",
-    "creative": "AGR",
+    "creative": "RET",
     "engineering": "SIG",
-    "empathetic": "AGR",
-    "opportunist": "SIG",
+    "empathetic": "HSP",
+    "opportunist": "ENT",
 }
 LIMIT_MOVE_PCT = 10.0
 GEOAI_BASE_MILESTONES = [50, 100, 180, 260, 360, 500, 700, 950]
@@ -195,13 +195,137 @@ def geoai_milestones_up_to(current: int) -> list[int]:
         milestones.append(next_threshold)
         next_threshold += GEOAI_MILESTONE_STEP
     return milestones
-BASE_PRICES = {"GEO": 24.0, "AGR": 18.0, "SIG": 31.0}
-INDEX_WEIGHTS = {"GEO": 0.42, "AGR": 0.33, "SIG": 0.25}
-SECTOR_BETA = {"GEO": 1.14, "AGR": 0.82, "SIG": 1.28}
-IDIOSYNCRATIC_VOL = {"GEO": 0.72, "AGR": 0.58, "SIG": 0.94}
-BASE_SHARES_OUTSTANDING = {"GEO": 180000, "AGR": 240000, "SIG": 150000}
-BASE_AVG_VOLUME = {"GEO": 5600, "AGR": 4800, "SIG": 5200}
-TOURIST_NAME_POOL = ["许栀", "沈禾", "顾岚", "孟遥", "程汐", "唐屿", "苏楠", "袁栩", "陆晴", "乔朔"]
+BASE_PRICES = {
+    "GEO": 24.0,
+    "AGR": 18.0,
+    "SIG": 31.0,
+    "HSP": 22.0,
+    "RET": 19.0,
+    "EST": 27.0,
+    "FIN": 26.0,
+    "ENT": 17.0,
+}
+INDEX_WEIGHTS = {
+    "GEO": 0.18,
+    "AGR": 0.14,
+    "SIG": 0.15,
+    "HSP": 0.12,
+    "RET": 0.13,
+    "EST": 0.11,
+    "FIN": 0.10,
+    "ENT": 0.07,
+}
+TOURISM_INDEX_WEIGHTS = {"HSP": 0.42, "RET": 0.28, "EST": 0.18, "ENT": 0.12}
+LIFE_INDEX_WEIGHTS = {"AGR": 0.38, "RET": 0.27, "HSP": 0.18, "EST": 0.17}
+SECTOR_BETA = {
+    "GEO": 1.16,
+    "AGR": 0.78,
+    "SIG": 1.24,
+    "HSP": 0.92,
+    "RET": 0.98,
+    "EST": 0.88,
+    "FIN": 0.74,
+    "ENT": 1.18,
+}
+IDIOSYNCRATIC_VOL = {
+    "GEO": 0.72,
+    "AGR": 0.58,
+    "SIG": 0.94,
+    "HSP": 0.62,
+    "RET": 0.67,
+    "EST": 0.7,
+    "FIN": 0.55,
+    "ENT": 1.02,
+}
+BASE_SHARES_OUTSTANDING = {
+    "GEO": 180000,
+    "AGR": 240000,
+    "SIG": 150000,
+    "HSP": 210000,
+    "RET": 225000,
+    "EST": 160000,
+    "FIN": 190000,
+    "ENT": 170000,
+}
+BASE_AVG_VOLUME = {
+    "GEO": 5600,
+    "AGR": 4800,
+    "SIG": 5200,
+    "HSP": 4500,
+    "RET": 4700,
+    "EST": 3900,
+    "FIN": 4100,
+    "ENT": 4400,
+}
+MARKET_SYMBOL_NAMES = {
+    "GEO": "GeoGrid",
+    "AGR": "AgriLoop",
+    "SIG": "SignalWorks",
+    "HSP": "HarborStay",
+    "RET": "RetailLane",
+    "EST": "EstateSpan",
+    "FIN": "FinWeave",
+    "ENT": "NightPulse",
+}
+MARKET_SECTOR_LABELS = {
+    "geoai": "空间智能",
+    "daily": "农业与日常",
+    "signal": "算力与信号",
+    "tourism": "住宿文旅",
+    "retail": "集市零售",
+    "property": "地产租住",
+    "finance": "银行融资",
+    "entertainment": "娱乐与赌场",
+}
+MARKET_SYMBOL_ALIASES = {
+    "GEO": ["GEO", "GeoGrid", "GeoAI", "空间智能", "研究主线", "空间计算"],
+    "AGR": ["AGR", "AgriLoop", "农业", "日常消费", "日用品", "基础消费", "合作社"],
+    "SIG": ["SIG", "SignalWorks", "算力", "信号", "工坊", "算力服务", "手作工坊"],
+    "HSP": ["HSP", "HarborStay", "住宿", "旅馆", "文旅", "房间", "湖畔旅馆"],
+    "RET": ["RET", "RetailLane", "零售", "集市", "摆摊", "零售和集市", "林间集市"],
+    "EST": ["EST", "EstateSpan", "地产", "住房", "租住", "房价", "看房"],
+    "FIN": ["FIN", "FinWeave", "银行", "融资", "利率", "借贷", "金融"],
+    "ENT": ["ENT", "NightPulse", "赌场", "赌局", "娱乐", "后街", "牌桌"],
+}
+BUSINESS_MARKET_SYMBOL = {
+    "inn": "HSP",
+    "market": "RET",
+    "workshop": "SIG",
+    "co_op": "AGR",
+    "backstreet": "ENT",
+}
+TOURIST_NAME_POOL = [
+    "许栀",
+    "沈禾",
+    "顾岚",
+    "孟遥",
+    "程汐",
+    "唐屿",
+    "苏楠",
+    "袁栩",
+    "陆晴",
+    "乔朔",
+    "周蕴",
+    "宋岚",
+    "阮青",
+    "江澄",
+    "贺芷",
+    "白屿",
+    "林澜",
+    "温柠",
+    "简遥",
+    "夏栀",
+    "楚汐",
+    "姚岑",
+    "顾廷",
+    "叶澈",
+    "何栖",
+    "裴宁",
+    "闻溪",
+    "许蔓",
+    "陈屿",
+    "姜遥",
+]
 TOURIST_ARCHETYPES = [
     {
         "archetype": "周末散客",
@@ -235,11 +359,11 @@ TOURISM_EVENT_TITLES = [
     "果园开放日",
 ]
 TOURIST_SIGNAL_BANK = [
-    {"title": "游客带来外地买手消息", "summary": "几位游客提到外地渠道正在回补农食和文旅周边订单。", "category": "market", "tone": 1, "target": "AGR", "strength": 2},
+    {"title": "游客带来外地买手消息", "summary": "几位游客提到外地渠道正在回补农食和文旅周边订单。", "category": "market", "tone": 1, "target": "RET", "strength": 2},
     {"title": "游客聊起一波空间智能参访热", "summary": "来访者频繁讨论小镇里的 GeoAI 展示和空间智能体验，市场开始把相关能力当成新的卖点。", "category": "geoai", "tone": 1, "target": "GEO", "strength": 2},
-    {"title": "游客带来一条监管收紧风声", "summary": "短住买手在集市里谈到外地监管可能收紧交易和数据流通，大家情绪明显谨慎。", "category": "market", "tone": -1, "target": "SIG", "strength": 3},
-    {"title": "游客口中的消费回暖传闻", "summary": "回头客在旅馆里说，周边几个片区的消费人流比上月明显回暖。", "category": "general", "tone": 1, "target": "AGR", "strength": 2},
-    {"title": "游客散播一条地产观望消息", "summary": "看房游客普遍觉得短期房价偏高，购买动作可能会先放慢。", "category": "market", "tone": -1, "target": "AGR", "strength": 2},
+    {"title": "游客带来一条监管收紧风声", "summary": "短住买手在集市里谈到外地监管可能收紧交易和数据流通，大家情绪明显谨慎。", "category": "market", "tone": -1, "target": "FIN", "strength": 3},
+    {"title": "游客口中的消费回暖传闻", "summary": "回头客在旅馆里说，周边几个片区的消费人流比上月明显回暖。", "category": "general", "tone": 1, "target": "HSP", "strength": 2},
+    {"title": "游客散播一条地产观望消息", "summary": "看房游客普遍觉得短期房价偏高，购买动作可能会先放慢。", "category": "market", "tone": -1, "target": "EST", "strength": 2},
 ]
 
 
@@ -1806,15 +1930,59 @@ class GameEngine:
         tags = [category]
         if any(token in content for token in ["GeoAI", "空间智能", "研究"]):
             tags.append("GeoAI")
+            tags.append("GEO")
+        if any(token in content for token in ["算力", "信号", "工坊"]):
+            tags.append("算力与信号")
+            tags.append("SIG")
         if any(token in content for token in ["股票", "盘面", "市场", "现金流"]):
             tags.append("市场")
-        if any(token in content for token in ["游客", "旅馆", "集市"]):
+        if any(token in content for token in ["游客", "旅馆", "集市", "住宿", "文旅"]):
             tags.append("游客")
-        if any(token in content for token in ["房", "住房", "看房", "地产"]):
+        if any(token in content for token in ["旅馆", "住宿", "房间"]):
+            tags.append("HSP")
+        if any(token in content for token in ["集市", "零售", "小吃", "日用品", "消费"]):
+            tags.append("RET")
+            tags.append("AGR")
+        if any(token in content for token in ["房", "住房", "看房", "地产", "租住", "房价"]):
             tags.append("地产")
+            tags.append("EST")
         if any(token in content for token in ["税", "监管", "财政"]):
             tags.append("政策")
+        if any(token in content for token in ["银行", "融资", "利率", "借贷"]):
+            tags.append("FIN")
+        if any(token in content for token in ["赌场", "赌局", "牌桌", "后街"]):
+            tags.append("ENT")
         return tags[:4]
+
+    def _mentioned_market_symbols(self, content: str, tags: list[str] | None = None) -> list[str]:
+        text = f"{content or ''} {' '.join(tags or [])}"
+        mentioned: list[str] = []
+        for symbol, aliases in MARKET_SYMBOL_ALIASES.items():
+            if any(alias and alias in text for alias in aliases):
+                mentioned.append(symbol)
+        return list(dict.fromkeys(mentioned))
+
+    def _apply_symbol_signal(self, symbol: str, tone: int, magnitude: float, reason: str) -> None:
+        if tone == 0 or magnitude <= 0:
+            return
+        quote = self._quote(symbol)
+        if quote is None:
+            return
+        shift = tone * magnitude
+        quote.fair_value = max(6.0, round((quote.fair_value or quote.price) + shift, 2))
+        quote.price = max(4.0, round(quote.price + shift * 0.28, 2))
+        quote.day_change_pct = max(-18.0, min(18.0, quote.day_change_pct + shift * 0.22))
+        quote.last_reason = reason[:36]
+
+    def _business_market_symbol(self, business: BusinessEntity) -> str:
+        return BUSINESS_MARKET_SYMBOL.get(business.category, "RET")
+
+    def _business_market_label(self, business: BusinessEntity) -> str:
+        symbol = self._business_market_symbol(business)
+        quote = self._quote(symbol)
+        if quote is not None:
+            return f"{MARKET_SECTOR_LABELS.get(quote.sector, quote.sector)}（{symbol}）"
+        return symbol
 
     def _feed_impacts_for_category(self, category: str) -> list[str]:
         mapping = {
@@ -2043,6 +2211,7 @@ class GameEngine:
         tone = self._feed_tone(post.content)
         credibility_weight = max(1, post.credibility // 25)
         heat_weight = max(1, post.heat // 20)
+        direct_symbols = self._mentioned_market_symbols(post.content, post.topic_tags)
         if post.category == "market":
             market_shift = tone * credibility_weight * heat_weight
             if tone > 0:
@@ -2079,6 +2248,16 @@ class GameEngine:
                         agent.life_satisfaction = self._bounded(agent.life_satisfaction + 1)
         elif post.category == "property" and tone > 0:
             self.state.tourism.buyer_leads_total += 1
+        if direct_symbols and tone != 0:
+            base_magnitude = max(0.18, min(1.15, 0.12 * credibility_weight + 0.08 * heat_weight))
+            for index, symbol in enumerate(direct_symbols[:3]):
+                self._apply_symbol_signal(
+                    symbol,
+                    tone,
+                    max(0.12, base_magnitude - index * 0.14),
+                    f"微博风向偏向 {symbol}",
+                )
+            self._recompute_secondary_indices()
         if post.reply_to_post_id:
             parent = self._find_feed_post(post.reply_to_post_id)
             if parent and post.author_type == "agent" and parent.author_type == "player":
@@ -2173,18 +2352,21 @@ class GameEngine:
 
     def _seed_feed_from_external_event(self, event: LabEvent, theme: str = "") -> None:
         category = "gossip" if str(theme).startswith("社会热点") or event.category == "general" else ("market" if event.category == "market" else ("research" if event.category == "geoai" else "policy"))
+        target_symbol = (event.market_target or "broad").upper()
+        target_quote = self._quote(target_symbol) if target_symbol not in {"", "BROAD"} else None
+        target_label = MARKET_SECTOR_LABELS.get(target_quote.sector, target_symbol) if target_quote is not None else "全市场"
         if category == "gossip":
             content = f"系统新闻台刚抛来一条社会热点：{event.title}。现在大家开始把它往住房、消费、工作节奏和谁更难这几条线上吵。"
             tags = ["社会热点", event.source or "系统新闻台", "公开讨论"]
         elif category == "market":
-            content = f"系统新闻台：{event.title}。这条消息已经把市场预期拨动了一下，后面大盘和游客消费都可能跟着偏。"
-            tags = ["市场", event.source or "系统新闻台", "外部消息"]
+            content = f"系统新闻台：{event.title}。这条消息先拨动了{target_label}的预期，后面 PX100、游客消费和企业客流都可能跟着偏。"
+            tags = ["市场", target_label, target_symbol if target_quote is not None else "PX100", event.source or "系统新闻台"]
         elif category == "research":
             content = f"系统新闻台：{event.title}。这条外部信号已经被大家往 GeoAI 和空间智能主线那边接了。"
             tags = ["GeoAI", "空间智能", event.source or "系统新闻台"]
         else:
-            content = f"系统新闻台：{event.title}。政策和公共服务这边已经有人开始重新盘算这件事会把谁先推紧。"
-            tags = ["政策", "监管", event.source or "系统新闻台"]
+            content = f"系统新闻台：{event.title}。政策和公共服务这边已经有人开始重新盘算，这会先压到谁，又会把{target_label}往哪边推。"
+            tags = ["政策", "监管", target_label, event.source or "系统新闻台"]
         post = FeedPost(
             id=f"feed-{uuid4().hex[:8]}",
             author_type="system",
@@ -2549,6 +2731,22 @@ class GameEngine:
         ]
         return self.random.choice(variants)
 
+    def _clean_tourist_name(self, raw_name: str) -> str:
+        cleaned = re.sub(r"\d+$", "", (raw_name or "").strip())
+        return cleaned.strip(" ·-_") or "旅人"
+
+    def _allocate_tourist_name(self, used_names: set[str], seed: int = 0, preferred: str | None = None) -> str:
+        preferred_name = self._clean_tourist_name(preferred or "")
+        if preferred_name in TOURIST_NAME_POOL and preferred_name not in used_names:
+            return preferred_name
+        start = seed % len(TOURIST_NAME_POOL)
+        for offset in range(len(TOURIST_NAME_POOL)):
+            candidate = TOURIST_NAME_POOL[(start + offset) % len(TOURIST_NAME_POOL)]
+            if candidate not in used_names:
+                return candidate
+        fallback = preferred_name or TOURIST_NAME_POOL[start]
+        return fallback
+
     def _topic_from_player_dialogue_transcript(self, transcript: list[str], fallback: str) -> str:
         if not transcript:
             return fallback
@@ -2770,7 +2968,7 @@ class GameEngine:
                 "summary": "来访者把研究站逛热了，顺手带来了赞助和讨论热度。",
                 "category": "general",
                 "tone": 2,
-                "target": "AGR",
+                "target": "HSP",
                 "strength": 3,
                 "cash": 28,
                 "reputation": 5,
@@ -2794,7 +2992,7 @@ class GameEngine:
                 "summary": "设备维修和耗材报废让大家今天得先掏钱填坑。",
                 "category": "general",
                 "tone": -1,
-                "target": "AGR",
+                "target": "RET",
                 "strength": 3,
                 "cash": -18,
                 "reputation": -2,
@@ -2805,7 +3003,7 @@ class GameEngine:
                 "summary": "外面有人把实验室说得有点离谱，短时间内弄乱了外界观感。",
                 "category": "market",
                 "tone": -2,
-                "target": "SIG",
+                "target": "FIN",
                 "strength": 4,
                 "cash": -8,
                 "reputation": -5,
@@ -2816,7 +3014,7 @@ class GameEngine:
                 "summary": "原本只是去看看，结果意外卖掉了一些衍生小玩意和体验名额。",
                 "category": "general",
                 "tone": 1,
-                "target": "AGR",
+                "target": "RET",
                 "strength": 2,
                 "cash": 16,
                 "reputation": 2,
@@ -2909,7 +3107,7 @@ class GameEngine:
     def _maybe_generate_system_news(self) -> None:
         if not self.state.market.is_open or self.random.random() > 0.16:
             return
-        target = self.random.choice(["broad", self.state.market.rotation_leader or "GEO", "GEO", "AGR", "SIG"])
+        target = self.random.choice(["broad", self.state.market.rotation_leader or "GEO", "GEO", "RET", "EST", "FIN", "HSP", "ENT", "SIG"])
         regime = self.state.market.regime or "bull"
         market_bias = 1 if self.state.market.sentiment >= -8 else -1
         if self.random.random() < 0.26:
@@ -2933,13 +3131,28 @@ class GameEngine:
             ("SIG", 1): "算力与信号服务板块获增量关注",
             ("SIG", -1): "科技成长股承压，信号服务板块回撤",
             ("SIG", 0): "科技资金轮动加快，短线分歧放大",
+            ("HSP", 1): "住宿与文旅板块接到更强的客流预期",
+            ("HSP", -1): "旅馆与短住需求边际转弱",
+            ("HSP", 0): "住宿板块对下一轮客流判断分化",
+            ("RET", 1): "零售与集市消费热度继续抬头",
+            ("RET", -1): "零售客单与复购开始放慢",
+            ("RET", 0): "集市零售板块对价格战看法分化",
+            ("EST", 1): "租住与房产看房线索继续堆积",
+            ("EST", -1): "地产与租住板块承压，观望变重",
+            ("EST", 0): "房产与租住市场对价格是否见顶出现分歧",
+            ("FIN", 1): "银行与融资板块获增量关注",
+            ("FIN", -1): "融资链条偏紧，银行股承压",
+            ("FIN", 0): "市场对利率与融资成本判断分歧加大",
+            ("ENT", 1): "娱乐与高波动消费板块突然走热",
+            ("ENT", -1): "高波动消费情绪回落，娱乐板块承压",
+            ("ENT", 0): "娱乐与风险偏好板块短线拉扯明显",
         }
         summary_bank = {
             1: "系统监测到一条偏利好的外部经济新闻，市场风险偏好略有抬升。",
             -1: "系统捕捉到一条偏利空的经济新闻，盘中避险情绪短暂升温。",
             0: "系统捕捉到一条分歧型经济新闻，市场短线波动明显加大。",
         }
-        category = "market" if target in {"broad", "SIG", "AGR"} else "tech"
+        category = "market" if target in {"broad", "AGR", "HSP", "RET", "EST", "FIN", "ENT"} else "tech"
         event = LabEvent(
             id=f"event-{uuid4().hex[:8]}",
             category=category,
@@ -3028,6 +3241,185 @@ class GameEngine:
         base_price = quote.base_price or BASE_PRICES.get(quote.symbol, quote.open_price or quote.price or 10.0)
         return base_price * shares
 
+    def _market_sector_bias(self, quote) -> float:
+        sector = quote.sector
+        if sector == "geoai":
+            geo_signal = (self.state.lab.geoai_progress - 30) / 210
+            reasoning_signal = (self.state.lab.collective_reasoning - 34) / 230
+            reputation_signal = (self.state.lab.reputation - 24) / 320
+            return max(-0.12, min(1.35, geo_signal + reasoning_signal + reputation_signal * 0.55))
+        if sector == "daily":
+            weather_signal = {"sunny": 0.1, "breezy": 0.08, "cloudy": -0.03, "drizzle": -0.08}[self.state.weather]
+            atmosphere_signal = (self.state.lab.team_atmosphere - 62) / 340
+            shelter_bid = 0.07 if (self.state.market.regime or "bull") == "risk" else 0.0
+            return max(-0.16, min(0.95, weather_signal + atmosphere_signal + shelter_bid))
+        if sector == "signal":
+            external_signal = (self.state.lab.external_sensitivity - 22) / 165
+            hype_signal = abs(self.state.market.sentiment or 0) / 180
+            gray_drag = -sum(1 for case in self.state.gray_cases if case.status == "active") / 48
+            return max(-0.18, min(1.45, external_signal + hype_signal + gray_drag))
+        if sector == "tourism":
+            tourism_signal = (self.state.tourism.daily_revenue - 90) / 520
+            repeat_signal = (self.state.tourism.repeat_customers_total - 18) / 220
+            mood_signal = (self.state.market.sentiment or 0) / 240
+            return max(-0.18, min(1.0, tourism_signal + repeat_signal + mood_signal))
+        if sector == "retail":
+            consumption_signal = (self.state.tourism.daily_revenue + self.state.player.daily_cost_baseline * 5 - 120) / 540
+            business_signal = sum(item.daily_customers for item in self.state.businesses if item.category in {"market", "co_op"}) / 180
+            return max(-0.2, min(1.0, consumption_signal + business_signal))
+        if sector == "property":
+            demand_signal = (self.state.tourism.buyer_leads_total - 10) / 150
+            tax_drag = -(self.state.government.property_holding_tax_rate_pct + self.state.government.property_transfer_tax_rate_pct * 0.5) / 160
+            return max(-0.24, min(0.9, demand_signal + tax_drag))
+        if sector == "finance":
+            loan_signal = len([loan for loan in self.state.bank_loans if loan.status in {"active", "overdue"}]) / 80
+            rate_drag = -self.state.bank.base_daily_rate_pct / 12
+            reserve_signal = (self.state.government.reserve_balance - 1000) / 30000
+            return max(-0.18, min(0.75, loan_signal + rate_drag + reserve_signal))
+        if sector == "entertainment":
+            casino_signal = (self.state.casino.daily_wagers - 180) / 1200
+            risk_signal = (self.state.market.sentiment or 0) / 220 + (self.state.player.risk_appetite - 50) / 280
+            return max(-0.22, min(1.1, casino_signal + risk_signal))
+        return 0.0
+
+    def _market_sector_opening_gap(self, quote) -> float:
+        sector = quote.sector
+        if sector == "geoai":
+            return 0.22 if self.state.lab.geoai_progress >= 50 else 0.0
+        if sector == "daily":
+            return 0.18 if self.state.weather in {"sunny", "breezy"} else -0.12
+        if sector == "signal":
+            return 0.14 if self.state.lab.external_sensitivity >= 30 else 0.0
+        if sector == "tourism":
+            return 0.16 if self.state.tourism.daily_revenue >= 90 else -0.08
+        if sector == "retail":
+            return 0.12 if sum(item.daily_customers for item in self.state.businesses if item.category == "market") >= 4 else -0.06
+        if sector == "property":
+            return 0.15 if self.state.tourism.buyer_leads_total >= 6 else -0.08
+        if sector == "finance":
+            return 0.1 if self.state.bank.total_outstanding >= 1200 else -0.04
+        if sector == "entertainment":
+            return 0.18 if self.state.casino.daily_visits >= 6 else -0.1
+        return 0.0
+
+    def _market_sector_anchor(self, quote) -> float:
+        sector = quote.sector
+        if sector == "geoai":
+            return 1 + max(-0.12, min(0.55, (self.state.lab.geoai_progress - 30) / 180))
+        if sector == "daily":
+            return 1 + {"sunny": 0.08, "breezy": 0.06, "cloudy": -0.02, "drizzle": -0.08}[self.state.weather]
+        if sector == "signal":
+            return 1 + max(-0.1, min(0.45, (self.state.lab.external_sensitivity - 22) / 120))
+        if sector == "tourism":
+            return 1 + max(-0.12, min(0.38, (self.state.tourism.daily_revenue - 80) / 420))
+        if sector == "retail":
+            return 1 + max(-0.12, min(0.34, (sum(item.daily_customers for item in self.state.businesses if item.category in {"market", "co_op"}) - 4) / 18))
+        if sector == "property":
+            return 1 + max(-0.16, min(0.32, (self.state.tourism.buyer_leads_total - 5) / 16))
+        if sector == "finance":
+            return 1 + max(-0.1, min(0.2, (self.state.bank.total_outstanding - 900) / 5000))
+        if sector == "entertainment":
+            return 1 + max(-0.14, min(0.42, (self.state.casino.daily_wagers - 160) / 1200))
+        return 1.0
+
+    def _event_market_deltas(self, event: LabEvent, tone: int) -> dict[str, float]:
+        deltas: dict[str, float] = {quote.symbol: 0.0 for quote in self.state.market.stocks}
+        if event.category == "geoai":
+            deltas["GEO"] += 1.2 + tone * 1.4
+            deltas["SIG"] += 0.3 + tone * 0.8
+        elif event.category == "tech":
+            deltas["SIG"] += 1.0 + tone * 1.2
+            deltas["GEO"] += 0.4 + tone * 0.7
+            deltas["FIN"] += 0.2 + tone * 0.4
+        elif event.category == "market":
+            deltas["FIN"] += 1.0 + tone * 1.1
+            deltas["RET"] += 0.5 + tone * 0.8
+            deltas["EST"] += 0.4 + tone * 0.6
+            deltas["SIG"] += 0.3 + tone * 0.4
+        elif event.category == "general":
+            deltas["AGR"] += 0.3 + tone * 0.7
+            deltas["HSP"] += 0.4 + tone * 0.8
+            deltas["RET"] += 0.3 + tone * 0.7
+        elif event.category == "gaming":
+            deltas["ENT"] += 1.1 + tone * 1.3
+            deltas["RET"] += 0.2 + tone * 0.5
+        elif event.category == "policy":
+            deltas["FIN"] += 0.8 + tone * 1.1
+            deltas["EST"] += 0.5 + tone * 0.9
+            deltas["RET"] += 0.3 + tone * 0.6
+            deltas["HSP"] += 0.2 + tone * 0.4
+        return deltas
+
+    def _recompute_secondary_indices(self) -> None:
+        broad_base = sum(INDEX_WEIGHTS.get(quote.symbol, 0.0) for quote in self.state.market.stocks) or 1.0
+        tourism_base = sum(TOURISM_INDEX_WEIGHTS.get(quote.symbol, 0.0) for quote in self.state.market.stocks if quote.symbol in TOURISM_INDEX_WEIGHTS) or 1.0
+        life_base = sum(LIFE_INDEX_WEIGHTS.get(quote.symbol, 0.0) for quote in self.state.market.stocks if quote.symbol in LIFE_INDEX_WEIGHTS) or 1.0
+        tourism_numerator = 0.0
+        life_numerator = 0.0
+        for quote in self.state.market.stocks:
+            base_price = BASE_PRICES.get(quote.symbol, quote.open_price or quote.price or 10.0)
+            relative = quote.price / max(0.01, base_price)
+            tourism_numerator += TOURISM_INDEX_WEIGHTS.get(quote.symbol, 0.0) * relative
+            life_numerator += LIFE_INDEX_WEIGHTS.get(quote.symbol, 0.0) * relative
+        self.state.market.tourism_index_value = round(100 * (tourism_numerator / tourism_base), 2)
+        self.state.market.life_index_value = round(100 * (life_numerator / life_base), 2)
+
+    def _update_single_index_candle_history(
+        self,
+        history_name: str,
+        value: float,
+        *,
+        limit_state: str = "normal",
+        append: bool = True,
+    ) -> None:
+        history = getattr(self.state.market, history_name, None) or []
+        if not history or history[-1].day != self.state.day:
+            setattr(
+                self.state.market,
+                history_name,
+                [IndexCandle(day=self.state.day, open=value, high=value, low=value, close=value, limit_state=limit_state)],
+            )
+            return
+        candle = history[-1]
+        if not append:
+            candle.close = value
+            candle.high = max(candle.high, value)
+            candle.low = min(candle.low, value)
+            if limit_state != "normal":
+                candle.limit_state = limit_state
+            return
+        history.append(
+            IndexCandle(
+                day=self.state.day,
+                open=candle.close,
+                high=max(candle.close, value),
+                low=min(candle.close, value),
+                close=value,
+                limit_state=limit_state,
+            )
+        )
+        setattr(self.state.market, history_name, history[-42:])
+
+    def _update_single_daily_index_history(self, history_name: str, value: float, *, limit_state: str = "normal") -> None:
+        history = getattr(self.state.market, history_name, None) or []
+        if not history:
+            setattr(
+                self.state.market,
+                history_name,
+                [IndexCandle(day=self.state.day, open=value, high=value, low=value, close=value, limit_state=limit_state)],
+            )
+            return
+        candle = history[-1]
+        if candle.day != self.state.day:
+            history.append(IndexCandle(day=self.state.day, open=value, high=value, low=value, close=value, limit_state=limit_state))
+            setattr(self.state.market, history_name, history[-420:])
+            return
+        candle.close = value
+        candle.high = max(candle.high, value)
+        candle.low = min(candle.low, value)
+        if limit_state != "normal":
+            candle.limit_state = limit_state
+
     def _fair_value_for_quote(self, quote) -> float:
         base_price = quote.base_price or BASE_PRICES.get(quote.symbol, quote.open_price or quote.price or 10.0)
         regime = self.state.market.regime or "bull"
@@ -3038,21 +3430,7 @@ class GameEngine:
             + self.state.government.consumption_tax_rate_pct * 0.28
         ) / 260
         regime_bias = {"bull": 0.08, "sideways": 0.0, "risk": -0.1}.get(regime, 0.0)
-        if quote.symbol == "GEO":
-            geo_signal = (self.state.lab.geoai_progress - 30) / 210
-            reasoning_signal = (self.state.lab.collective_reasoning - 34) / 230
-            reputation_signal = (self.state.lab.reputation - 24) / 320
-            growth_bias = max(-0.12, min(1.35, geo_signal + reasoning_signal + reputation_signal * 0.55))
-        elif quote.symbol == "AGR":
-            weather_signal = {"sunny": 0.1, "breezy": 0.08, "cloudy": -0.03, "drizzle": -0.08}[self.state.weather]
-            atmosphere_signal = (self.state.lab.team_atmosphere - 62) / 340
-            shelter_bid = 0.07 if regime == "risk" else 0.0
-            growth_bias = max(-0.16, min(0.95, weather_signal + atmosphere_signal + shelter_bid))
-        else:
-            external_signal = (self.state.lab.external_sensitivity - 22) / 165
-            hype_signal = abs(self.state.market.sentiment or 0) / 180
-            gray_drag = -sum(1 for case in self.state.gray_cases if case.status == "active") / 48
-            growth_bias = max(-0.18, min(1.45, external_signal + hype_signal + gray_drag))
+        growth_bias = self._market_sector_bias(quote)
         fair_multiplier = max(0.72, 1 + regime_bias + inflation_drag + tax_drag + growth_bias)
         return round(base_price * fair_multiplier, 2)
 
@@ -3103,11 +3481,7 @@ class GameEngine:
             fair_value = self._fair_value_for_quote(quote)
             quote.fair_value = fair_value
             valuation_gap = ((fair_value - quote.price) / max(0.01, quote.price)) * 100
-            sector_gap = {
-                "GEO": 0.22 if self.state.lab.geoai_progress >= 50 else 0.0,
-                "AGR": 0.18 if self.state.weather in {"sunny", "breezy"} else -0.12,
-                "SIG": 0.14 if self.state.lab.external_sensitivity >= 30 else 0.0,
-            }.get(quote.symbol, 0.0)
+            sector_gap = self._market_sector_opening_gap(quote)
             valuation_pull = max(-0.8, min(0.8, valuation_gap / 7))
             gap = self.random.gauss(
                 overnight_bias + sentiment_bias + macro_bias + sector_gap + valuation_pull,
@@ -3124,9 +3498,14 @@ class GameEngine:
     def _update_index_history(self, limit_state: str = "normal", append: bool = True) -> None:
         value = round(max(40.0, self._market_index_from_quotes()), 2)
         self.state.market.index_value = value
+        self._recompute_secondary_indices()
+        tourism_value = round(max(40.0, self.state.market.tourism_index_value or 100.0), 2)
+        life_value = round(max(40.0, self.state.market.life_index_value or 100.0), 2)
         history = self.state.market.index_history or []
         if not history or history[-1].day != self.state.day:
             self.state.market.index_history = [IndexCandle(day=self.state.day, open=value, high=value, low=value, close=value, limit_state=limit_state)]
+            self._update_single_index_candle_history("tourism_index_history", tourism_value, limit_state=limit_state, append=False)
+            self._update_single_index_candle_history("life_index_history", life_value, limit_state=limit_state, append=False)
             return
         candle = history[-1]
         if not append:
@@ -3135,6 +3514,8 @@ class GameEngine:
             candle.low = min(candle.low, value)
             if limit_state != "normal":
                 candle.limit_state = limit_state
+            self._update_single_index_candle_history("tourism_index_history", tourism_value, limit_state=limit_state, append=False)
+            self._update_single_index_candle_history("life_index_history", life_value, limit_state=limit_state, append=False)
             return
         self.state.market.index_history.append(
             IndexCandle(
@@ -3147,25 +3528,36 @@ class GameEngine:
             )
         )
         self.state.market.index_history = self.state.market.index_history[-42:]
+        self._update_single_index_candle_history("tourism_index_history", tourism_value, limit_state=limit_state, append=True)
+        self._update_single_index_candle_history("life_index_history", life_value, limit_state=limit_state, append=True)
 
     def _update_daily_index_history(self, limit_state: str = "normal") -> None:
         value = round(max(40.0, self._market_index_from_quotes()), 2)
         self.state.market.index_value = value
+        self._recompute_secondary_indices()
+        tourism_value = round(max(40.0, self.state.market.tourism_index_value or 100.0), 2)
+        life_value = round(max(40.0, self.state.market.life_index_value or 100.0), 2)
         history = self.state.market.daily_index_history or []
         if not history:
             self.state.market.daily_index_history = [IndexCandle(day=self.state.day, open=value, high=value, low=value, close=value, limit_state=limit_state)]
+            self._update_single_daily_index_history("daily_tourism_index_history", tourism_value, limit_state=limit_state)
+            self._update_single_daily_index_history("daily_life_index_history", life_value, limit_state=limit_state)
             return
         candle = history[-1]
         if candle.day != self.state.day:
             self.state.market.daily_index_history.append(
                 IndexCandle(day=self.state.day, open=value, high=value, low=value, close=value, limit_state=limit_state)
             )
+            self._update_single_daily_index_history("daily_tourism_index_history", tourism_value, limit_state=limit_state)
+            self._update_single_daily_index_history("daily_life_index_history", life_value, limit_state=limit_state)
             return
         candle.close = value
         candle.high = max(candle.high, value)
         candle.low = min(candle.low, value)
         if limit_state != "normal":
             candle.limit_state = limit_state
+        self._update_single_daily_index_history("daily_tourism_index_history", tourism_value, limit_state=limit_state)
+        self._update_single_daily_index_history("daily_life_index_history", life_value, limit_state=limit_state)
 
     def _refresh_market_microstructure(self) -> None:
         stocks = self.state.market.stocks or []
@@ -3188,15 +3580,10 @@ class GameEngine:
 
     def _normalize_market_quotes_for_realism(self) -> None:
         market_anchor = max(0.72, min(1.85, (self.state.market.index_value or 100.0) / 100))
-        sector_anchor = {
-            "GEO": 1 + max(-0.12, min(0.55, (self.state.lab.geoai_progress - 30) / 180)),
-            "AGR": 1 + {"sunny": 0.08, "breezy": 0.06, "cloudy": -0.02, "drizzle": -0.08}[self.state.weather],
-            "SIG": 1 + max(-0.1, min(0.45, (self.state.lab.external_sensitivity - 22) / 120)),
-        }
         for quote in self.state.market.stocks or []:
             base_price = BASE_PRICES.get(quote.symbol, max(8.0, quote.open_price or quote.price or 10.0))
             move_multiplier = 1 + max(-0.22, min(0.22, (quote.day_change_pct or 0.0) / 100))
-            target_price = round(base_price * market_anchor * sector_anchor.get(quote.symbol, 1.0) * move_multiplier, 2)
+            target_price = round(base_price * market_anchor * self._market_sector_anchor(quote) * move_multiplier, 2)
             quote.base_price = base_price
             quote.open_price = round(max(4.0, target_price / max(0.75, 1 + (quote.day_change_pct or 0.0) / 100)), 2)
             quote.price = max(4.0, target_price)
@@ -3208,6 +3595,7 @@ class GameEngine:
             quote.volatility_score = max(0.68, min(1.45, quote.volatility_score or 0.9))
         current_index = round(self._market_index_from_quotes(), 2)
         self.state.market.index_value = current_index
+        self._recompute_secondary_indices()
         self.state.market.index_history = [IndexCandle(day=self.state.day, open=current_index, high=current_index, low=current_index, close=current_index, limit_state="normal")]
         self.state.market.daily_index_history = [IndexCandle(day=self.state.day, open=current_index, high=current_index, low=current_index, close=current_index, limit_state="normal")]
         self._refresh_market_microstructure()
@@ -3283,17 +3671,13 @@ class GameEngine:
         }.get(regime, regime)
 
     def _rotation_label(self, symbol: str) -> str:
-        return {
-            "GEO": "GeoGrid",
-            "AGR": "AgriLoop",
-            "SIG": "SignalWorks",
-        }.get(symbol, symbol)
+        return MARKET_SYMBOL_NAMES.get(symbol, symbol)
 
     def _pick_rotation_target(self, regime: str) -> str:
         weights = {
-            "bull": [("GEO", 0.44), ("SIG", 0.34), ("AGR", 0.22)],
-            "sideways": [("AGR", 0.38), ("GEO", 0.34), ("SIG", 0.28)],
-            "risk": [("AGR", 0.48), ("GEO", 0.30), ("SIG", 0.22)],
+            "bull": [("GEO", 0.22), ("SIG", 0.18), ("RET", 0.15), ("FIN", 0.13), ("HSP", 0.11), ("ENT", 0.09), ("EST", 0.07), ("AGR", 0.05)],
+            "sideways": [("RET", 0.2), ("HSP", 0.18), ("AGR", 0.16), ("EST", 0.14), ("FIN", 0.12), ("GEO", 0.1), ("SIG", 0.06), ("ENT", 0.04)],
+            "risk": [("AGR", 0.22), ("FIN", 0.2), ("HSP", 0.16), ("EST", 0.14), ("RET", 0.11), ("GEO", 0.08), ("SIG", 0.06), ("ENT", 0.03)],
         }[regime]
         roll = self.random.random()
         cursor = 0.0
@@ -3309,12 +3693,12 @@ class GameEngine:
         age = max(1, market.rotation_age or 1)
         regime = market.regime or "bull"
         desired = self._pick_rotation_target(regime)
-        if regime == "risk" and force_roll and current != "AGR":
-            desired = "AGR"
+        if regime == "risk" and force_roll and current not in {"AGR", "FIN"}:
+            desired = "AGR" if self.random.random() < 0.58 else "FIN"
         elif regime == "bull" and force_roll and age >= 2:
-            desired = "SIG" if current == "GEO" else "GEO"
-        elif regime == "sideways" and force_roll and age >= 2 and current == "SIG":
-            desired = "AGR"
+            desired = self.random.choice(["GEO", "SIG", "RET", "ENT"])
+        elif regime == "sideways" and force_roll and age >= 2 and current in {"SIG", "ENT"}:
+            desired = self.random.choice(["RET", "HSP", "AGR"])
 
         current_quote = self._quote(current)
         desired_quote = self._quote(desired)
@@ -3884,15 +4268,11 @@ class GameEngine:
             fair_value = self._fair_value_for_quote(quote)
             quote.fair_value = fair_value
             valuation_gap = ((fair_value - quote.price) / max(0.01, quote.price)) * 100
-            sector_bias = {
-                "GEO": 0.34 if self.state.lab.geoai_progress >= 30 else 0.06,
-                "AGR": 0.28 if self.state.weather in {"sunny", "breezy"} else -0.1,
-                "SIG": 0.26 if self.state.lab.external_sensitivity >= 25 else 0.04,
-            }.get(quote.symbol, 0.0)
+            sector_bias = self._market_sector_bias(quote) * 0.42
             rotation_bias = 0.54 if quote.symbol == leader else -0.12
-            if regime == "risk" and quote.symbol == "AGR":
+            if regime == "risk" and quote.symbol in {"AGR", "FIN"}:
                 rotation_bias += 0.18
-            if regime == "bull" and quote.symbol == "SIG" and leader != "SIG":
+            if regime == "bull" and quote.symbol in {"SIG", "RET", "ENT"} and leader != quote.symbol:
                 rotation_bias += 0.06
             mean_reversion = -(quote.day_change_pct / 3.2)
             extension_pull = 0.0
@@ -3909,7 +4289,7 @@ class GameEngine:
             valuation_pull = max(-1.2, min(1.2, valuation_gap * 0.18))
             idio_sigma = IDIOSYNCRATIC_VOL.get(quote.symbol, 0.7) + volatility * 0.08 + max(0.0, quote.volatility_score - 0.8) * 0.2
             idiosyncratic = self.random.gauss(0, idio_sigma * max(0.24, 1 - regime_profile["correlation"]))
-            spread_drag = -0.18 if regime == "risk" and quote.symbol == "SIG" else 0.0
+            spread_drag = -0.18 if regime == "risk" and quote.symbol in {"SIG", "ENT"} else 0.0
             drift = (
                 market_factor * beta * regime_profile["correlation"]
                 + sector_bias
@@ -3962,27 +4342,18 @@ class GameEngine:
         tone = event.tone_hint if event.tone_hint else self._event_tone(event)
         strength = max(1, min(5, getattr(event, "market_strength", 2)))
         target = getattr(event, "market_target", "broad")
-        deltas: dict[str, float] = {"GEO": 0.0, "AGR": 0.0, "SIG": 0.0}
+        deltas = self._event_market_deltas(event, tone)
         text = f"{event.title} {event.summary}"
         limit_state = "normal"
-        if event.category == "geoai":
-            deltas["GEO"] += 1.2 + tone * 1.4
-            deltas["SIG"] += 0.3 + tone * 0.8
-        elif event.category == "tech":
-            deltas["SIG"] += 1.0 + tone * 1.2
-            deltas["GEO"] += 0.4 + tone * 0.7
-        elif event.category == "market":
-            deltas["SIG"] += 1.1 + tone * 1.5
-            deltas["AGR"] += 0.2 + tone * 0.9
-        elif event.category == "general":
-            deltas["AGR"] += 0.2 + tone * 0.7
-        elif event.category == "gaming":
-            deltas["SIG"] += 0.3 + tone * 0.5
         if tone < 0:
             risk_off = abs(tone) * 0.28
-            deltas["GEO"] -= risk_off
-            deltas["AGR"] -= risk_off * 0.75
-            deltas["SIG"] -= risk_off * 0.95
+            for symbol in deltas:
+                multiplier = 1.0
+                if symbol in {"AGR", "FIN", "HSP"}:
+                    multiplier = 0.7
+                elif symbol in {"SIG", "ENT"}:
+                    multiplier = 1.05
+                deltas[symbol] -= risk_off * multiplier
         intensity_scale = 0.6 + (strength * 0.28)
         for symbol in deltas:
             deltas[symbol] *= intensity_scale
@@ -3998,9 +4369,8 @@ class GameEngine:
                     deltas[symbol] *= 0.45
         elif tone == 0:
             swing = 0.7 + strength * 0.35
-            deltas["GEO"] += self.random.uniform(-swing, swing)
-            deltas["AGR"] += self.random.uniform(-swing * 0.9, swing * 0.9)
-            deltas["SIG"] += self.random.uniform(-swing * 1.1, swing * 1.1)
+            for symbol in deltas:
+                deltas[symbol] += self.random.uniform(-swing, swing)
         if leader in deltas:
             if tone >= 0:
                 deltas[leader] += 0.8
@@ -4009,7 +4379,18 @@ class GameEngine:
         strong_up = any(keyword in text for keyword in ["涨停", "爆单", "突破", "政策利好", "融资"])
         strong_down = any(keyword in text for keyword in ["跌停", "暴跌", "封禁", "监管", "收紧", "事故"])
         if strong_up or strong_down or (tone >= 2 and self.random.random() < 0.16) or (tone <= -2 and self.random.random() < 0.05):
-            symbol = "SIG" if event.category in {"market", "tech"} else "GEO" if event.category == "geoai" else "AGR"
+            if target != "broad" and target in deltas:
+                symbol = target
+            elif event.category in {"market", "policy"}:
+                symbol = "FIN"
+            elif event.category == "tech":
+                symbol = "SIG"
+            elif event.category == "geoai":
+                symbol = "GEO"
+            elif event.category == "gaming":
+                symbol = "ENT"
+            else:
+                symbol = "RET"
             deltas[symbol] = LIMIT_MOVE_PCT if (strong_up or tone > 0) and not strong_down else -LIMIT_MOVE_PCT
             limit_state = "up" if deltas[symbol] > 0 else "down"
         sentiment_shift = tone * 8
@@ -5308,47 +5689,61 @@ class GameEngine:
             )
 
     def _tourist_preferred_market_symbol(self, tourist: TouristAgent) -> tuple[str, str]:
-        scores = {"GEO": 0.0, "AGR": 0.0, "SIG": 0.0}
+        scores = {symbol: 0.0 for symbol in BASE_PRICES}
         reasons: dict[str, list[str]] = {symbol: [] for symbol in scores}
         topic = tourist.favorite_topic or ""
         if any(keyword in topic for keyword in ["GeoAI", "空间", "故事", "懂这里"]):
             scores["GEO"] += 1.1
             reasons["GEO"].append("你更关注 GeoAI 和小镇故事")
+            scores["SIG"] += 0.3
+            reasons["SIG"].append("你也会顺带注意算力和信号服务")
         if any(keyword in topic for keyword in ["集市", "价格", "带回去", "消费", "小吃"]):
-            scores["AGR"] += 1.0
-            reasons["AGR"].append("你更在意消费、集市和价格")
+            scores["RET"] += 1.0
+            reasons["RET"].append("你更在意消费、集市和价格")
+            scores["AGR"] += 0.45
+            reasons["AGR"].append("农业和日常消费会跟着受益")
         if any(keyword in topic for keyword in ["天气", "住宿", "信号", "风向"]):
-            scores["SIG"] += 0.9
-            reasons["SIG"].append("你更留意住宿、风向和信号")
+            scores["HSP"] += 0.85
+            reasons["HSP"].append("你更留意住宿、天气和游客体验")
+            scores["FIN"] += 0.35
+            reasons["FIN"].append("你也会顺手看利率和风向")
         if tourist.property_interest:
-            scores["AGR"] += 0.35
-            reasons["AGR"].append("你本来就在看房和资产")
+            scores["EST"] += 0.7
+            reasons["EST"].append("你本来就在看房和资产")
         if tourist.visitor_tier == "vip":
-            scores["SIG"] += 0.25
-            reasons["SIG"].append("高消费游客更容易追逐风向")
+            scores["FIN"] += 0.3
+            scores["ENT"] += 0.22
+            reasons["FIN"].append("高消费游客更容易追逐资金风向")
+            reasons["ENT"].append("高消费游客也会留意高波动机会")
         if tourist.visitor_tier == "buyer":
-            scores["AGR"] += 0.3
-            scores["GEO"] += 0.2
-            reasons["AGR"].append("看房游客偏向资产和消费线")
-            reasons["GEO"].append("看房游客也会顺带注意 GeoAI 主线")
+            scores["EST"] += 0.45
+            scores["HSP"] += 0.2
+            reasons["EST"].append("看房游客偏向资产和租住线")
+            reasons["HSP"].append("看房游客也会顺带注意住宿热度")
         rotation_leader = self.state.market.rotation_leader or "GEO"
         scores[rotation_leader] += 0.55
         reasons[rotation_leader].append("当前市场主线正在轮到这只票")
         if self.state.market.regime == "bull":
             scores["GEO"] += 0.18
-            scores["AGR"] += 0.12
+            scores["RET"] += 0.16
+            scores["ENT"] += 0.14
             reasons["GEO"].append("牛市里更愿意追增长")
+            reasons["RET"].append("牛市里零售和消费更容易走强")
         elif self.state.market.regime == "risk":
-            scores["SIG"] += 0.22
-            reasons["SIG"].append("风险市里更偏保守信号资产")
+            scores["FIN"] += 0.24
+            scores["AGR"] += 0.2
+            reasons["FIN"].append("风险市里更偏保守金融资产")
+            reasons["AGR"].append("风险市里会回到基本消费")
         sentiment = self.state.market.sentiment or 0
         if sentiment >= 18:
             scores["GEO"] += 0.2
-            scores["AGR"] += 0.14
+            scores["RET"] += 0.14
+            scores["ENT"] += 0.12
             reasons["GEO"].append("市场情绪偏热，增长题材更受欢迎")
         elif sentiment <= -12:
-            scores["SIG"] += 0.18
-            reasons["SIG"].append("市场偏冷，防守型标的更稳")
+            scores["FIN"] += 0.18
+            scores["HSP"] += 0.12
+            reasons["FIN"].append("市场偏冷，防守型标的更稳")
         for post in (self.state.feed_timeline or [])[:24]:
             if post.category not in {"market", "tourism", "property"} or (post.heat or 0) < 10:
                 continue
@@ -5487,8 +5882,8 @@ class GameEngine:
             return
         template = self.random.choice(TOURIST_ARCHETYPES)
         arrival_index = tourism.total_arrivals + 1
-        base_name = TOURIST_NAME_POOL[(arrival_index - 1) % len(TOURIST_NAME_POOL)]
-        name = base_name if not any(item.name == base_name for item in self.state.tourists) else f"{base_name}{arrival_index}"
+        used_names = {self._clean_tourist_name(item.name) for item in self.state.tourists}
+        name = self._allocate_tourist_name(used_names, seed=arrival_index)
         has_property_inventory = any(asset.status == "listed" for asset in self.state.properties if asset.owner_type == "market")
         tier_roll = self.random.random()
         visitor_tier = "regular"
@@ -8219,6 +8614,140 @@ class GameEngine:
     def _government_event_title(self, title: str) -> str:
         return f"【政府决策】{title}"
 
+    def _append_government_event(self, title: str, summary: str, tone: str = "notice") -> None:
+        government = self.state.government
+        entry = {
+            "id": f"gov-{uuid4().hex[:8]}",
+            "title": title,
+            "summary": summary,
+            "meta": f"第 {self.state.day} 天 · {self._slot_name(self.state.time_slot)}",
+            "tone": tone,
+            "day": self.state.day,
+            "time_slot": self.state.time_slot,
+        }
+        government.event_log.insert(0, entry)
+        government.event_log = government.event_log[:40]
+
+    def _compute_government_vote_result(self) -> None:
+        government = self.state.government
+        if government.approval_vote_day == self.state.day:
+            return
+        service_average = (
+            government.public_service_level
+            + government.tourism_support_level
+            + government.housing_support_level
+        ) / 3
+        average_satisfaction = sum(agent.life_satisfaction for agent in self.state.agents) / max(1, len(self.state.agents))
+        fine_ratio = government.revenues.get("fine", 0) / max(1, government.total_revenue)
+        tax_load = (
+            government.wage_tax_rate_pct
+            + government.consumption_tax_rate_pct
+            + government.property_holding_tax_rate_pct * 0.5
+            + government.securities_tax_rate_pct * 0.35
+        )
+        positive_policy_events = sum(
+            1
+            for event in (self.state.event_history or [])[:18]
+            if event.category == "policy" and any(token in (event.summary or "") for token in ("补贴", "服务", "建设", "支持", "完工"))
+        )
+        negative_policy_events = sum(
+            1
+            for event in (self.state.event_history or [])[:18]
+            if event.category == "policy" and any(token in (event.summary or "") for token in ("罚", "监管", "拆除", "拉高税", "紧缩"))
+        )
+        agent_votes = {"support": 0, "neutral": 0, "oppose": 0}
+        tourist_votes = {"support": 0, "neutral": 0, "oppose": 0}
+
+        def classify(score: float) -> str:
+            if score >= 61:
+                return "support"
+            if score <= 43:
+                return "oppose"
+            return "neutral"
+
+        for agent in self.state.agents:
+            score = 50.0
+            score += (agent.life_satisfaction - 55) * 0.28
+            score += (55 - agent.state.stress) * 0.18
+            score += (service_average - 50) * 0.22
+            score += positive_policy_events * 2.6
+            score -= negative_policy_events * 3.1
+            score -= max(0.0, tax_load - 19.0) * 0.9
+            score -= max(0.0, government.enforcement_level - 45) * 0.18
+            score -= fine_ratio * 22
+            if government.reserve_balance >= 5000:
+                score += 2.5
+            if self.state.market.regime == "bull":
+                score += 1.8
+            if agent.money_urgency >= 70:
+                score -= 3.0
+            agent_votes[classify(score)] += 1
+
+        for tourist in self.state.tourists:
+            score = 50.0
+            score += (tourist.mood - 55) * 0.32
+            score += (tourist.spending_desire - 50) * 0.12
+            score += (government.tourism_support_level - 40) * 0.28
+            score += positive_policy_events * 2.0
+            score -= negative_policy_events * 2.4
+            score -= max(0.0, government.consumption_tax_rate_pct - 8.0) * 0.9
+            score -= max(0.0, government.enforcement_level - 48) * 0.12
+            if tourist.property_interest:
+                score += (government.housing_support_level - 35) * 0.16
+            if tourist.visitor_tier == "vip":
+                score += 2.0
+            if tourist.visitor_tier == "buyer":
+                score += 1.0
+            tourist_votes[classify(score)] += 1
+
+        support_votes = agent_votes["support"] + tourist_votes["support"]
+        neutral_votes = agent_votes["neutral"] + tourist_votes["neutral"]
+        oppose_votes = agent_votes["oppose"] + tourist_votes["oppose"]
+        turnout = max(1, support_votes + neutral_votes + oppose_votes)
+        approval = round(((support_votes + neutral_votes * 0.5) / turnout) * 100)
+        government.approval_vote_day = self.state.day
+        government.approval_support_votes = support_votes
+        government.approval_neutral_votes = neutral_votes
+        government.approval_oppose_votes = oppose_votes
+        government.approval_agent_votes = agent_votes
+        government.approval_tourist_votes = tourist_votes
+        government.approval_score = self._bounded(int(approval))
+
+        drivers: list[str] = []
+        if service_average >= 58:
+            drivers.append("公共服务口碑较稳")
+        if government.tourism_support_level >= 42:
+            drivers.append("游客承接还算顺")
+        if fine_ratio >= 0.2:
+            drivers.append("罚缴占比偏高")
+        if tax_load >= 23:
+            drivers.append("税负偏重")
+        if government.enforcement_level >= 65:
+            drivers.append("监管偏强")
+        if positive_policy_events > negative_policy_events:
+            drivers.append("最近政策反馈偏正面")
+        elif negative_policy_events > positive_policy_events:
+            drivers.append("最近政策争议偏多")
+        if not drivers:
+            drivers.append("今天整体情绪较平")
+        government.approval_vote_drivers = drivers[:4]
+        government.approval_vote_note = (
+            f"今日匿名投票：支持 {support_votes} · 中立 {neutral_votes} · 反对 {oppose_votes}。"
+        )
+        if government.approval_score >= 78:
+            government.approval_note = "今天的匿名投票里，支持票明显占优，公众普遍认可政府当前做法。"
+        elif government.approval_score >= 58:
+            government.approval_note = "今天的匿名投票总体偏支持，但大家仍盯着税负、罚款和干预力度。"
+        elif government.approval_score >= 38:
+            government.approval_note = "今天的匿名投票明显分裂，政府做法在支持和不满之间拉扯。"
+        else:
+            government.approval_note = "今天的匿名投票偏负面，公众对政府税负、罚缴或建设方向不太买账。"
+        self._append_government_event(
+            "匿名民意结果",
+            f"今天共有 {turnout} 张匿名票，支持 {support_votes}、中立 {neutral_votes}、反对 {oppose_votes}。{'；'.join(drivers[:3])}。",
+            tone="vote",
+        )
+
     def set_big_government_mode(self, enabled: bool) -> WorldState:
         government = self.state.government
         government.big_mode_enabled = bool(enabled)
@@ -8239,6 +8768,13 @@ class GameEngine:
                 slot=self.state.time_slot,
                 category="policy",
             ),
+        )
+        self._append_government_event(
+            "切换政府机制",
+            "大政府模式已开启，政府会更积极介入税率、利率、房价和公共设施。"
+            if enabled
+            else "大政府模式已关闭，政府恢复到常规温和干预节奏。",
+            tone="decision",
         )
         self.state.events = self.state.events[:8]
         self._log("government_mode_updated", enabled=enabled)
@@ -8271,6 +8807,11 @@ class GameEngine:
                     slot=self.state.time_slot,
                     category="policy",
                 ),
+            )
+            self._append_government_event(
+                "调整政府权限",
+                f"政府本轮重新配置了权限：{'、'.join(changed)}。",
+                tone="decision",
             )
             self.state.events = self.state.events[:8]
             self._log("government_capabilities_updated", changed=changed)
@@ -8338,6 +8879,11 @@ class GameEngine:
         if action_notes:
             government.last_macro_action = "；".join(action_notes)
             government.last_policy_note = "大政府模式自动微调：{}".format("；".join(action_notes))
+            self._append_government_event(
+                "自动宏观微调",
+                f"本轮政府自动做了这些调整：{'；'.join(action_notes)}。",
+                tone="decision",
+            )
 
     def _refresh_government_agent_state(self) -> None:
         government = self.state.government
@@ -8391,45 +8937,11 @@ class GameEngine:
             )
         ):
             government.current_agenda = "控制住房密度，把财政预算优先投向夜市和游客服务。"
-        fine_ratio = government.revenues.get("fine", 0) / max(1, government.total_revenue)
-        tax_load = (
-            government.wage_tax_rate_pct
-            + government.consumption_tax_rate_pct
-            + government.property_holding_tax_rate_pct * 0.5
-            + government.securities_tax_rate_pct * 0.35
-        )
-        service_average = (
-            government.public_service_level
-            + government.tourism_support_level
-            + government.housing_support_level
-        ) / 3
-        approval = 58
-        approval += round((service_average - 60) / 2.2)
-        approval += round((average_satisfaction - 80) / 1.8)
-        approval += round(max(-4, min(8, government.daily_asset_net / 18)))
-        approval += 6 if government.total_welfare_paid > 0 or government.last_targeted_support > 0 else 0
-        approval += 2 if government.last_coupon_pool > 0 else 0
-        approval -= round(max(0, tax_load - 19) * 0.65)
-        approval -= round(max(0, government.enforcement_level - 40) / 16)
-        approval -= round(fine_ratio * 14)
-        if government.big_mode_enabled:
-            approval -= 1
-        if government.reserve_balance >= 1800:
-            approval += 3
-        if government.reserve_balance >= 8000:
-            approval += 2
-        if self.state.market.regime == "bull":
-            approval += 2
-        government.approval_score = self._bounded(int(approval))
-        if government.approval_score >= 78:
-            government.approval_note = "公共服务、游客承接和财政稳态都不错，公众支持度偏高。"
-        elif government.approval_score >= 58:
-            government.approval_note = "公众总体认可政府维持秩序和服务，但仍盯着税负与监管。"
-        elif government.approval_score >= 38:
-            government.approval_note = "公众对税负、罚款和建设方向开始分裂，支持度处于拉扯状态。"
-        else:
-            government.approval_note = "公众明显不满当前税负、罚款或建设方向，政府口碑处于低位。"
-        government.known_signals = signals[:4]
+        self._compute_government_vote_result()
+        signals.insert(0, government.approval_vote_note or "今天的匿名投票还没有开始。")
+        for driver in (government.approval_vote_drivers or [])[:2]:
+            signals.append(f"民意焦点：{driver}")
+        government.known_signals = signals[:5]
 
     def _government_sale_candidate(self) -> PropertyAsset | None:
         assets = [
@@ -8497,6 +9009,11 @@ class GameEngine:
                 category="market",
             ),
         )
+        self._append_government_event(
+            "启动拆除一处低效设施",
+            f"{asset.name} 进入拆除期，原因是密度过高或维护压力过重，预计次日完成。",
+            tone="decision",
+        )
         self.state.events = self.state.events[:8]
 
     def _advance_government_projects(self) -> None:
@@ -8532,6 +9049,11 @@ class GameEngine:
                         category="market",
                     ),
                 )
+                self._append_government_event(
+                    "一处设施完工",
+                    f"{asset.name} 已完工，开始承接游客、居民和智能体的使用。",
+                    tone="notice",
+                )
                 self.state.events = self.state.events[:8]
                 remaining.append(asset)
                 continue
@@ -8560,6 +9082,11 @@ class GameEngine:
                         slot=self.state.time_slot,
                         category="market",
                     ),
+                )
+                self._append_government_event(
+                    "一处设施拆除完成",
+                    f"{asset.name} 已拆除，财政回收约 ${salvage}。",
+                    tone="revenue",
                 )
                 self.state.events = self.state.events[:8]
                 continue
@@ -8648,6 +9175,11 @@ class GameEngine:
                         category="market",
                     ),
                 )
+                self._append_government_event(
+                    "挂牌一处设施",
+                    f"{candidate.name} 被推向市场，原因是财政储备与维护压力都偏紧。",
+                    tone="decision",
+                )
                 self.state.events = self.state.events[:8]
                 self._refresh_government_agent_state()
             return
@@ -8727,6 +9259,11 @@ class GameEngine:
                         category="market",
                     ),
                 )
+                self._append_government_event(
+                    "出让财政设施",
+                    f"{candidate.name} 因维护压力过高被推向市场，后续可能由私人接手。",
+                    tone="decision",
+                )
                 self.state.events = self.state.events[:8]
                 self._refresh_government_agent_state()
             return
@@ -8791,6 +9328,11 @@ class GameEngine:
                     category="market",
                 ),
             )
+            self._append_government_event(
+                "收购一处设施",
+                f"{target_asset.name} 被财政收购，后续会继续作为公共设施运营。",
+                tone="decision",
+            )
             self.state.events = self.state.events[:8]
             self._refresh_government_agent_state()
             return
@@ -8832,6 +9374,11 @@ class GameEngine:
                 slot=self.state.time_slot,
                 category="market",
             ),
+        )
+        self._append_government_event(
+            "启动建设一处设施",
+            f"{built_asset.name} 已进入施工期，完工后才会正式承接游客、居民和智能体使用。",
+            tone="decision",
         )
         self.state.events = self.state.events[:8]
         self._refresh_government_agent_state()
@@ -9539,7 +10086,7 @@ class GameEngine:
         )
         return actual
 
-    def _emit_business_lifecycle_event(self, title: str, summary: str) -> None:
+    def _emit_business_lifecycle_event(self, title: str, summary: str, market_target: str = "broad") -> None:
         self.state.events.insert(
             0,
             build_internal_event(
@@ -9547,6 +10094,7 @@ class GameEngine:
                 summary=summary,
                 slot=self.state.time_slot,
                 category="market",
+                market_target=market_target,
             ),
         )
         self.state.events = self.state.events[:8]
@@ -9585,6 +10133,7 @@ class GameEngine:
                 self._emit_business_lifecycle_event(
                     f"{business.name} 开始扩张",
                     f"{business.name} 连续几天利润和客流都稳住了，决定把规模往上抬一格。",
+                    self._business_market_symbol(business),
                 )
                 business.growth_streak_days = 0
 
@@ -9618,6 +10167,7 @@ class GameEngine:
                     self._emit_business_lifecycle_event(
                         f"{business.name} 被并购",
                         f"{business.name} 连续亏损后被 {acquirer.name} 吃下，原本的客流和位置开始并进更强的一方。",
+                        self._business_market_symbol(acquirer),
                     )
                     continue
                 business.lifecycle_stage = "closed"
@@ -9629,6 +10179,7 @@ class GameEngine:
                 self._emit_business_lifecycle_event(
                     f"{business.name} 停业",
                     f"{business.name} 因为连续亏损和客流下滑，已经暂时停业退出竞争。",
+                    self._business_market_symbol(business),
                 )
                 continue
             if business.capacity > 6:
@@ -9639,6 +10190,7 @@ class GameEngine:
                 self._emit_business_lifecycle_event(
                     f"{business.name} 开始收缩",
                     f"{business.name} 最近几天利润和客流都在掉，只能先缩掉一部分规模止损。",
+                    self._business_market_symbol(business),
                 )
                 business.loss_streak_days = max(2, business.loss_streak_days - 1)
 
@@ -9730,6 +10282,8 @@ class GameEngine:
 
     def _business_topic_tags(self, business: BusinessEntity, extra: list[str] | None = None) -> list[str]:
         base = [business.name]
+        sector_symbol = self._business_market_symbol(business)
+        sector_quote = self._quote(sector_symbol)
         base.append(
             {
                 "inn": "住宿服务",
@@ -9739,6 +10293,9 @@ class GameEngine:
                 "backstreet": "后街生意",
             }.get(business.category, "生意"),
         )
+        if sector_quote is not None:
+            base.append(MARKET_SECTOR_LABELS.get(sector_quote.sector, sector_symbol))
+            base.append(sector_symbol)
         if business.strategy == "low_price":
             base.append("低价抢客")
         elif business.strategy == "premium":
@@ -10031,11 +10588,13 @@ class GameEngine:
         elif re.search(r"质量|糙|假|货路|灰货|不踏实|服务|慢", text):
             topic = "品质和服务"
         for business in businesses:
+            sector_symbol = self._business_market_symbol(business)
             if tone > 0:
                 business.reputation = max(18, min(92, business.reputation + heat_weight))
                 if business.strategy in {"premium", "steady"} and business.daily_customers >= max(2, business.capacity // 3):
                     business.price_level = max(18, min(90, business.price_level + 1))
                 business.last_note = f"{business.name} 刚被微博夸到“{topic}”，眼下客流更愿意往这边靠。"
+                self._apply_symbol_signal(sector_symbol, 1, max(0.16, heat_weight * 0.12), f"{business.name} 的舆情偏暖")
                 continue
             if tone < 0:
                 business.reputation = max(18, min(92, business.reputation - heat_weight * 2))
@@ -10049,6 +10608,8 @@ class GameEngine:
                 if business.strategy == "gray":
                     business.gray_risk = max(0, min(100, business.gray_risk + heat_weight))
                 business.last_note = f"{business.name} 被微博抓着“{topic}”不放，眼下不得不先回应这波舆情。"
+                self._apply_symbol_signal(sector_symbol, -1, max(0.2, heat_weight * 0.16), f"{business.name} 的舆情转冷")
+        self._recompute_secondary_indices()
 
     def _emit_business_public_discourse(self) -> None:
         businesses = sorted(self.state.businesses or [], key=lambda item: item.daily_revenue, reverse=True)
@@ -10139,6 +10700,7 @@ class GameEngine:
                     summary=f"{leader.name} 这一时段抢走了更多客流，{runner_up.name} 开始明显感到压力。",
                     slot=self.state.time_slot,
                     category="market",
+                    market_target=self._business_market_symbol(leader),
                 ),
             )
             self.state.events = self.state.events[:8]
@@ -10285,6 +10847,16 @@ class GameEngine:
                     asset_name=business.location_label or business.name,
                     counterparty=f"{slot_stats[business.id]['resident']} 位居民 / {slot_stats[business.id]['tourist']} 位游客",
                 )
+            symbol = self._business_market_symbol(business)
+            signal_tone = 1 if business.daily_profit > 0 and business.daily_customers > 0 else -1 if business.daily_profit < 0 else 0
+            if signal_tone != 0:
+                signal_strength = 0.1 + min(1.2, max(0, business.daily_customers) * 0.03 + abs(business.daily_profit) / 180)
+                if business.strategy == "gray":
+                    signal_strength += 0.08
+                if business.daily_tourist_customers > business.daily_resident_customers:
+                    signal_strength += 0.06
+                self._apply_symbol_signal(symbol, signal_tone, signal_strength, f"{business.name} 的经营表现带动了 {symbol}")
+        self._recompute_secondary_indices()
         self._emit_business_competition_signals()
         self._emit_business_public_discourse()
 
@@ -11855,17 +12427,17 @@ class GameEngine:
             "fake_reimbursement": "broad",
             "blackmail": "broad",
             "fraud": "broad",
-            "under_table_exchange": "AGR",
-            "counterfeit_goods": "AGR",
-            "rent_rigging": "AGR",
+            "under_table_exchange": "RET",
+            "counterfeit_goods": "RET",
+            "rent_rigging": "EST",
             "wage_kickback": "broad",
             "dispatch_rigging": "broad",
-            "wage_laundering": "SIG",
+            "wage_laundering": "FIN",
             "labor_for_insider": "SIG",
             "wage_arrears": "broad",
-            "pump_dump": "SIG",
-            "business_gray_competition": "AGR",
-            "business_price_undercut": "AGR",
+            "pump_dump": "ENT",
+            "business_gray_competition": "RET",
+            "business_price_undercut": "RET",
         }.get(case_type, "broad")
 
     def _gray_resolution_label(self, action: str) -> str:
@@ -12508,7 +13080,14 @@ class GameEngine:
                 agent.generosity = 50
             if not agent.risk_appetite:
                 agent.risk_appetite = 50
+        assigned_tourist_names: set[str] = set()
         for tourist in self.state.tourists:
+            tourist.name = self._allocate_tourist_name(
+                assigned_tourist_names,
+                seed=sum(ord(ch) for ch in tourist.id),
+                preferred=tourist.name,
+            )
+            assigned_tourist_names.add(tourist.name)
             if not tourist.current_location:
                 tourist.current_location = self._room_for(tourist.position.x, tourist.position.y)
             tourist.visitor_tier = tourist.visitor_tier or "regular"
@@ -12672,6 +13251,8 @@ class GameEngine:
             self.state.bank = build_initial_world().bank
         if self.state.government is None:
             self.state.government = build_initial_world().government
+        if self.state.government.name in {None, "", "园区财政与监管局"}:
+            self.state.government.name = "小镇财政与监管局"
         if self.state.government.reserve_balance is None:
             self.state.government.reserve_balance = 260
         if self.state.government.total_welfare_paid is None:
@@ -12712,9 +13293,13 @@ class GameEngine:
         if self.state.government.last_agent_reason is None:
             self.state.government.last_agent_reason = "系统会根据游客、住房、储备和资产收益决定下一步。"
         if getattr(self.state.government, "last_macro_action", None) is None:
-            self.state.government.last_macro_action = "当前仍采用常规政府模式。"
+            self.state.government.last_macro_action = "大政府模式默认开启，政府可主动调税、调息、建设、拆除和收购挂牌资产。"
         if getattr(self.state.government, "big_mode_enabled", None) is None:
-            self.state.government.big_mode_enabled = False
+            self.state.government.big_mode_enabled = True
+        elif getattr(self.state, "version", 0) < 65 and self.state.government.big_mode_enabled is False:
+            self.state.government.big_mode_enabled = True
+            self.state.government.last_macro_action = "旧存档已迁移到默认大政府模式，政府会先看税基、客流和住房再主动干预。"
+        self.state.version = max(getattr(self.state, "version", 0), 67)
         if getattr(self.state.government, "can_tune_taxes", None) is None:
             self.state.government.can_tune_taxes = True
         if getattr(self.state.government, "can_tune_rates", None) is None:
@@ -12740,6 +13325,24 @@ class GameEngine:
             self.state.government.approval_score = 56
         if self.state.government.approval_note is None:
             self.state.government.approval_note = "公众目前对政府维持温和支持。"
+        if getattr(self.state.government, "approval_vote_day", None) is None:
+            self.state.government.approval_vote_day = 0
+        if getattr(self.state.government, "approval_support_votes", None) is None:
+            self.state.government.approval_support_votes = 0
+        if getattr(self.state.government, "approval_neutral_votes", None) is None:
+            self.state.government.approval_neutral_votes = 0
+        if getattr(self.state.government, "approval_oppose_votes", None) is None:
+            self.state.government.approval_oppose_votes = 0
+        if getattr(self.state.government, "approval_agent_votes", None) is None:
+            self.state.government.approval_agent_votes = {"support": 0, "neutral": 0, "oppose": 0}
+        if getattr(self.state.government, "approval_tourist_votes", None) is None:
+            self.state.government.approval_tourist_votes = {"support": 0, "neutral": 0, "oppose": 0}
+        if getattr(self.state.government, "approval_vote_note", None) is None:
+            self.state.government.approval_vote_note = "今天的匿名投票还没有开始。"
+        if getattr(self.state.government, "approval_vote_drivers", None) is None:
+            self.state.government.approval_vote_drivers = []
+        if getattr(self.state.government, "event_log", None) is None:
+            self.state.government.event_log = []
         if self.state.government.last_coupon_pool is None:
             self.state.government.last_coupon_pool = 0
         if self.state.government.last_public_service_spend is None:
@@ -12811,10 +13414,22 @@ class GameEngine:
             self.state.market.index_history = []
         if self.state.market.daily_index_history is None:
             self.state.market.daily_index_history = []
+        if getattr(self.state.market, "tourism_index_history", None) is None:
+            self.state.market.tourism_index_history = []
+        if getattr(self.state.market, "daily_tourism_index_history", None) is None:
+            self.state.market.daily_tourism_index_history = []
+        if getattr(self.state.market, "life_index_history", None) is None:
+            self.state.market.life_index_history = []
+        if getattr(self.state.market, "daily_life_index_history", None) is None:
+            self.state.market.daily_life_index_history = []
         if not self.state.market.inflation_index:
             self.state.market.inflation_index = 100.0
         if self.state.market.daily_inflation_pct is None:
             self.state.market.daily_inflation_pct = 0.0
+        if getattr(self.state.market, "tourism_index_value", None) is None:
+            self.state.market.tourism_index_value = 100.0
+        if getattr(self.state.market, "life_index_value", None) is None:
+            self.state.market.life_index_value = 100.0
         if self.state.market.living_cost_pressure is None:
             self.state.market.living_cost_pressure = 8
         if self.state.market.turnover_total is None:
@@ -12835,6 +13450,10 @@ class GameEngine:
             self.state.market.rotation_leader = "GEO"
         if not self.state.market.rotation_age:
             self.state.market.rotation_age = 1
+        existing_symbols = {quote.symbol for quote in self.state.market.stocks or []}
+        for template_quote in build_initial_world().market.stocks:
+            if template_quote.symbol not in existing_symbols:
+                self.state.market.stocks.append(template_quote.model_copy(deep=True))
         for quote in self.state.market.stocks or []:
             if not quote.base_price:
                 quote.base_price = BASE_PRICES.get(quote.symbol, quote.open_price or quote.price)
@@ -12852,6 +13471,8 @@ class GameEngine:
                 quote.volatility_score = 0.9
         if previous_version < 29 or any((quote.price or 0) > 500 or (quote.base_price or 0) > 500 for quote in self.state.market.stocks or []):
             self._normalize_market_quotes_for_realism()
+        else:
+            self._recompute_secondary_indices()
         for event in self.state.events or []:
             event.title = self._localized_text(event.title)
             event.summary = self._localized_text(event.summary)

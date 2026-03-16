@@ -357,10 +357,19 @@ class TourismState(BaseModel):
 
 
 class GovernmentState(BaseModel):
-    name: str = "园区财政与监管局"
+    name: str = "小镇财政与监管局"
     approval_score: int = 56
     approval_note: str = "公众目前对政府维持温和支持。"
-    big_mode_enabled: bool = False
+    approval_vote_day: int = 0
+    approval_support_votes: int = 0
+    approval_neutral_votes: int = 0
+    approval_oppose_votes: int = 0
+    approval_agent_votes: dict[str, int] = Field(default_factory=lambda: {"support": 0, "neutral": 0, "oppose": 0})
+    approval_tourist_votes: dict[str, int] = Field(default_factory=lambda: {"support": 0, "neutral": 0, "oppose": 0})
+    approval_vote_note: str = "今天的匿名投票还没有开始。"
+    approval_vote_drivers: list[str] = Field(default_factory=list)
+    event_log: list[dict[str, str | int]] = Field(default_factory=list)
+    big_mode_enabled: bool = True
     can_tune_taxes: bool = True
     can_tune_rates: bool = True
     can_manage_construction: bool = True
@@ -398,10 +407,10 @@ class GovernmentState(BaseModel):
     total_public_investment: int = 0
     last_audit_day: int = 0
     audit_cooldown_days: int = 4
-    current_agenda: str = "观察税收、游客和住房压力。"
+    current_agenda: str = "扩客流、稳税基、看住房，必要时主动干预市场与资产。"
     last_agent_action: str = "财政周期还没有触发新的建设动作。"
     last_agent_reason: str = "系统会根据游客、住房、储备和资产收益决定下一步。"
-    last_macro_action: str = "当前仍采用常规政府模式。"
+    last_macro_action: str = "大政府模式默认开启，政府可主动调税、调息、建设、拆除和收购挂牌资产。"
     known_signals: list[str] = Field(default_factory=list)
     last_agent_action_day: int = 0
     daily_asset_revenue: int = 0
@@ -414,6 +423,7 @@ class GovernmentState(BaseModel):
             "property": 0,
             "consumption": 0,
             "business": 0,
+            "gambling": 0,
             "fine": 0,
             "government_asset": 0,
             "tourism_public": 0,
@@ -584,6 +594,8 @@ class MarketState(BaseModel):
     rotation_leader: str = "GEO"
     rotation_age: int = 1
     index_value: float = 100.0
+    tourism_index_value: float = 100.0
+    life_index_value: float = 100.0
     inflation_index: float = 100.0
     daily_inflation_pct: float = 0.0
     living_cost_pressure: int = 0
@@ -595,6 +607,10 @@ class MarketState(BaseModel):
     stocks: list[StockQuote] = Field(default_factory=list)
     index_history: list[IndexCandle] = Field(default_factory=list)
     daily_index_history: list[IndexCandle] = Field(default_factory=list)
+    tourism_index_history: list[IndexCandle] = Field(default_factory=list)
+    daily_tourism_index_history: list[IndexCandle] = Field(default_factory=list)
+    life_index_history: list[IndexCandle] = Field(default_factory=list)
+    daily_life_index_history: list[IndexCandle] = Field(default_factory=list)
 
 
 class DailyBriefing(BaseModel):

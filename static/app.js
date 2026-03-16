@@ -62,9 +62,12 @@ const bankStatusBox = document.getElementById("bankStatusBox");
 const bankLoanList = document.getElementById("bankLoanList");
 const bankInsightBox = document.getElementById("bankInsightBox");
 const casinoRecentBox = document.getElementById("casinoRecentBox");
+const lifeHero = document.getElementById("lifeHero");
 const lifestyleSummary = document.getElementById("lifestyleSummary");
 const consumeCatalog = document.getElementById("consumeCatalog");
 const propertyList = document.getElementById("propertyList");
+const lifeHousingMarketBox = document.getElementById("lifeHousingMarketBox");
+const lifeEventBox = document.getElementById("lifeEventBox");
 const lifestyleStatus = document.getElementById("lifestyleStatus");
 const feedForm = document.getElementById("feedForm");
 const feedInput = document.getElementById("feedInput");
@@ -131,6 +134,7 @@ const marketIntradayBtn = document.getElementById("marketIntradayBtn");
 const marketDailyBtn = document.getElementById("marketDailyBtn");
 const marketMonthlyBtn = document.getElementById("marketMonthlyBtn");
 const marketYearlyBtn = document.getElementById("marketYearlyBtn");
+const marketInstrumentSelect = document.getElementById("marketInstrumentSelect");
 const advanceBtn = document.getElementById("advanceBtn");
 const autoExploreBtn = document.getElementById("autoExploreBtn");
 const observerModeBtn = document.getElementById("observerModeBtn");
@@ -175,7 +179,7 @@ const llmApplyBtn = document.getElementById("llmApplyBtn");
 const llmStatusMeta = document.getElementById("llmStatusMeta");
 const llmSwitchStatus = document.getElementById("llmSwitchStatus");
 const llmSwitcherShell = llmToggleBtn?.closest(".llm-switcher-shell") || null;
-const ASSET_VERSION = "20260316c";
+const ASSET_VERSION = "20260316j";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -326,6 +330,82 @@ const marketRegimeLabels = {
   sideways: "震荡市",
   risk: "风险市",
 };
+
+const marketSymbolLabels = {
+  GEO: "GeoGrid",
+  AGR: "AgriLoop",
+  SIG: "SignalWorks",
+  HSP: "HarborStay",
+  RET: "RetailLane",
+  EST: "EstateSpan",
+  FIN: "FinWeave",
+  ENT: "NightPulse",
+};
+
+const marketSectorLabels = {
+  geoai: "空间智能",
+  daily: "农业与日常",
+  signal: "算力与信号",
+  tourism: "住宿文旅",
+  retail: "集市零售",
+  property: "地产租住",
+  finance: "银行融资",
+  entertainment: "娱乐赌场",
+};
+
+function marketLeaderLabel(symbol) {
+  if (!symbol) return "broad";
+  return marketSymbolLabels[symbol] ? `${marketSymbolLabels[symbol]} (${symbol})` : symbol;
+}
+
+function marketInstrumentLabel(value) {
+  return {
+    PX100: "PX100",
+    "PX-Tour": "PX-Tour",
+    "PX-Life": "PX-Life",
+  }[value] || value || "PX100";
+}
+
+function businessMarketSymbol(category) {
+  return {
+    inn: "HSP",
+    market: "RET",
+    workshop: "SIG",
+    co_op: "AGR",
+    backstreet: "ENT",
+  }[category] || "RET";
+}
+
+function sectorHeatRows(currentState) {
+  const quotes = currentState?.market?.stocks || [];
+  const businesses = currentState?.businesses || [];
+  const bySymbol = new Map();
+  quotes.forEach((quote) => {
+    const businessBoost = businesses
+      .filter((business) => businessMarketSymbol(business.category) === quote.symbol && !["closed", "acquired"].includes(business.lifecycle_stage))
+      .reduce((sum, business) => sum + (business.public_heat || 0) * 0.22 + (business.market_share_hint || 0) * 0.18, 0);
+    const heat = Math.max(
+      0,
+      Math.min(
+        100,
+        18
+          + Math.abs(Number(quote.day_change_pct || 0)) * 5.4
+          + Number(quote.turnover_pct || 0) * 9.5
+          + businessBoost
+          + (currentState?.market?.rotation_leader === quote.symbol ? 16 : 0),
+      ),
+    );
+    bySymbol.set(quote.symbol, {
+      symbol: quote.symbol,
+      name: marketSymbolLabels[quote.symbol] || quote.symbol,
+      sector: marketSectorLabels[quote.sector] || quote.sector || "综合",
+      heat,
+      change: Number(quote.day_change_pct || 0),
+      turnover: Number(quote.turnover_pct || 0),
+    });
+  });
+  return [...bySymbol.values()].sort((left, right) => right.heat - left.heat);
+}
 
 const stanceLabels = {
   cooperate: "合作",
@@ -1112,6 +1192,7 @@ let autoExplore = true;
 let observerMode = true;
 let systemRunning = true;
 let marketViewMode = "intraday";
+let marketInstrument = "PX100";
 let lastFrame = performance.now();
 let lastManualInput = 0;
 const MANUAL_LOCK_MS = 2200;
@@ -1138,6 +1219,7 @@ let newsPolicyPending = false;
 let bankActionPending = false;
 let tradePending = false;
 let lifestylePending = false;
+let lifestyleInteractionLockUntil = 0;
 let grayCasePending = false;
 let retainedGrayCaseIds = [];
 let macroPending = false;
@@ -1557,6 +1639,9 @@ function renderPanels() {
   marketDailyBtn.classList.toggle("active", marketViewMode === "daily");
   marketMonthlyBtn?.classList.toggle("active", marketViewMode === "monthly");
   marketYearlyBtn?.classList.toggle("active", marketViewMode === "yearly");
+  if (marketInstrumentSelect) {
+    marketInstrumentSelect.value = marketInstrument;
+  }
   updateTalkTarget();
   refreshComposerAvailability();
   if (isViewVisible("home")) {
@@ -1709,11 +1794,18 @@ function renderPanels() {
     );
   }
   if (isViewVisible("life")) {
-    renderIfChanged(
-      "lifestyle-panel",
-      serverSignature("lifestyle", [state.player, state.agents, state.tourists, state.tourism, state.properties, state.lifestyle_catalog, state.company], [selectedActorId, busy]),
-      () => renderLifestylePanel(),
-    );
+    const activeElement = document.activeElement;
+    const lifestyleInteracting =
+      Date.now() < lifestyleInteractionLockUntil ||
+      (activeElement instanceof HTMLElement &&
+        ["consumeItemSelect", "ownedPropertySelect", "listedPropertySelect"].includes(activeElement.id));
+    if (!lifestyleInteracting || !renderCache.has("lifestyle-panel")) {
+      renderIfChanged(
+        "lifestyle-panel",
+        serverSignature("lifestyle", [state.player, state.agents, state.tourists, state.tourism, state.properties, state.lifestyle_catalog, state.company], [selectedActorId, busy]),
+        () => renderLifestylePanel(),
+      );
+    }
   }
 }
 
@@ -2080,7 +2172,7 @@ function renderHomeCockpit() {
     },
     {
       title: "市场脉搏",
-      summary: `${marketRegimeLabels[state.market?.regime] || state.market?.regime || "震荡市"} · 主线 ${state.market?.rotation_leader || "broad"}`,
+      summary: `${marketRegimeLabels[state.market?.regime] || state.market?.regime || "震荡市"} · 主线 ${marketLeaderLabel(state.market?.rotation_leader || "broad")}`,
       meta: `指数 ${marketIndex} · 游客收入 ${formatCompactCurrency(state.tourism?.daily_revenue || 0)}`,
       tone: Number(state.market?.realized_volatility_pct || 0) > 6 ? "alert" : "cool",
     },
@@ -2195,10 +2287,32 @@ function renderFiscalPanel() {
   const revenues = government.revenues || {};
   const expenditures = government.expenditures || {};
   const listedGovernmentAssets = (state.properties || []).filter((asset) => asset.owner_type === "government" && (asset.listed || asset.status === "listed"));
+  const businessTaxRatePct = Math.min(
+    6.2,
+    Math.max(1.8, Number(government.consumption_tax_rate_pct || 0) * 0.58)
+      + (government.big_mode_enabled && government.can_tune_taxes ? 0.8 : 0)
+      + ((government.enforcement_level || 0) >= 72 ? 0.4 : 0),
+  ).toFixed(1);
+  const gamblingTaxRatePct = Math.max(4.0, Number(government.consumption_tax_rate_pct || 0) * 0.9).toFixed(1);
+  const businessRevenueToday = (state.businesses || []).reduce((sum, business) => sum + Number(business.daily_revenue || 0), 0);
+  const businessTaxToday = (state.businesses || []).reduce((sum, business) => sum + Number(business.daily_tax_paid || 0), 0);
+  const casinoToday = state.casino || {};
+  const activeBusinesses = (state.businesses || []).filter((business) => !["closed", "acquired"].includes(business.lifecycle_stage || ""));
+  const supportVotes = Number(government.approval_support_votes || 0);
+  const neutralVotes = Number(government.approval_neutral_votes || 0);
+  const opposeVotes = Number(government.approval_oppose_votes || 0);
+  const voteTurnout = supportVotes + neutralVotes + opposeVotes;
+  const voteDrivers = (government.approval_vote_drivers || []).slice(0, 3);
+  const keySignals = [
+    `企业营收 ${formatCompactCurrency(businessRevenueToday)}`,
+    `营业税 ${formatCompactCurrency(businessTaxToday)}`,
+    `赌场赌税 ${formatCompactCurrency(casinoToday.daily_tax || 0)}`,
+    `游客收入 ${formatCompactCurrency(state.tourism?.daily_revenue || 0)}`,
+  ];
   fiscalSummary.innerHTML = `
     <article class="metric-summary-card fiscal-hero-card">
       <strong>财政总览</strong>
-      <div class="fiscal-grid">
+      <div class="fiscal-grid fiscal-hero-grid">
         <div class="status-pill"><strong>今日税收</strong><span>$${todayTaxes}</span></div>
         <div class="status-pill"><strong>累计税收</strong><span>$${government.total_revenue || 0}</span></div>
         <div class="status-pill"><strong>财政储备</strong><span>$${government.reserve_balance || 0}</span></div>
@@ -2206,10 +2320,13 @@ function renderFiscalPanel() {
         <div class="status-pill"><strong>今日财政动作</strong><span>$${todayGovernmentIncome}</span></div>
         <div class="status-pill"><strong>累计保障</strong><span>$${government.total_welfare_paid || 0}</span></div>
         <div class="status-pill"><strong>政府支持度</strong><span>${government.approval_score || 0}</span></div>
+        <div class="status-pill"><strong>今日支持票</strong><span>${supportVotes}</span></div>
+        <div class="status-pill"><strong>今日中立票</strong><span>${neutralVotes}</span></div>
+        <div class="status-pill"><strong>今日反对票</strong><span>${opposeVotes}</span></div>
         <div class="status-pill"><strong>监管强度</strong><span>${government.enforcement_level || 0}</span></div>
         <div class="status-pill"><strong>最近政策</strong><span>${escapeHtml(government.last_policy_note || "维持默认税率")}</span></div>
       </div>
-      <div class="metric-meta">${escapeHtml(government.approval_note || "公众目前对政府维持温和支持。")}</div>
+      <div class="metric-meta">${escapeHtml(government.approval_note || "公众目前对政府维持温和支持。")} · ${escapeHtml(government.approval_vote_note || `今日匿名投票共 ${voteTurnout} 票。`)}${voteDrivers.length ? ` · ${voteDrivers.map((item) => escapeHtml(item)).join(" · ")}` : ""} · ${keySignals.map((item) => escapeHtml(item)).join(" · ")}</div>
     </article>
     <div class="fiscal-dashboard-grid">
     <section class="metric-group fiscal-dashboard-card fiscal-settlement-card">
@@ -2234,11 +2351,15 @@ function renderFiscalPanel() {
         <article class="tax-rate-item"><strong>证券税</strong><span>$${revenues.market || 0}</span></article>
         <article class="tax-rate-item"><strong>地产税</strong><span>$${revenues.property || 0}</span></article>
         <article class="tax-rate-item"><strong>消费税</strong><span>$${revenues.consumption || 0}</span></article>
+        <article class="tax-rate-item"><strong>企业税</strong><span>$${revenues.business || 0}</span></article>
+        <article class="tax-rate-item"><strong>赌税</strong><span>$${revenues.gambling || 0}</span></article>
         <article class="tax-rate-item"><strong>罚缴</strong><span>$${revenues.fine || 0}</span></article>
         <article class="tax-rate-item"><strong>政府资产</strong><span>$${revenues.government_asset || 0}</span></article>
         <article class="tax-rate-item"><strong>公共运营</strong><span>$${revenues.tourism_public || 0}</span></article>
-        <article class="tax-rate-item"><strong>政府机构</strong><span>${escapeHtml(government.name || "园区财政与监管局")}</span></article>
+        <article class="tax-rate-item"><strong>资产回收</strong><span>$${revenues.salvage || 0}</span></article>
+        <article class="tax-rate-item"><strong>政府机构</strong><span>${escapeHtml(government.name || "小镇财政与监管局")}</span></article>
       </div>
+      <div class="metric-meta">企业营业税和赌场赌税都已并入财政，不再只显示传统税目。</div>
     </section>
     <section class="metric-group fiscal-dashboard-card fiscal-welfare-card">
       <h3 class="metric-group-title">保 · 财政保障</h3>
@@ -2260,6 +2381,9 @@ function renderFiscalPanel() {
         <article class="tax-rate-item"><strong>住房支持</strong><span>${government.housing_support_level || 0}</span></article>
         <article class="tax-rate-item"><strong>政府投资累计</strong><span>$${government.total_public_investment || 0}</span></article>
         <article class="tax-rate-item"><strong>持有资产数</strong><span>${governmentAssets.length}</span></article>
+        <article class="tax-rate-item"><strong>今日设施净流</strong><span>${formatCompactCurrency(government.daily_asset_net || 0)}</span></article>
+        <article class="tax-rate-item"><strong>挂牌资产</strong><span>${listedGovernmentAssets.length}</span></article>
+        <article class="tax-rate-item"><strong>公共运营收入</strong><span>${formatCompactCurrency(revenues.tourism_public || 0)}</span></article>
       </div>
       <div class="metric-meta">${governmentAssets.length ? governmentAssets.map((asset) => `${asset.name}（${facilityKindLabel(asset.facility_kind) || propertyTypeLabel(asset.property_type)}）`).join(" · ") : "当前还没有政府持有资产。"}</div>
     </section>
@@ -2285,7 +2409,7 @@ function renderFiscalPanel() {
       <div class="metric-meta">${(government.known_signals || []).length ? government.known_signals.map((signal) => escapeHtml(signal)).join(" · ") : "政府还在等待更多税收、游客和住房信号。"}</div>
     </section>
     <section class="metric-group fiscal-dashboard-card fiscal-policy-card">
-      <h3 class="metric-group-title">律 · 当前税率</h3>
+      <h3 class="metric-group-title">律 · 当前税率与收费</h3>
       <div class="tax-rate-grid">
         <article class="tax-rate-item"><strong>工资</strong><span>${Number(government.wage_tax_rate_pct || 0).toFixed(1)}%</span></article>
         <article class="tax-rate-item"><strong>证券</strong><span>${Number(government.securities_tax_rate_pct || 0).toFixed(1)}%</span></article>
@@ -2293,6 +2417,22 @@ function renderFiscalPanel() {
         <article class="tax-rate-item"><strong>地产持有</strong><span>${Number(government.property_holding_tax_rate_pct || 0).toFixed(1)}%</span></article>
         <article class="tax-rate-item"><strong>消费</strong><span>${Number(government.consumption_tax_rate_pct || 0).toFixed(1)}%</span></article>
         <article class="tax-rate-item"><strong>奢侈</strong><span>${Number(government.luxury_tax_rate_pct || 0).toFixed(1)}%</span></article>
+        <article class="tax-rate-item"><strong>营业税</strong><span>${businessTaxRatePct}%</span></article>
+        <article class="tax-rate-item"><strong>赌税</strong><span>${gamblingTaxRatePct}%</span></article>
+      </div>
+      <div class="metric-meta">营业税按企业营业额结算；赌税跟随消费税率和赌场热度联动。</div>
+    </section>
+    <section class="metric-group fiscal-dashboard-card fiscal-market-card">
+      <h3 class="metric-group-title">营 · 企业、赌场与市场联动</h3>
+      <div class="tax-rate-grid">
+        <article class="tax-rate-item"><strong>在营企业</strong><span>${activeBusinesses.length}</span></article>
+        <article class="tax-rate-item"><strong>今日企业营收</strong><span>${formatCompactCurrency(businessRevenueToday)}</span></article>
+        <article class="tax-rate-item"><strong>今日营业税</strong><span>${formatCompactCurrency(businessTaxToday)}</span></article>
+        <article class="tax-rate-item"><strong>赌场热度</strong><span>${casinoToday.heat || 0}</span></article>
+        <article class="tax-rate-item"><strong>今日赌资</strong><span>${formatCompactCurrency(casinoToday.daily_stakes_total || 0)}</span></article>
+        <article class="tax-rate-item"><strong>今日赌税</strong><span>${formatCompactCurrency(casinoToday.daily_tax || 0)}</span></article>
+        <article class="tax-rate-item"><strong>市场指数</strong><span>${Number(state.market?.index_value || 0).toFixed(1)}</span></article>
+        <article class="tax-rate-item"><strong>游客收入</strong><span>${formatCompactCurrency(state.tourism?.daily_revenue || 0)}</span></article>
       </div>
     </section>
     </div>
@@ -2821,10 +2961,29 @@ function renderMarketModule() {
   if (!state) return;
   const quotes = state.market?.stocks || [];
   const leader = state.market?.rotation_leader || "GEO";
+  const leaderQuote = quotes.find((quote) => quote.symbol === leader);
   const activeTouristCount = activeTouristsForState(state).length;
   const totalTouristCount = state.tourists?.length || 0;
+  syncTradeSymbolOptions();
   if (marketSummary) {
     const breadth = `${state.market?.advancers ?? 0} 涨 / ${state.market?.decliners ?? 0} 跌`;
+    const sectorRows = sectorHeatRows(state).slice(0, 6);
+    const sectorHeatMarkup = sectorRows
+      .map(
+        (row) => `
+          <div class="market-sector-row">
+            <div>
+              <strong>${escapeHtml(row.sector)}</strong>
+              <div class="metric-meta">${escapeHtml(row.name)} (${row.symbol})</div>
+            </div>
+            <div class="market-sector-meta">
+              <span class="market-sector-heat">热度 ${row.heat.toFixed(0)}</span>
+              <span class="market-sector-change">${row.change >= 0 ? "+" : ""}${row.change.toFixed(2)}%</span>
+            </div>
+          </div>
+        `,
+      )
+      .join("");
     const stateCards = `
       <article class="market-state-card">
         <strong>市场状态</strong>
@@ -2833,8 +2992,14 @@ function renderMarketModule() {
       </article>
       <article class="market-state-card">
         <strong>板块轮动</strong>
-        <div class="metric-meta">当前主线 ${leader} · 已持续 ${state.market?.rotation_age ?? 1} 天</div>
-        <div class="metric-meta">指数 ${state.market?.index_value?.toFixed(2) || "--"}</div>
+        <div class="metric-meta">当前主线 ${marketLeaderLabel(leader)} · 已持续 ${state.market?.rotation_age ?? 1} 天</div>
+        <div class="metric-meta">PX100 ${state.market?.index_value?.toFixed(2) || "--"}</div>
+      </article>
+      <article class="market-state-card market-index-board">
+        <strong>指数看板</strong>
+        <div class="metric-meta">PX100 ${Number(state.market?.index_value || 100).toFixed(2)} · 全市场综合镜子</div>
+        <div class="metric-meta">PX-Tour ${Number(state.market?.tourism_index_value || 100).toFixed(2)} · 游客、住宿、零售与娱乐</div>
+        <div class="metric-meta">PX-Life ${Number(state.market?.life_index_value || 100).toFixed(2)} · 日常消费、住房与生活成本</div>
       </article>
       <article class="market-state-card">
         <strong>盘面广度</strong>
@@ -2864,6 +3029,11 @@ function renderMarketModule() {
         <div class="metric-meta">今日到场 ${state.casino?.daily_visits || 0} · 今日下注 ${formatCompactCurrency(state.casino?.daily_wagers || 0)}</div>
         <div class="metric-meta">今日赌税 ${formatCompactCurrency(state.casino?.daily_tax || 0)} · 庄家池 ${formatCompactCurrency(state.casino?.house_bankroll || 0)}</div>
       </article>
+      <article class="market-state-card market-sector-board">
+        <strong>板块热度</strong>
+        <div class="metric-meta">按涨跌、换手、企业客流和舆情热度综合排序</div>
+        <div class="market-sector-list">${sectorHeatMarkup}</div>
+      </article>
     `;
     const quoteCards = quotes
       .map(
@@ -2872,7 +3042,7 @@ function renderMarketModule() {
           return `
           <article class="market-stock-card">
             <strong>${quote.name}</strong>
-            <div class="metric-meta">${quote.symbol} · $${quote.price.toFixed(2)} · 日内 ${quote.day_change_pct >= 0 ? "+" : ""}${quote.day_change_pct.toFixed(2)}%</div>
+            <div class="metric-meta">${quote.symbol} · ${marketSectorLabels[quote.sector] || quote.sector || "综合"} · $${quote.price.toFixed(2)} · 日内 ${quote.day_change_pct >= 0 ? "+" : ""}${quote.day_change_pct.toFixed(2)}%</div>
             <div class="metric-meta">合理价 $${Number(quote.fair_value || quote.price).toFixed(2)} · 偏离 ${valueGap >= 0 ? "+" : ""}${valueGap.toFixed(1)}%</div>
             <div class="metric-meta">换手 ${Number(quote.turnover_pct || 0).toFixed(2)}% · 成交量 ${(quote.volume || 0).toLocaleString()}</div>
             <div class="metric-meta">${quote.symbol === leader ? "当前主线板块" : quote.last_reason || "暂无最新原因"}</div>
@@ -3856,11 +4026,45 @@ function renderLifestylePanel() {
   const activeTouristCount = activeTouristsForState(state).length;
   const totalTouristCount = state.tourists?.length || 0;
   const catalog = state.lifestyle_catalog || [];
+  const allProperties = state.properties || [];
   const playerProperties = (state.properties || []).filter((asset) => asset.owner_type === "player" && asset.owner_id === state.player.id && asset.status === "owned");
+  const teamOwnedProperties = allProperties.filter((asset) => ["player", "agent"].includes(asset.owner_type) && ["owned", "acquired"].includes(asset.status));
   const listedProperties = (state.properties || []).filter((asset) => ["market", "government"].includes(asset.owner_type) && asset.status === "listed");
-  const teamAverageSatisfaction = state.agents.length
-    ? Math.round(state.agents.reduce((sum, agent) => sum + (agent.life_satisfaction || 0), 0) / state.agents.length)
-    : state.player.life_satisfaction || 0;
+  const publicHousingAssets = allProperties.filter((asset) => asset.facility_kind === "public_housing");
+  const buyerCount = (state.tourists || []).filter((tourist) => tourist.property_interest).length;
+  const allResidents = [state.player, ...(state.agents || [])];
+  const averageOf = (items, selector, fallback = 0) => {
+    if (!items.length) return fallback;
+    return Math.round(items.reduce((sum, item) => sum + Number(selector(item) || 0), 0) / items.length);
+  };
+  const teamAverageSatisfaction = averageOf(allResidents, (resident) => resident.life_satisfaction, state.player.life_satisfaction || 0);
+  const teamAverageStress = averageOf(
+    allResidents,
+    (resident) => (resident.state?.stress != null ? resident.state.stress : Math.max(0, 100 - Number(resident.life_satisfaction || 0))),
+    Math.max(0, 100 - Number(state.player.life_satisfaction || 0)),
+  );
+  const teamAverageHousing = averageOf(allResidents, (resident) => resident.housing_quality, state.player.housing_quality || 0);
+  const teamAverageDailyCost = averageOf(allResidents, (resident) => resident.daily_cost_baseline, state.player.daily_cost_baseline || 0);
+  const teamAverageBurden = averageOf(allResidents, (resident) => resident.monthly_burden, state.player.monthly_burden || 0);
+  const playerFinance = estimatedActorFinancialSnapshot(state.player.id, "player");
+  const totalTeamPropertyValue = teamOwnedProperties.reduce((sum, asset) => sum + Number(asset.estimated_value || 0), 0);
+  const vacancyCount = allProperties.filter((asset) => asset.status === "listed" || asset.status === "market").length;
+  const listedResidential = listedProperties.filter((asset) => ["rental_house", "home_upgrade", "shop", "greenhouse"].includes(asset.property_type));
+  const housingInterestTourists = (state.tourists || []).filter((tourist) => tourist.property_interest);
+  const economyHistory = (state.daily_economy_history || []).slice(-10);
+  const analysisHistory = (state.analysis_history || []).slice(-12);
+  const residentConsumptionSeries = economyHistory.map((item) => Number(item.resident_consumption || 0));
+  const touristConsumptionSeries = economyHistory.map((item) => Number(item.tourist_consumption || 0));
+  const inflationSeries = analysisHistory.map((item) => Number(item.inflation_index || 0));
+  const satisfactionSeries = analysisHistory.map((item) => Number(item.avg_satisfaction || 0));
+  const popularItems = topConsumptionItems(4);
+  const recentLifeFinance = (state.finance_history || [])
+    .filter((record) => ["consume", "property", "tourism", "government", "welfare"].includes(record.category))
+    .slice(-6)
+    .reverse();
+  const recentLifeFeed = (state.feed_timeline || [])
+    .filter((post) => ["property", "tourism", "daily", "policy"].includes(post.category))
+    .slice(0, 4);
   const recipient = currentGiftRecipient();
   if (!selectedConsumeItemId || !catalog.some((item) => item.id === selectedConsumeItemId)) {
     selectedConsumeItemId = catalog[0]?.id || "";
@@ -3874,35 +4078,58 @@ function renderLifestylePanel() {
   const selectedItem = catalog.find((item) => item.id === selectedConsumeItemId) || null;
   const selectedOwnedProperty = playerProperties.find((asset) => asset.id === selectedOwnedPropertyId) || null;
   const selectedListedProperty = listedProperties.find((asset) => asset.id === selectedListedPropertyId) || null;
+  const compactLifeCard = (label, value, meta) => `
+    <article class="life-chip-card">
+      <strong>${label}</strong>
+      <div>${value}</div>
+      <div class="life-card-note">${meta}</div>
+    </article>
+  `;
+
+  if (lifeHero) {
+    lifeHero.innerHTML = `
+      <div class="life-overview-grid">
+        ${compactLifeCard("玩家满意度", `${state.player.life_satisfaction}`, "今天过得值不值")}
+        ${compactLifeCard("玩家住房品质", `${state.player.housing_quality}`, "住得舒不舒服")}
+        ${compactLifeCard("玩家日开销", formatCompactCurrency(state.player.daily_cost_baseline || 0), "基础生活消耗")}
+        ${compactLifeCard("玩家月负担", formatCompactCurrency(state.player.monthly_burden || 0), "住房与债务压力")}
+        ${compactLifeCard("团队平均满意", `${teamAverageSatisfaction}`, "成员整体生活感受")}
+        ${compactLifeCard("团队平均压力", `${teamAverageStress}`, "高了就更容易借贷和冒险")}
+        ${compactLifeCard("团队平均住房", `${teamAverageHousing}`, "居住质量的整体水平")}
+        ${compactLifeCard("看房游客 / 公共住房", `${buyerCount} / ${publicHousingAssets.length}`, "住房市场是否开始紧张")}
+      </div>
+      <article class="position-card">
+        <strong>生活面总判断</strong>
+        <div class="metric-meta">你当前总资产 ${formatCompactCurrency(playerFinance.totalAssets)} · 房估 ${formatCompactCurrency(playerFinance.propertyValue)} · 当前选中送礼对象：${recipient ? recipient.name : "未选中同事"}</div>
+        <div class="metric-meta">团队平均日开销 ${formatCompactCurrency(teamAverageDailyCost)} · 团队平均月负担 ${formatCompactCurrency(teamAverageBurden)} · 挂牌房源 ${listedProperties.length} 处</div>
+        <div class="metric-meta">${escapeHtml(state.tourism?.latest_signal || "游客、房产和日常消费的变化会先在这里反映。")}</div>
+      </article>
+    `;
+  }
 
   if (lifestyleSummary) {
+    const inflationLatest = inflationSeries[inflationSeries.length - 1] || state.market?.inflation_index || 100;
+    const satisfactionLatest = satisfactionSeries[satisfactionSeries.length - 1] || teamAverageSatisfaction;
     lifestyleSummary.innerHTML = `
-      <article class="metric-summary-card">
-        <strong>你的生活状态</strong>
-        <div class="metric-summary-grid">
-          <div class="status-pill"><strong>生活满意度</strong><span>${state.player.life_satisfaction}</span></div>
-          <div class="status-pill"><strong>消费意愿</strong><span>${state.player.consumption_desire}</span></div>
-          <div class="status-pill"><strong>住房品质</strong><span>${state.player.housing_quality}</span></div>
-          <div class="status-pill"><strong>固定负担</strong><span>$${state.player.monthly_burden}</span></div>
+      <article class="position-card">
+        <strong>生活成本快照</strong>
+        <div class="life-stat-grid">
+          <div class="status-pill"><strong>物价指数</strong><span>${inflationLatest.toFixed(1)}</span></div>
+          <div class="status-pill"><strong>玩家消费意愿</strong><span>${state.player.consumption_desire || 0}</span></div>
+          <div class="status-pill"><strong>团队平均满意</strong><span>${satisfactionLatest.toFixed(1)}</span></div>
+          <div class="status-pill"><strong>团队平均日开销</strong><span>${formatCompactCurrency(teamAverageDailyCost)}</span></div>
         </div>
-      </article>
-      <article class="position-card">
-        <strong>团队生活面</strong>
-        <div class="metric-meta">同事平均满意度 ${teamAverageSatisfaction}</div>
-        <div class="metric-meta">你当前持有地产 ${playerProperties.length} 处</div>
-        <div class="metric-meta">当前选中送礼对象：${recipient ? recipient.name : "未选中同事"}</div>
-      </article>
-      <article class="position-card">
-        <strong>${state.company?.name || "青松数据服务"}</strong>
-        <div class="metric-meta">工作地点：${state.company?.location_label || "石径工坊"}</div>
-        <div class="metric-meta">现金低于 $${state.company?.low_cash_threshold || 50} 时，会明显倾向先去打工。</div>
-        <div class="metric-meta">累计发薪 $${state.company?.total_wages_paid || 0} · 工作场次 ${state.company?.total_work_sessions || 0}</div>
-      </article>
-      <article class="position-card">
-        <strong>游客经济</strong>
-        <div class="metric-meta">${tourismSeasonLabel(state.tourism?.season_mode)} · 活跃游客 ${activeTouristCount} / 总量 ${totalTouristCount} · 今日收入 $${state.tourism?.daily_revenue || 0}</div>
-        <div class="metric-meta">累计到访 ${state.tourism?.total_arrivals || 0} 人 · 回头客 ${state.tourism?.repeat_customers_total || 0} · 高消费 ${state.tourism?.vip_customers_total || 0}</div>
-        <div class="metric-meta">${escapeHtml(state.tourism?.latest_signal || state.tourism?.last_note || "旅馆和集市会在这里汇总最新游客动向。")}</div>
+        <div class="life-mini-stack">
+          <div class="mini-trend-block">
+            <div class="mini-trend-head"><span>近 ${Math.max(1, inflationSeries.length)} 段物价</span><strong>${inflationLatest.toFixed(1)}</strong></div>
+            ${buildMiniTrendSvg(inflationSeries, "#7b9c5c", "rgba(123, 156, 92, 0.16)", "linear")}
+          </div>
+          <div class="mini-trend-block">
+            <div class="mini-trend-head"><span>近 ${Math.max(1, residentConsumptionSeries.length)} 个工作日居民消费</span><strong>${formatCompactCurrency(residentConsumptionSeries.reduce((sum, value) => sum + value, 0))}</strong></div>
+            ${buildMiniTrendSvg(residentConsumptionSeries, "#c37a4f", "rgba(195, 122, 79, 0.18)", "sqrt")}
+          </div>
+        </div>
+        <div class="metric-meta">这块先看生活变贵了没有，再看大家是不是还愿意花钱。当前玩家基础生活消耗 ${formatCompactCurrency(state.player.daily_cost_baseline || 0)}，游客消费 ${formatCompactCurrency(touristConsumptionSeries[touristConsumptionSeries.length - 1] || 0)}。</div>
       </article>
     `;
   }
@@ -3913,6 +4140,15 @@ function renderLifestylePanel() {
     } else {
       const recipientText = recipient && selectedItem.giftable ? `送给 ${recipient.name}` : "买给自己";
       consumeCatalog.innerHTML = `
+        <article class="position-card">
+          <strong>消费热度</strong>
+          <div class="metric-meta">热销方向：${escapeHtml(popularItems.join(" · ") || "吃住、休闲和顺手买点小东西")}</div>
+          <div class="metric-meta">最近 ${Math.max(1, touristConsumptionSeries.length)} 个工作日游客消费 ${formatCompactCurrency(touristConsumptionSeries.reduce((sum, value) => sum + value, 0))} · 居民消费 ${formatCompactCurrency(residentConsumptionSeries.reduce((sum, value) => sum + value, 0))}</div>
+          <div class="mini-trend-block">
+            <div class="mini-trend-head"><span>游客消费</span><strong>${formatCompactCurrency(touristConsumptionSeries[touristConsumptionSeries.length - 1] || 0)}</strong></div>
+            ${buildMiniTrendSvg(touristConsumptionSeries, "#4d87a8", "rgba(77, 135, 168, 0.16)", "sqrt")}
+          </div>
+        </article>
         <article class="position-card selection-card">
           <label class="selection-label" for="consumeItemSelect">消费目录</label>
           <select id="consumeItemSelect" class="selection-select">
@@ -3941,6 +4177,15 @@ function renderLifestylePanel() {
   if (propertyList) {
     propertyList.innerHTML = `
       <div class="stack">
+        <article class="position-card">
+          <strong>住房与资产结构</strong>
+          <div class="life-chip-grid">
+            ${compactLifeCard("你的房产", `${playerProperties.length} 处`, `房估 ${formatCompactCurrency(playerFinance.propertyValue)}`)}
+            ${compactLifeCard("团队房产", `${teamOwnedProperties.length} 处`, `总估值 ${formatCompactCurrency(totalTeamPropertyValue)}`)}
+            ${compactLifeCard("挂牌与空置", `${listedProperties.length} 处`, `当前空置/待售 ${vacancyCount} 处`)}
+            ${compactLifeCard("公共住房", `${publicHousingAssets.length} 处`, `住房支持 ${state.government?.housing_support_level || 0}`)}
+          </div>
+        </article>
         <article class="position-card selection-card">
           <strong>我的地产</strong>
           <div class="metric-meta">会在每天早晨结算收益、维护费和舒适度回报。</div>
@@ -3991,6 +4236,64 @@ function renderLifestylePanel() {
       </div>
     `;
   }
+
+  if (lifeHousingMarketBox) {
+    const featuredListings = listedResidential.slice(0, 4);
+    lifeHousingMarketBox.innerHTML = `
+      <article class="position-card">
+        <strong>住房市场快照</strong>
+        <div class="life-stat-grid">
+          <div class="status-pill"><strong>挂牌房源</strong><span>${listedProperties.length}</span></div>
+          <div class="status-pill"><strong>看房游客</strong><span>${buyerCount}</span></div>
+          <div class="status-pill"><strong>公共住房</strong><span>${publicHousingAssets.length}</span></div>
+          <div class="status-pill"><strong>地产税负</strong><span>${Number(state.government?.property_transfer_tax_rate_pct || 0).toFixed(1)}% / ${Number(state.government?.property_holding_tax_rate_pct || 0).toFixed(1)}%</span></div>
+        </div>
+        <div class="metric-meta">如果看房游客持续升高、挂牌房源偏少，住房价格和生活压力都会慢慢往上走。</div>
+      </article>
+      <article class="position-card">
+        <strong>当前挂牌与看房</strong>
+        <div class="memory-section compact">
+          ${featuredListings.length ? featuredListings.map((asset) => `<span class="memory-chip">${escapeHtml(`${asset.name} · ${facilityKindLabel(asset.facility_kind) || propertyTypeLabel(asset.property_type)} · 挂牌 ${formatCompactCurrency(asset.purchase_price || 0)}`)}</span>`).join("") : '<span class="memory-meta">当前没有合适的挂牌房源。</span>'}
+        </div>
+        <div class="memory-section compact">
+          ${housingInterestTourists.length ? housingInterestTourists.slice(0, 6).map((tourist) => `<span class="memory-chip">${escapeHtml(`${tourist.name} · ${tourist.visitor_tier || tourist.archetype} · ${tourist.current_location_label || tourist.current_location || "小镇里"}`)}</span>`).join("") : '<span class="memory-meta">眼下还没有明显看房游客。</span>'}
+        </div>
+      </article>
+    `;
+  }
+
+  if (lifeEventBox) {
+    const financeCards = recentLifeFinance.map((record) => `
+      <article class="life-event-card">
+        <strong>${escapeHtml(record.actor_name || record.item_name || "生活事件")}</strong>
+        <div>${escapeHtml(record.summary || record.note || record.financial_note || "这件事会影响生活成本、房产或住房压力。")}</div>
+        <div class="memory-section compact">
+          <span class="memory-chip">${escapeHtml(financeCategoryLabel(record.category || "consume"))}</span>
+          ${record.amount ? `<span class="memory-chip">${formatCompactCurrency(record.amount)}</span>` : ""}
+        </div>
+      </article>
+    `);
+    const feedCards = recentLifeFeed.map((post) => `
+      <article class="life-event-card">
+        <strong>${escapeHtml(post.author_name || "小镇微博")}</strong>
+        <div>${escapeHtml(post.content || "大家正在围着生活、住房和日常开销聊。")}</div>
+        <div class="memory-section compact">
+          <span class="memory-chip">${escapeHtml(feedCategoryLabel(post.category || "daily"))}</span>
+          ${post.mood ? `<span class="memory-chip">${escapeHtml(feedMoodLabel(post.mood))}</span>` : ""}
+        </div>
+      </article>
+    `);
+    lifeEventBox.innerHTML = `
+      <div class="life-event-grid">
+        ${financeCards.join("")}
+        ${feedCards.join("")}
+      </div>
+    `;
+  }
+
+  if (lifestyleStatus) {
+    lifestyleStatus.textContent = `生活与住房页现在会同时看生活压力、物价、住房质量、挂牌房源和游客看房。当前：团队平均满意 ${teamAverageSatisfaction}，挂牌 ${listedProperties.length} 处，看房游客 ${buyerCount} 人。`;
+  }
 }
 
 function renderTasks() {
@@ -4032,7 +4335,19 @@ function renderTasks() {
 
 function renderMarketChart() {
   if (!state || !marketCtx) return;
-  const dailyCandles = state.market?.daily_index_history || [];
+  const instrument = marketInstrumentSelect?.value || marketInstrument || "PX100";
+  const isTour = instrument === "PX-Tour";
+  const isLife = instrument === "PX-Life";
+  const intradayHistory = isTour
+    ? state.market?.tourism_index_history || []
+    : isLife
+      ? state.market?.life_index_history || []
+      : state.market?.index_history || [];
+  const dailyCandles = isTour
+    ? state.market?.daily_tourism_index_history || []
+    : isLife
+      ? state.market?.daily_life_index_history || []
+      : state.market?.daily_index_history || [];
   const monthlyCandles = aggregateCandlesBySpan(dailyCandles, 30);
   const yearlyCandles = aggregateCandlesBySpan(dailyCandles, 365);
   const candles =
@@ -4042,7 +4357,7 @@ function renderMarketChart() {
         ? monthlyCandles.slice(-12)
         : marketViewMode === "yearly"
           ? yearlyCandles
-          : (state.market?.index_history || []).slice(-24);
+          : intradayHistory.slice(-24);
   marketCtx.clearRect(0, 0, marketCanvas.width, marketCanvas.height);
   marketCtx.fillStyle = "#f7f2df";
   marketCtx.fillRect(0, 0, marketCanvas.width, marketCanvas.height);
@@ -4089,12 +4404,12 @@ function renderMarketChart() {
   marketCtx.font = "12px PingFang SC";
   const chartTitle =
     marketViewMode === "daily"
-      ? "Pixel Exchange 近 31 日日K"
+      ? `${marketInstrumentLabel(instrument)} 近 31 日日K`
       : marketViewMode === "monthly"
-        ? "Pixel Exchange 近 12 个月K"
+        ? `${marketInstrumentLabel(instrument)} 近 12 个月K`
         : marketViewMode === "yearly"
-          ? "Pixel Exchange 全部年份年K"
-          : "Pixel Exchange 近 24 小时时K";
+          ? `${marketInstrumentLabel(instrument)} 全部年份年K`
+          : `${marketInstrumentLabel(instrument)} 近 24 小时时K`;
   marketCtx.fillText(chartTitle, pad.left, 14);
   const candleWidth = Math.max(7, Math.min(16, width / Math.max(1, candles.length * 1.85)));
   const labelEvery = Math.max(1, Math.ceil(candles.length / 6));
@@ -4141,19 +4456,27 @@ function renderMarketChart() {
   const latest = candles[candles.length - 1];
   const intradayPct = ((latest.close - openAnchor) / Math.max(1, openAnchor)) * 100;
   if (marketMeta) {
+    const regimeText = marketRegimeLabels[state.market?.regime] || state.market?.regime || "牛市";
+    const subjectText =
+      instrument === "PX100"
+        ? `全市场综合指数 · 当前主线 ${marketLeaderLabel(state.market?.rotation_leader || "GEO")}`
+        : instrument === "PX-Tour"
+          ? "游客、住宿、零售与娱乐的综合景气"
+          : "日常消费、住房与生活成本的综合景气";
     marketMeta.textContent =
       marketViewMode === "daily"
-        ? `近 ${candles.length} 天（最多 31 天）· ${marketRegimeLabels[state.market?.regime] || state.market?.regime || "牛市"} · 当前主线 ${state.market?.rotation_leader || "GEO"} · 已持续 ${state.market?.rotation_age ?? 1} 天 · 指数 ${latest.close.toFixed(2)} · 相对窗口起点 ${intradayPct >= 0 ? "+" : ""}${intradayPct.toFixed(2)}% · 波动 ${Number(state.market?.realized_volatility_pct || 0).toFixed(2)}%`
+        ? `近 ${candles.length} 天（最多 31 天）· ${regimeText} · ${subjectText} · 已持续 ${state.market?.rotation_age ?? 1} 天 · 指数 ${latest.close.toFixed(2)} · 相对窗口起点 ${intradayPct >= 0 ? "+" : ""}${intradayPct.toFixed(2)}% · 波动 ${Number(state.market?.realized_volatility_pct || 0).toFixed(2)}%`
         : marketViewMode === "monthly"
-          ? `近 ${candles.length} 个月（最多 12 个月）· ${marketRegimeLabels[state.market?.regime] || state.market?.regime || "牛市"} · 当前主线 ${state.market?.rotation_leader || "GEO"} · 指数 ${latest.close.toFixed(2)} · 相对窗口起点 ${intradayPct >= 0 ? "+" : ""}${intradayPct.toFixed(2)}%`
+          ? `近 ${candles.length} 个月（最多 12 个月）· ${regimeText} · ${subjectText} · 指数 ${latest.close.toFixed(2)} · 相对窗口起点 ${intradayPct >= 0 ? "+" : ""}${intradayPct.toFixed(2)}%`
           : marketViewMode === "yearly"
-            ? `全部 ${candles.length} 个年度桶 · ${marketRegimeLabels[state.market?.regime] || state.market?.regime || "牛市"} · 当前主线 ${state.market?.rotation_leader || "GEO"} · 指数 ${latest.close.toFixed(2)} · 相对首年 ${intradayPct >= 0 ? "+" : ""}${intradayPct.toFixed(2)}%`
-            : `近 ${candles.length} 个小时点位（最多 24）· ${marketRegimeLabels[state.market?.regime] || state.market?.regime || "牛市"} · 当前主线 ${state.market?.rotation_leader || "GEO"} · 指数 ${latest.close.toFixed(2)} · ${intradayPct >= 0 ? "+" : ""}${intradayPct.toFixed(2)}% · 换手 ${Number(state.market?.turnover_ratio_pct || 0).toFixed(2)}%`;
+            ? `全部 ${candles.length} 个年度桶 · ${regimeText} · ${subjectText} · 指数 ${latest.close.toFixed(2)} · 相对首年 ${intradayPct >= 0 ? "+" : ""}${intradayPct.toFixed(2)}%`
+            : `近 ${candles.length} 个小时点位（最多 24）· ${regimeText} · ${subjectText} · 指数 ${latest.close.toFixed(2)} · ${intradayPct >= 0 ? "+" : ""}${intradayPct.toFixed(2)}% · 换手 ${Number(state.market?.turnover_ratio_pct || 0).toFixed(2)}%`;
   }
 }
 
 function renderTradeMeta() {
   if (!state) return;
+  syncTradeSymbolOptions();
   const symbol = tradeSymbol?.value || "GEO";
   const quote = (state.market?.stocks || []).find((item) => item.symbol === symbol);
   const held = state.player.portfolio?.[symbol] || 0;
@@ -4172,6 +4495,16 @@ function jumpToJournalSection(section) {
   setCurrentView(targetView);
   renderPanels();
   document.querySelector(`[data-journal-section="${CSS.escape(section)}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function syncTradeSymbolOptions() {
+  if (!tradeSymbol || !state?.market?.stocks?.length) return;
+  const quotes = state.market.stocks;
+  const current = tradeSymbol.value;
+  tradeSymbol.innerHTML = quotes
+    .map((quote) => `<option value="${quote.symbol}">${quote.symbol} · ${escapeHtml(quote.name)}</option>`)
+    .join("");
+  tradeSymbol.value = quotes.some((quote) => quote.symbol === current) ? current : quotes[0].symbol;
 }
 
 function jumpFromDailyBrief(targetKind, targetId, targetFilter) {
@@ -4275,7 +4608,7 @@ function renderHomeHighlights() {
     },
     {
       title: "市场阶段",
-      summary: `${marketRegimeLabels[state.market?.regime] || state.market?.regime || "震荡市"} · ${state.market?.rotation_leader || "broad"}`,
+      summary: `${marketRegimeLabels[state.market?.regime] || state.market?.regime || "震荡市"} · ${marketLeaderLabel(state.market?.rotation_leader || "broad")}`,
       meta: `指数 ${Number(state.market?.index_value || 0).toFixed(1)} · 物价 ${Number(state.market?.inflation_index || 100).toFixed(1)}`,
     },
     {
@@ -4305,30 +4638,88 @@ function renderHomeHighlights() {
 function renderGovernmentHighlights() {
   if (!governmentHighlights) return;
   const government = state.government || {};
-  const decisionEvents = (state.event_history || [])
-    .filter((event) => String(event.title || "").startsWith("【政府决策】"))
-    .slice(0, 5);
+  const voteTurnout = Number(government.approval_support_votes || 0) + Number(government.approval_neutral_votes || 0) + Number(government.approval_oppose_votes || 0);
+  const governmentEventCards = [];
+  const logEvents = (government.event_log || []).slice(0, 12).map((item) => ({
+    title: item.title || "政府事件",
+    summary: item.summary || "本轮没有更多说明。",
+    meta: item.meta || `第 ${item.day || state.day} 天`,
+    tone:
+      item.tone === "decision"
+        ? "event-government-decision"
+        : item.tone === "revenue"
+          ? "event-government-revenue"
+          : item.tone === "vote"
+            ? "event-policy-vote"
+            : "",
+    serial: item.id || `${item.day || 0}-${item.title || ""}`,
+  }));
+  const recentEvents = (state.event_history || [])
+    .filter((event) => event.category === "policy" || String(event.title || "").startsWith("【政府决策】"))
+    .slice(0, 10)
+    .map((event) => ({
+      title: event.title,
+      summary: event.summary,
+      meta: `${categoryLabels[event.category] || event.category || "综合"} · ${event.source || government.name || "财政局"}`,
+      tone: String(event.title || "").startsWith("【政府决策】") ? "event-government-decision" : "",
+      serial: `${event.time_slot || ""}-${event.id || event.title || ""}`,
+    }));
+  const financeEvents = (state.finance_history || [])
+    .filter((record) => {
+      if (record.category === "government") return true;
+      if (record.category === "tax" && ["营业税", "地下赌场下注"].includes(String(record.asset_name || ""))) return true;
+      return false;
+    })
+    .slice(0, 12)
+    .map((record) => ({
+      title: record.category === "government" ? "政府经营" : record.asset_name === "营业税" ? "企业税入账" : "赌税入账",
+      summary: record.summary,
+      meta: `第 ${record.day || state.day} 天 · ${timeSlotLabels[record.time_slot] || record.time_slot || ""}`,
+      tone: record.category === "government" ? "event-government-decision" : "event-government-revenue",
+      serial: `${record.day || 0}-${record.time_slot || ""}-${record.summary || ""}`,
+    }));
   const cards = [
     {
       title: "政府议程",
       summary: government.current_agenda || "当前没有明确政府议程。",
-      meta: government.last_action || "等待下一轮财政与监管动作。",
+      meta: government.last_agent_action || "等待下一轮财政与监管动作。",
+      tone: "",
+      serial: "agenda",
+    },
+    {
+      title: "匿名投票结果",
+      summary: government.approval_vote_note || "今天的匿名投票还没有开始。",
+      meta: `总票数 ${voteTurnout} · 智能体 ${Number(government.approval_agent_votes?.support || 0) + Number(government.approval_agent_votes?.neutral || 0) + Number(government.approval_agent_votes?.oppose || 0)} · 游客 ${Number(government.approval_tourist_votes?.support || 0) + Number(government.approval_tourist_votes?.neutral || 0) + Number(government.approval_tourist_votes?.oppose || 0)}`,
+      tone: "event-policy-vote",
+      serial: "vote",
     },
     {
       title: "财政状态",
       summary: `储备 ${formatCompactCurrency(government.reserve_balance || 0)} · 今日税收 ${formatCompactCurrency(government.daily_revenue || 0)}`,
       meta: `公共投资 ${formatCompactCurrency(government.total_public_investment || 0)} · 今日保障 ${formatCompactCurrency(government.daily_welfare_paid || 0)}`,
+      tone: "",
+      serial: "fiscal",
     },
-    ...decisionEvents.map((event) => ({
-      title: event.title,
-      summary: event.summary,
-      meta: `${categoryLabels[event.category] || event.category || "综合"} · ${event.source || "财政局"}`,
-    })),
-  ].slice(0, 5);
-  governmentHighlights.innerHTML = cards
+    ...logEvents,
+    ...recentEvents,
+    ...financeEvents,
+  ]
+    .filter((item, index, list) => list.findIndex((candidate) => candidate.serial === item.serial) === index)
+    .slice(0, 14);
+  const finalCards = cards.length
+    ? cards
+    : [
+        {
+          title: "政府事件流",
+          summary: government.last_agent_action || "这几轮政府还没有新的公开动作。",
+          meta: government.last_macro_action || "等待下一轮财政与监管动作。",
+          tone: "",
+        },
+      ];
+  governmentHighlights.innerHTML = finalCards
     .map(
       (item) => `
-        <article class="event-card ${String(item.title).startsWith("【政府决策】") ? "event-government-decision" : ""}">
+        <article class="event-card ${item.tone || ""}">
           <strong>${escapeHtml(item.title)}</strong>
           <div>${escapeHtml(item.summary)}</div>
           <div class="event-meta">${escapeHtml(item.meta)}</div>
@@ -4397,11 +4788,11 @@ function postMatchesFeedKind(post) {
   if (feedFilterKindValue === "tourist-invest") {
     return (
       post?.author_type === "tourist" &&
-      (/投资|买入|试水|砸进|小仓位|股票|SIG|GEO|AGR|地产/.test(text) || /游客投机|场外小仓位/.test(tags))
+      (/投资|买入|卖出|试水|砸进|小仓位|股票|SIG|GEO|AGR|HSP|RET|EST|FIN|ENT|地产/.test(text) || /游客投机|场外小仓位/.test(tags))
     );
   }
   if (feedFilterKindValue === "government") {
-    return post?.author_type === "government" || /园区财政与监管局|政府|公告|说明|回应|政策/.test(text);
+    return post?.author_type === "government" || /小镇财政与监管局|园区财政与监管局|政府|公告|说明|回应|政策/.test(text);
   }
   if (feedFilterKindValue === "casino") {
     return /赌场|赌局|地下赌博|后巷|牌桌|筹码|赌税/.test(text);
@@ -8864,6 +9255,11 @@ marketYearlyBtn?.addEventListener("click", () => {
   renderPanels();
 });
 
+marketInstrumentSelect?.addEventListener("change", () => {
+  marketInstrument = marketInstrumentSelect.value || "PX100";
+  renderPanels();
+});
+
 autoExploreBtn.addEventListener("click", () => {
   if (observerMode) {
     signalStatus.textContent = "观察模式下自动移动由系统接管。";
@@ -9516,10 +9912,23 @@ if (bankLoanList) {
 }
 
 if (consumeCatalog) {
+  consumeCatalog.addEventListener("focusin", (event) => {
+    const target = event.target;
+    if (target instanceof HTMLSelectElement && target.id === "consumeItemSelect") {
+      lifestyleInteractionLockUntil = Date.now() + 4000;
+    }
+  });
+  consumeCatalog.addEventListener("pointerdown", (event) => {
+    const target = event.target;
+    if (target instanceof HTMLSelectElement && target.id === "consumeItemSelect") {
+      lifestyleInteractionLockUntil = Date.now() + 4000;
+    }
+  });
   consumeCatalog.addEventListener("change", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLSelectElement)) return;
     if (target.id === "consumeItemSelect") {
+      lifestyleInteractionLockUntil = Date.now() + 1500;
       selectedConsumeItemId = target.value;
       renderLifestylePanel();
     }
@@ -9558,15 +9967,29 @@ if (consumeCatalog) {
 }
 
 if (propertyList) {
+  propertyList.addEventListener("focusin", (event) => {
+    const target = event.target;
+    if (target instanceof HTMLSelectElement && ["ownedPropertySelect", "listedPropertySelect"].includes(target.id)) {
+      lifestyleInteractionLockUntil = Date.now() + 4000;
+    }
+  });
+  propertyList.addEventListener("pointerdown", (event) => {
+    const target = event.target;
+    if (target instanceof HTMLSelectElement && ["ownedPropertySelect", "listedPropertySelect"].includes(target.id)) {
+      lifestyleInteractionLockUntil = Date.now() + 4000;
+    }
+  });
   propertyList.addEventListener("change", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLSelectElement)) return;
     if (target.id === "ownedPropertySelect") {
+      lifestyleInteractionLockUntil = Date.now() + 1500;
       selectedOwnedPropertyId = target.value;
       renderLifestylePanel();
       return;
     }
     if (target.id === "listedPropertySelect") {
+      lifestyleInteractionLockUntil = Date.now() + 1500;
       selectedListedPropertyId = target.value;
       renderLifestylePanel();
     }
