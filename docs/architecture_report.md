@@ -1242,7 +1242,7 @@ asset_i = cash_i + deposit_i + stockValue_i + propertyValue_i - liability_i
 
 - 玩家：靠近赌场后可手动触发赌局
 - 智能体：在资金紧张、资金很多或情绪高涨时低频自主赌博
-- 游客：在类似条件下少量参与，并把体验带入微博与游客消息
+- 游客：在类似条件下少量参与；`repeat / vip`、夜晚时段和牌桌热度升高时，会更容易被气氛带着下注，并把体验带入微博与游客消息
 
 #### 赌税
 
@@ -1287,6 +1287,7 @@ asset_i = cash_i + deposit_i + stockValue_i + propertyValue_i - liability_i
 - 强化赌局结果对 `mood / life_satisfaction / consumption_desire` 的反馈
 - 让赌场更多通过微博炫耀、八卦、灰案和监管去影响社会结构
 - 让财政大头更多回到工资税、消费税和政府资产收入，而不是罚款
+- 同时放宽游客的“冲动参赌”触发：手头紧、手头宽裕、兴奋、消费欲偏高、夜晚和牌桌热度都会提高命中率，但仍保留低频上限，避免赌场重新变成现金黑洞
 
 #### 观测入口
 

@@ -6521,15 +6521,24 @@ class GameEngine:
         for tourist in self._active_tourists():
             if tourist_triggered >= 2:
                 break
-            high_cash = tourist.cash >= 120
-            tight_cash = tourist.cash <= 18
-            high_mood = tourist.mood >= 74
-            if not (high_cash or tight_cash or high_mood):
+            high_cash = tourist.cash >= 90
+            tight_cash = tourist.cash <= 24
+            high_mood = tourist.mood >= 68 or tourist.spending_desire >= 74
+            thrill_tier = tourist.visitor_tier in {"repeat", "vip"}
+            hot_table = self.state.casino.current_heat >= 24
+            prime_time = self.state.time_slot in {"evening", "night"}
+            if not (high_cash or tight_cash or high_mood or thrill_tier or hot_table):
                 continue
-            chance = 0.016 + (0.02 if tight_cash else 0.0) + (0.016 if high_cash else 0.0) + (0.016 if high_mood else 0.0)
+            chance = 0.02
+            chance += 0.022 if tight_cash else 0.0
+            chance += 0.018 if high_cash else 0.0
+            chance += 0.02 if high_mood else 0.0
+            chance += 0.012 if thrill_tier else 0.0
+            chance += 0.01 if hot_table else 0.0
+            chance += 0.01 if prime_time else 0.0
             if tourist.visitor_tier == "buyer":
-                chance *= 0.65
-            if self.random.random() >= min(0.08, chance):
+                chance *= 0.9
+            if self.random.random() >= min(0.14, chance):
                 continue
             stake = self._suggest_tourist_casino_stake(tourist, tight_cash=tight_cash, high_cash=high_cash)
             if stake <= 0 or tourist.cash < stake:
@@ -9764,6 +9773,11 @@ class GameEngine:
             r"少废话",
             r"你自己掂量",
             r"别找事",
+            r"别逼着我",
+            r"闹大了不好看",
+            r"出了事别怪",
+            r"少在这儿",
+            r"你看着办",
         ]
         score = sum(1 for pattern in patterns if re.search(pattern, text))
         if "！" in text and any(word in text for word in ["别", "敢", "后果", "滚"]):
@@ -9784,7 +9798,7 @@ class GameEngine:
         business.growth_streak_days = 0
         if threat_score >= 2 and business.lifecycle_stage == "operating":
             business.lifecycle_stage = "contracting"
-        business.last_note = f"{business.name} 刚因为公开话术太冲被骂了一轮，口碑、利润和客流预期都被拖住了。"
+        business.last_note = f"{business.name} 刚因为公开话术太冲被骂了一轮，企业信誉、利润和客流预期都被拖住了。"
         post.credibility = max(12, min(96, int((post.credibility or 50) - (12 + threat_score * 12))))
         post.views = max(post.views or 0, (post.views or 0) + 16 + threat_score * 18)
         post.likes = max(0, (post.likes or 0) - max(0, threat_score - 1))
@@ -9852,15 +9866,15 @@ class GameEngine:
         elif business.category == "workshop":
             options = (
                 [
-                    f"{business.name} 这两天单子更满了。进度要稳，做出来的东西也得对得起价钱。",
-                    f"{business.name} 现在最重要的是把手上的活按时交出去，别让品质在赶工里掉下来。",
-                    f"{business.name} 这一轮工单更多了。想做定制、想看手艺，欢迎来店里细聊。",
+                    f"{business.name} 这两天单子更满了。定制、修补和手作件都在排单，想做细一点的可以直接来问。",
+                    f"{business.name} 现在最重要的是把手上的活按时交出去，别让品质在赶工里掉下来。想看做工细节，欢迎来店里聊。",
+                    f"{business.name} 这一轮工单更多了。想做定制、想看手艺、想问交期，都可以直接来店里细聊。",
                 ]
                 if regular_style
                 else [
                     f"{business.name} 这边今天出活更快。想少等一点、赶进度一点的，可以先来问这一轮排单。",
                     f"{business.name} 这边主打快做快拿。想赶时间、又不想多绕的，可以直接来说需求。",
-                    f"{business.name} 今天工单还是排得紧，但能快交的活我们会尽量先安排。",
+                    f"{business.name} 今天工单还是排得紧，但能快交的活我们会尽量先安排，先到先排。",
                 ]
             )
         elif business.category == "co_op":
@@ -9880,7 +9894,7 @@ class GameEngine:
         else:
             options = [
                 f"{business.name} 今天后街又热了一点。想图快、图省钱的，可以来看看这一轮新到的货。",
-                f"{business.name} 这边今天主打快和实惠。东西和价先摆明白，合不合适你自己一眼能看出来。",
+                f"{business.name} 这边今天主打快和实惠。东西和价都先摆明白，合不合适你自己一眼能看出来。",
                 f"{business.name} 今天还是主打便宜和现货。想省一点、拿得快一点，可以先来这边看看。",
             ]
         if business.strategy == "gray":
@@ -9892,7 +9906,7 @@ class GameEngine:
             elif reason == "gray":
                 options = [
                     f"{business.name} 最近风声有点杂。该摆出来的货和价我们都会摆出来，想省一点的可以自己来看看。",
-                    f"{business.name} 外面怎么传是一回事，来这里能买到什么、值不值，还是得你自己看一眼。",
+                    f"{business.name} 外面怎么传是一回事，来这里能买到什么、值不值，还是得你自己来店里看一眼。",
                 ]
             else:
                 options = [
