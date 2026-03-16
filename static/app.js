@@ -179,7 +179,7 @@ const llmApplyBtn = document.getElementById("llmApplyBtn");
 const llmStatusMeta = document.getElementById("llmStatusMeta");
 const llmSwitchStatus = document.getElementById("llmSwitchStatus");
 const llmSwitcherShell = llmToggleBtn?.closest(".llm-switcher-shell") || null;
-const ASSET_VERSION = "20260316k";
+const ASSET_VERSION = "20260316m";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -802,6 +802,70 @@ function recentActiveBankDays(limit = 10) {
       + Number(point.total_deposits || 0);
     return total > 0;
   });
+  return history.slice(-limit);
+}
+
+function currentIntradayBankPoint() {
+  const currentDay = Number(state.day || 0);
+  if (!currentDay) {
+    return null;
+  }
+  const financeRecords = (state.finance_history || []).filter(
+    (record) => Number(record.day || 0) === currentDay && record.category === "bank",
+  );
+  if (!financeRecords.length) {
+    return null;
+  }
+  const loansIssued = financeRecords
+    .filter((record) => record.action === "borrow")
+    .reduce((sum, record) => sum + Number(record.amount || 0), 0);
+  const loansRepaid = financeRecords
+    .filter((record) => record.action === "repay")
+    .reduce((sum, record) => sum + Number(record.amount || 0), 0);
+  const depositsIn = financeRecords
+    .filter((record) => record.action === "deposit")
+    .reduce((sum, record) => sum + Number(record.amount || 0), 0);
+  const depositsOut = financeRecords
+    .filter((record) => record.action === "withdraw")
+    .reduce((sum, record) => sum + Number(record.amount || 0), 0);
+  if (!(loansIssued || loansRepaid || depositsIn || depositsOut)) {
+    return null;
+  }
+  const outstandingBalance = (state.bank_loans || [])
+    .filter((loan) => ["active", "overdue"].includes(loan.status))
+    .reduce((sum, loan) => sum + Number(loan.amount_due || 0), 0);
+  return {
+    day: currentDay,
+    loans_issued: loansIssued,
+    loans_repaid: loansRepaid,
+    deposits_in: depositsIn,
+    deposits_out: depositsOut,
+    outstanding_balance: outstandingBalance,
+    total_deposits: Number(state.bank?.total_deposits || 0),
+    intraday: true,
+  };
+}
+
+function recentBankSeries(limit = 10) {
+  const settled = recentActiveBankDays(limit);
+  const currentPoint = currentIntradayBankPoint();
+  if (!currentPoint) {
+    return settled;
+  }
+  const merged = [...settled];
+  const last = merged[merged.length - 1];
+  if (!last || Number(last.day || 0) !== Number(currentPoint.day || 0)) {
+    merged.push(currentPoint);
+  } else {
+    merged[merged.length - 1] = { ...last, ...currentPoint };
+  }
+  return merged.slice(-limit);
+}
+
+function recentLoanRepaymentDays(limit = 10) {
+  const history = recentBankSeries(40).filter(
+    (point) => Number(point.loans_issued || 0) > 0 || Number(point.loans_repaid || 0) > 0,
+  );
   return history.slice(-limit);
 }
 
@@ -2777,7 +2841,7 @@ function renderAnalysisPanel() {
       },
     );
   }
-  const bankHistory = (state.daily_bank_history || []).slice(-12);
+  const bankHistory = recentBankSeries(12);
   if (bankHistory.length) {
     drawAnalysisChart(
       bankAnalysisCtx,
@@ -2792,7 +2856,7 @@ function renderAnalysisPanel() {
         leftBottomLabel: "放贷/还款低",
         rightTopLabel: "净存款高",
         rightBottomLabel: "净存款低",
-        leftCaption: `近 ${bankHistory.length} 个工作日`,
+        leftCaption: `近 ${bankHistory.length} 个记录日${bankHistory[bankHistory.length - 1]?.intraday ? "（含今日实时）" : ""}`,
         rightCaption: `第 ${bankHistory[bankHistory.length - 1].day} 天`,
       },
     );
@@ -2896,7 +2960,7 @@ function renderAnalysisPanel() {
     } else {
       const latestBank = bankHistory[bankHistory.length - 1];
       const netDeposit = (latestBank.deposits_in || 0) - (latestBank.deposits_out || 0);
-      bankAnalysisMeta.textContent = `把放贷、还款和净存款拆开。放贷 ${formatCompactCurrency(latestBank.loans_issued || 0)}，还款 ${formatCompactCurrency(latestBank.loans_repaid || 0)}，净存款 ${formatCompactCurrency(netDeposit)}。`;
+      bankAnalysisMeta.textContent = `把放贷、还款和净存款拆开${latestBank.intraday ? "，并补进今天的实时流水" : ""}。放贷 ${formatCompactCurrency(latestBank.loans_issued || 0)}，还款 ${formatCompactCurrency(latestBank.loans_repaid || 0)}，净存款 ${formatCompactCurrency(netDeposit)}。`;
     }
   }
   const actors = [
@@ -3810,10 +3874,12 @@ function renderBankModule() {
       : null;
     const reusableCredit = Math.max(0, limit - playerLoans.reduce((sum, loan) => sum + (loan.amount_due || 0), 0));
     const overdueCount = allActiveLoans.filter((loan) => loan.status === "overdue").length;
-    const bankDays = recentActiveBankDays(10);
-    const bankWindowLabel = `近 ${bankDays.length || 0} 个工作日`;
-    const loanSeries = bankDays.map((point) => Number(point.loans_issued || 0));
-    const repaySeries = bankDays.map((point) => Number(point.loans_repaid || 0));
+    const bankDays = recentBankSeries(10);
+    const loanRepaymentDays = recentLoanRepaymentDays(10);
+    const bankWindowLabel = `近 ${bankDays.length || 0} 个记录日${bankDays[bankDays.length - 1]?.intraday ? "（含今日实时）" : ""}`;
+    const loanWindowLabel = `近 ${loanRepaymentDays.length || 0} 个借还记录日${loanRepaymentDays[loanRepaymentDays.length - 1]?.intraday ? "（含今日实时）" : ""}`;
+    const loanSeries = loanRepaymentDays.map((point) => Number(point.loans_issued || 0));
+    const repaySeries = loanRepaymentDays.map((point) => Number(point.loans_repaid || 0));
     const ratioSeries = bankDays.map((point) => {
       const deposits = Math.max(1, Number(point.total_deposits || 0));
       return ((Number(point.outstanding_balance || 0) / deposits) * 100);
@@ -3861,7 +3927,10 @@ function renderBankModule() {
         </article>
         <article class="position-card">
           <strong>放贷 / 还款曲线</strong>
-          <div class="metric-meta">${bankWindowLabel} · 放贷 ${formatCompactCurrency(loanSeries.reduce((sum, value) => sum + value, 0))} · 还款 ${formatCompactCurrency(repaySeries.reduce((sum, value) => sum + value, 0))}</div>
+          <div class="metric-meta">${loanWindowLabel} · 放贷 ${formatCompactCurrency(loanSeries.reduce((sum, value) => sum + value, 0))} · 还款 ${formatCompactCurrency(repaySeries.reduce((sum, value) => sum + value, 0))}</div>
+          ${
+            loanRepaymentDays.length
+              ? `
           <div class="mini-trend-block">
             <div class="mini-trend-head"><span>放贷</span><strong>${formatCompactCurrency(loanSeries.reduce((sum, value) => sum + value, 0))}</strong></div>
             ${buildMiniTrendSvg(loanSeries, "#d4844b", "rgba(212, 132, 75, 0.18)", "bars-sqrt")}
@@ -3870,6 +3939,11 @@ function renderBankModule() {
             <div class="mini-trend-head"><span>还款</span><strong>${formatCompactCurrency(repaySeries.reduce((sum, value) => sum + value, 0))}</strong></div>
             ${buildMiniTrendSvg(repaySeries, "#6784b9", "rgba(103, 132, 185, 0.18)", "bars-sqrt")}
           </div>
+          `
+              : `
+          <div class="metric-meta">最近窗口内主要是存取款，还没有新的放贷或还款动作。</div>
+          `
+          }
         </article>
         <article class="position-card">
           <strong>最高杠杆成员</strong>
