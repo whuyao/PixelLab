@@ -28,7 +28,6 @@ const newsTimelineBox = document.getElementById("newsTimelineBox");
 const grayCaseActionBox = document.getElementById("grayCaseActionBox");
 const memoryBox = document.getElementById("memoryBox");
 const homeHighlights = document.getElementById("homeHighlights");
-const governmentHighlights = document.getElementById("governmentHighlights");
 const homeCockpit = document.getElementById("homeCockpit");
 const homePulse = document.getElementById("homePulse");
 const actorModal = document.getElementById("actorModal");
@@ -179,7 +178,7 @@ const llmApplyBtn = document.getElementById("llmApplyBtn");
 const llmStatusMeta = document.getElementById("llmStatusMeta");
 const llmSwitchStatus = document.getElementById("llmSwitchStatus");
 const llmSwitcherShell = llmToggleBtn?.closest(".llm-switcher-shell") || null;
-const ASSET_VERSION = "20260316n";
+const ASSET_VERSION = "20260316o";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -850,23 +849,6 @@ function recentBankSeries(limit = 10) {
   const settled = recentActiveBankDays(limit);
   const currentPoint = currentIntradayBankPoint();
   if (!currentPoint) {
-    return settled;
-  }
-  const merged = [...settled];
-  const last = merged[merged.length - 1];
-  if (!last || Number(last.day || 0) !== Number(currentPoint.day || 0)) {
-    merged.push(currentPoint);
-  } else {
-    merged[merged.length - 1] = { ...last, ...currentPoint };
-  }
-  return merged.slice(-limit);
-}
-
-function recentLoanRepaymentDays(limit = 10) {
-  const settled = recentActiveBankDays(limit);
-  const currentPoint = currentIntradayBankPoint();
-  const hasIntradayLoanActivity = currentPoint && (Number(currentPoint.loans_issued || 0) > 0 || Number(currentPoint.loans_repaid || 0) > 0);
-  if (!hasIntradayLoanActivity) {
     return settled;
   }
   const merged = [...settled];
@@ -1743,11 +1725,7 @@ function renderPanels() {
       serverSignature("fiscal", [state.day, state.government, state.finance_history?.slice(0, 120)]),
       () => renderFiscalPanel(),
     );
-    renderIfChanged(
-      "government-highlights",
-      serverSignature("fiscal", [state.government, state.events, state.event_history?.slice(0, 16)]),
-      () => renderGovernmentHighlights(),
-    );
+    renderGovernmentHighlights();
   }
   if (isViewVisible("journal")) {
     renderIfChanged(
@@ -2508,7 +2486,106 @@ function renderFiscalPanel() {
     </section>
     </div>
   `;
+  const governmentHighlightsNode = document.getElementById("governmentHighlights");
+  if (governmentHighlightsNode) {
+    governmentHighlightsNode.innerHTML = buildGovernmentHighlightsMarkup();
+  }
   syncTaxPolicyFormInputs();
+}
+
+function buildGovernmentHighlightsMarkup() {
+  if (!state) return "";
+  const government = state.government || {};
+  const voteTurnout = Number(government.approval_support_votes || 0)
+    + Number(government.approval_neutral_votes || 0)
+    + Number(government.approval_oppose_votes || 0);
+  const logEvents = (government.event_log || []).slice(0, 12).map((item) => ({
+    title: item.title || "政府事件",
+    summary: item.summary || "本轮没有更多说明。",
+    meta: item.meta || `第 ${item.day || state.day} 天`,
+    tone:
+      item.tone === "decision"
+        ? "event-government-decision"
+        : item.tone === "revenue"
+          ? "event-government-revenue"
+          : item.tone === "vote"
+            ? "event-policy-vote"
+            : "",
+    serial: item.id || `${item.day || 0}-${item.title || ""}`,
+  }));
+  const recentEvents = (state.event_history || [])
+    .filter((event) => event.category === "policy" || String(event.title || "").startsWith("【政府决策】"))
+    .slice(0, 10)
+    .map((event) => ({
+      title: event.title,
+      summary: event.summary,
+      meta: `${categoryLabels[event.category] || event.category || "综合"} · ${event.source || government.name || "财政局"}`,
+      tone: String(event.title || "").startsWith("【政府决策】") ? "event-government-decision" : "",
+      serial: `${event.time_slot || ""}-${event.id || event.title || ""}`,
+    }));
+  const financeEvents = (state.finance_history || [])
+    .filter((record) => {
+      if (record.category === "government") return true;
+      if (record.category === "tax" && ["营业税", "地下赌场下注"].includes(String(record.asset_name || ""))) return true;
+      return false;
+    })
+    .slice(0, 12)
+    .map((record) => ({
+      title: record.category === "government" ? "政府经营" : record.asset_name === "营业税" ? "企业税入账" : "赌税入账",
+      summary: record.summary,
+      meta: `第 ${record.day || state.day} 天 · ${timeLabels[record.time_slot] || record.time_slot || ""}`,
+      tone: record.category === "government" ? "event-government-decision" : "event-government-revenue",
+      serial: `${record.day || 0}-${record.time_slot || ""}-${record.summary || ""}`,
+    }));
+  const cards = [
+    {
+      title: "政府议程",
+      summary: government.current_agenda || "当前没有明确政府议程。",
+      meta: government.last_agent_action || "等待下一轮财政与监管动作。",
+      tone: "",
+      serial: "agenda",
+    },
+    {
+      title: "匿名投票结果",
+      summary: government.approval_vote_note || "今天的匿名投票还没有开始。",
+      meta: `总票数 ${voteTurnout} · 智能体 ${Number(government.approval_agent_votes?.support || 0) + Number(government.approval_agent_votes?.neutral || 0) + Number(government.approval_agent_votes?.oppose || 0)} · 游客 ${Number(government.approval_tourist_votes?.support || 0) + Number(government.approval_tourist_votes?.neutral || 0) + Number(government.approval_tourist_votes?.oppose || 0)}`,
+      tone: "event-policy-vote",
+      serial: "vote",
+    },
+    {
+      title: "财政状态",
+      summary: `储备 ${formatCompactCurrency(government.reserve_balance || 0)} · 今日税收 ${formatCompactCurrency(government.daily_revenue || 0)}`,
+      meta: `公共投资 ${formatCompactCurrency(government.total_public_investment || 0)} · 今日保障 ${formatCompactCurrency(government.daily_welfare_paid || 0)}`,
+      tone: "",
+      serial: "fiscal",
+    },
+    ...logEvents,
+    ...recentEvents,
+    ...financeEvents,
+  ]
+    .filter((item, index, list) => list.findIndex((candidate) => candidate.serial === item.serial) === index)
+    .slice(0, 14);
+  const finalCards = cards.length
+    ? cards
+    : [
+        {
+          title: "政府事件流",
+          summary: government.last_agent_action || "这几轮政府还没有新的公开动作。",
+          meta: government.last_macro_action || "等待下一轮财政与监管动作。",
+          tone: "",
+        },
+      ];
+  return finalCards
+    .map(
+      (item) => `
+        <article class="event-card ${item.tone || ""}">
+          <strong>${escapeHtml(item.title)}</strong>
+          <div>${escapeHtml(item.summary)}</div>
+          <div class="event-meta">${escapeHtml(item.meta)}</div>
+        </article>
+      `,
+    )
+    .join("");
 }
 
 function taxPolicySnapshot(government = {}) {
@@ -2696,9 +2773,6 @@ function renderHeatStrip(metric, value, maxValue = 100) {
       ${levels.map((level) => `<span class="heat-cell level-${level} ${level === activeLevel ? "is-active" : ""}"></span>`).join("")}
     </div>
   `;
-  if (governmentHighlights && !governmentHighlights.innerHTML.trim()) {
-    renderGovernmentHighlights();
-  }
 }
 
 function renderAnalysisPanel() {
@@ -3888,11 +3962,9 @@ function renderBankModule() {
     const reusableCredit = Math.max(0, limit - playerLoans.reduce((sum, loan) => sum + (loan.amount_due || 0), 0));
     const overdueCount = allActiveLoans.filter((loan) => loan.status === "overdue").length;
     const bankDays = recentBankSeries(10);
-    const loanRepaymentDays = recentLoanRepaymentDays(10);
     const bankWindowLabel = `近 ${bankDays.length || 0} 个记录日${bankDays[bankDays.length - 1]?.intraday ? "（含今日实时）" : ""}`;
-    const loanWindowLabel = `近 ${loanRepaymentDays.length || 0} 个借还记录日${loanRepaymentDays[loanRepaymentDays.length - 1]?.intraday ? "（含今日实时）" : ""}`;
-    const loanSeries = loanRepaymentDays.map((point) => Number(point.loans_issued || 0));
-    const repaySeries = loanRepaymentDays.map((point) => Number(point.loans_repaid || 0));
+    const loanSeries = bankDays.map((point) => Number(point.loans_issued || 0));
+    const repaySeries = bankDays.map((point) => Number(point.loans_repaid || 0));
     const ratioSeries = bankDays.map((point) => {
       const deposits = Math.max(1, Number(point.total_deposits || 0));
       return ((Number(point.outstanding_balance || 0) / deposits) * 100);
@@ -3940,9 +4012,9 @@ function renderBankModule() {
         </article>
         <article class="position-card">
           <strong>放贷 / 还款曲线</strong>
-          <div class="metric-meta">${loanWindowLabel} · 放贷 ${formatCompactCurrency(loanSeries.reduce((sum, value) => sum + value, 0))} · 还款 ${formatCompactCurrency(repaySeries.reduce((sum, value) => sum + value, 0))}</div>
+          <div class="metric-meta">${bankWindowLabel} · 放贷 ${formatCompactCurrency(loanSeries.reduce((sum, value) => sum + value, 0))} · 还款 ${formatCompactCurrency(repaySeries.reduce((sum, value) => sum + value, 0))}</div>
           ${
-            loanRepaymentDays.length
+            loanSeries.some((value) => value > 0) || repaySeries.some((value) => value > 0)
               ? `
           <div class="mini-trend-block">
             <div class="mini-trend-head"><span>放贷</span><strong>${formatCompactCurrency(loanSeries.reduce((sum, value) => sum + value, 0))}</strong></div>
@@ -3954,7 +4026,7 @@ function renderBankModule() {
           </div>
           `
               : `
-          <div class="metric-meta">最近窗口内主要是存取款，还没有新的放贷或还款动作。</div>
+          <div class="metric-meta">这 10 个记录日里主要是存取款，还没有新的放贷或还款动作。</div>
           `
           }
         </article>
@@ -4720,97 +4792,9 @@ function renderHomeHighlights() {
 }
 
 function renderGovernmentHighlights() {
-  if (!governmentHighlights) return;
-  const government = state.government || {};
-  const voteTurnout = Number(government.approval_support_votes || 0) + Number(government.approval_neutral_votes || 0) + Number(government.approval_oppose_votes || 0);
-  const governmentEventCards = [];
-  const logEvents = (government.event_log || []).slice(0, 12).map((item) => ({
-    title: item.title || "政府事件",
-    summary: item.summary || "本轮没有更多说明。",
-    meta: item.meta || `第 ${item.day || state.day} 天`,
-    tone:
-      item.tone === "decision"
-        ? "event-government-decision"
-        : item.tone === "revenue"
-          ? "event-government-revenue"
-          : item.tone === "vote"
-            ? "event-policy-vote"
-            : "",
-    serial: item.id || `${item.day || 0}-${item.title || ""}`,
-  }));
-  const recentEvents = (state.event_history || [])
-    .filter((event) => event.category === "policy" || String(event.title || "").startsWith("【政府决策】"))
-    .slice(0, 10)
-    .map((event) => ({
-      title: event.title,
-      summary: event.summary,
-      meta: `${categoryLabels[event.category] || event.category || "综合"} · ${event.source || government.name || "财政局"}`,
-      tone: String(event.title || "").startsWith("【政府决策】") ? "event-government-decision" : "",
-      serial: `${event.time_slot || ""}-${event.id || event.title || ""}`,
-    }));
-  const financeEvents = (state.finance_history || [])
-    .filter((record) => {
-      if (record.category === "government") return true;
-      if (record.category === "tax" && ["营业税", "地下赌场下注"].includes(String(record.asset_name || ""))) return true;
-      return false;
-    })
-    .slice(0, 12)
-    .map((record) => ({
-      title: record.category === "government" ? "政府经营" : record.asset_name === "营业税" ? "企业税入账" : "赌税入账",
-      summary: record.summary,
-      meta: `第 ${record.day || state.day} 天 · ${timeSlotLabels[record.time_slot] || record.time_slot || ""}`,
-      tone: record.category === "government" ? "event-government-decision" : "event-government-revenue",
-      serial: `${record.day || 0}-${record.time_slot || ""}-${record.summary || ""}`,
-    }));
-  const cards = [
-    {
-      title: "政府议程",
-      summary: government.current_agenda || "当前没有明确政府议程。",
-      meta: government.last_agent_action || "等待下一轮财政与监管动作。",
-      tone: "",
-      serial: "agenda",
-    },
-    {
-      title: "匿名投票结果",
-      summary: government.approval_vote_note || "今天的匿名投票还没有开始。",
-      meta: `总票数 ${voteTurnout} · 智能体 ${Number(government.approval_agent_votes?.support || 0) + Number(government.approval_agent_votes?.neutral || 0) + Number(government.approval_agent_votes?.oppose || 0)} · 游客 ${Number(government.approval_tourist_votes?.support || 0) + Number(government.approval_tourist_votes?.neutral || 0) + Number(government.approval_tourist_votes?.oppose || 0)}`,
-      tone: "event-policy-vote",
-      serial: "vote",
-    },
-    {
-      title: "财政状态",
-      summary: `储备 ${formatCompactCurrency(government.reserve_balance || 0)} · 今日税收 ${formatCompactCurrency(government.daily_revenue || 0)}`,
-      meta: `公共投资 ${formatCompactCurrency(government.total_public_investment || 0)} · 今日保障 ${formatCompactCurrency(government.daily_welfare_paid || 0)}`,
-      tone: "",
-      serial: "fiscal",
-    },
-    ...logEvents,
-    ...recentEvents,
-    ...financeEvents,
-  ]
-    .filter((item, index, list) => list.findIndex((candidate) => candidate.serial === item.serial) === index)
-    .slice(0, 14);
-  const finalCards = cards.length
-    ? cards
-    : [
-        {
-          title: "政府事件流",
-          summary: government.last_agent_action || "这几轮政府还没有新的公开动作。",
-          meta: government.last_macro_action || "等待下一轮财政与监管动作。",
-          tone: "",
-        },
-      ];
-  governmentHighlights.innerHTML = finalCards
-    .map(
-      (item) => `
-        <article class="event-card ${item.tone || ""}">
-          <strong>${escapeHtml(item.title)}</strong>
-          <div>${escapeHtml(item.summary)}</div>
-          <div class="event-meta">${escapeHtml(item.meta)}</div>
-        </article>
-      `,
-    )
-    .join("");
+  const governmentHighlightsNode = document.getElementById("governmentHighlights");
+  if (!governmentHighlightsNode) return;
+  governmentHighlightsNode.innerHTML = buildGovernmentHighlightsMarkup();
 }
 
 function renderFinanceHistory() {
