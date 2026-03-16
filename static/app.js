@@ -170,7 +170,7 @@ const llmApplyBtn = document.getElementById("llmApplyBtn");
 const llmStatusMeta = document.getElementById("llmStatusMeta");
 const llmSwitchStatus = document.getElementById("llmSwitchStatus");
 const llmSwitcherShell = llmToggleBtn?.closest(".llm-switcher-shell") || null;
-const ASSET_VERSION = "20260316b";
+const ASSET_VERSION = "20260316c";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -360,6 +360,8 @@ const grayTradeTypeLabels = {
   labor_for_insider: "劳动换内幕",
   wage_arrears: "工资拖欠",
   pump_dump: "拉高出货",
+  business_gray_competition: "灰色引流抢客",
+  business_price_undercut: "压价抢客",
 };
 
 const businessStrategyLabels = {
@@ -5774,7 +5776,7 @@ function drawLanternString(x, y, count, spacing = 20) {
   }
 }
 
-function drawCrowdCluster(x, y, count, palette = ["#6d7bb3", "#b97f4e", "#7ba467"]) {
+function drawDenseCrowdCluster(x, y, count, palette = ["#6d7bb3", "#b97f4e", "#7ba467"]) {
   for (let index = 0; index < count; index += 1) {
     const dx = (index % 4) * 8 + (index % 2 ? 2 : -2);
     const dy = Math.floor(index / 4) * 9;
@@ -6515,7 +6517,7 @@ function drawWorkshopReaction(now, point, flags) {
     drawSparkPulse(center.x - 20, center.y - 4, 4, "rgba(126, 166, 246, 0.88)");
     drawSparkPulse(center.x + 6, center.y + 2, 4, "rgba(126, 166, 246, 0.84)");
     drawSparkPulse(center.x + 26, center.y - 6, 3, "rgba(126, 166, 246, 0.8)");
-    drawCrowdCluster(center.x - 28, center.y + 8, 4, ["#6c7fc2", "#9e76be", "#5c91a0"]);
+    drawDenseCrowdCluster(center.x - 28, center.y + 8, 4, ["#6c7fc2", "#9e76be", "#5c91a0"]);
   }
   if (flags.marketBusy) {
     ctx.fillStyle = "rgba(223, 171, 96, 0.22)";
@@ -6539,7 +6541,7 @@ function drawMarketReaction(now, point, flags) {
   const hotFeedFocus = getHotFeedFocus();
   if (flags.tourismHot || flags.festivalMode) {
     drawLanternString(center.x - 40, center.y - 38, 4, 18);
-    drawCrowdCluster(center.x - 18, center.y + 10, Math.max(3, activeVisitors), ["#d87d59", "#6c9f73", "#6c7bb3"]);
+    drawDenseCrowdCluster(center.x - 18, center.y + 10, Math.max(3, activeVisitors), ["#d87d59", "#6c9f73", "#6c7bb3"]);
   }
   if (flags.festivalMode) {
     ctx.fillStyle = "rgba(250, 198, 114, 0.2)";
@@ -6553,7 +6555,7 @@ function drawMarketReaction(now, point, flags) {
     ctx.fillStyle = "#fff5de";
     ctx.font = '10px "PingFang SC", sans-serif';
     ctx.fillText("热帖讨论中", center.x - 20, center.y - 18);
-    drawCrowdCluster(center.x + 8, center.y - 2, 3, ["#8f73c7", "#d87d59", "#6c9f73"]);
+    drawDenseCrowdCluster(center.x + 8, center.y - 2, 3, ["#8f73c7", "#d87d59", "#6c9f73"]);
   }
 }
 
@@ -6563,7 +6565,7 @@ function drawInnReaction(now, point, flags) {
   if (flags.tourismHot) {
     ctx.fillStyle = "rgba(255, 231, 180, 0.16)";
     roundRect(center.x - 44, center.y - 12, 88, 38, 12, true);
-    drawCrowdCluster(center.x - 18, center.y + 8, 3, ["#b68a55", "#6c7bb3", "#8da86d"]);
+    drawDenseCrowdCluster(center.x - 18, center.y + 8, 3, ["#b68a55", "#6c7bb3", "#8da86d"]);
   }
   if (flags.housingInterest) {
     drawFootprintTrail(center.x + 24, center.y + 22, 5, 1);

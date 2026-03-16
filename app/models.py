@@ -478,6 +478,7 @@ class BusinessEntity(BaseModel):
     owner_id: str = ""
     property_id: str = ""
     location_label: str = ""
+    location_key: str = ""
     target_segment: Literal["resident", "tourist", "mixed", "producer"] = "mixed"
     strategy: Literal["steady", "premium", "low_price", "gray", "service"] = "steady"
     price_level: int = 50
@@ -505,6 +506,8 @@ class BusinessEntity(BaseModel):
     merged_into_id: str = ""
     public_heat: int = 0
     last_note: str = ""
+    last_post_day: int = 0
+    last_post_slot: str = ""
 
 
 class FinanceRecord(BaseModel):

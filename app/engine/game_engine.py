@@ -2121,6 +2121,12 @@ class GameEngine:
                 return False
         self.state.feed_timeline.insert(0, post)
         self.state.feed_timeline = self.state.feed_timeline[:1000]
+        if post.author_type == "business":
+            business = next((item for item in self.state.businesses or [] if item.id == post.author_id), None)
+            if business is not None:
+                business.last_post_day = post.day
+                business.last_post_slot = post.time_slot
+                self._apply_business_post_language_effects(business, post)
         if apply_impacts:
             self._apply_feed_impacts(post)
         if not remember:
@@ -7434,6 +7440,7 @@ class GameEngine:
         self.trigger_scheduled_news()
         if slot == "morning":
             self._evaluate_business_lifecycle()
+            self._sync_business_locations()
             self._record_daily_economy_point(
                 previous_day,
                 tourism_private_income=self.state.tourism.daily_private_income,
@@ -9423,6 +9430,31 @@ class GameEngine:
             return None
         return next((asset for asset in self.state.properties if asset.id == business.property_id), None)
 
+    def _business_post_serial(self, day: int, slot: str) -> int:
+        return day * len(SLOT_SEQUENCE) + SLOT_SEQUENCE.index(slot) if slot in SLOT_SEQUENCE else day * len(SLOT_SEQUENCE)
+
+    def _business_can_post(self, business: BusinessEntity, min_gap_slots: int = 3) -> bool:
+        if not business.last_post_day or not business.last_post_slot:
+            return True
+        last_serial = self._business_post_serial(business.last_post_day, business.last_post_slot)
+        current_serial = self._business_post_serial(self.state.day, self.state.time_slot)
+        return current_serial - last_serial >= min_gap_slots
+
+    def _sync_business_locations(self) -> None:
+        property_lookup = {asset.id: asset for asset in self.state.properties or []}
+        for business in self.state.businesses or []:
+            if business.location_key in ROOM_LABELS:
+                business.location_label = ROOM_LABELS[business.location_key]
+            if not business.property_id:
+                continue
+            asset = property_lookup.get(business.property_id)
+            if asset is None:
+                continue
+            anchors = PROPERTY_LAYOUT_ANCHORS.get(asset.id) or []
+            if anchors:
+                anchor_x, anchor_y = anchors[0]
+                asset.position = Point(x=anchor_x, y=anchor_y)
+
     def _active_businesses(self) -> list[BusinessEntity]:
         return [
             business
@@ -9675,6 +9707,54 @@ class GameEngine:
             base.extend(extra)
         return list(dict.fromkeys(base))
 
+    def _business_threat_score(self, content: str) -> int:
+        text = str(content or "")
+        patterns = [
+            r"不服",
+            r"别来",
+            r"别怪",
+            r"谁敢",
+            r"敢来试试",
+            r"后果自负",
+            r"爱买不买",
+            r"不买拉倒",
+            r"闭嘴",
+            r"滚",
+            r"给我等着",
+            r"别逼我",
+            r"收拾你",
+            r"盯死你",
+        ]
+        score = sum(1 for pattern in patterns if re.search(pattern, text))
+        if "！" in text and any(word in text for word in ["别", "敢", "后果", "滚"]):
+            score += 1
+        return min(3, score)
+
+    def _apply_business_post_language_effects(self, business: BusinessEntity, post: FeedPost) -> None:
+        threat_score = self._business_threat_score(post.content)
+        if threat_score <= 0:
+            return
+        reputation_penalty = 4 + threat_score * 4
+        profit_penalty = 10 + threat_score * 14
+        business.reputation = max(18, min(92, business.reputation - reputation_penalty))
+        business.public_heat = max(0, min(100, business.public_heat + 8 + threat_score * 6))
+        business.daily_profit -= profit_penalty
+        business.total_profit -= profit_penalty
+        business.loss_streak_days = max(1, business.loss_streak_days + 1)
+        business.last_note = f"{business.name} 刚因为公开话术太冲被骂了一轮，口碑和利润都被拖住了。"
+        post.credibility = max(12, min(96, int((post.credibility or 50) - (8 + threat_score * 10))))
+        post.topic_tags = list(dict.fromkeys((post.topic_tags or []) + ["强硬回应"]))
+        self.state.events.insert(
+            0,
+            build_internal_event(
+                title=f"{business.name} 因公开话术翻车",
+                summary=f"{business.name} 的公开回应被嫌说得太冲，客流和口碑一下都开始往下滑。",
+                slot=self.state.time_slot,
+                category="general",
+            ),
+        )
+        self.state.events = self.state.events[:8]
+
     def _build_business_feed_post(self, business: BusinessEntity, *, reason: str = "daily", context: str = "") -> FeedPost:
         category = self._business_feed_category(business)
         mood = "neutral"
@@ -9697,41 +9777,58 @@ class GameEngine:
             tags.append("客流")
         if business.category == "inn":
             options = [
-                f"{business.name} 今天客流明显动了起来。房间、热水和夜里那点安静，我们都会盯得更细一点。",
-                f"{business.name} 今天住客比预想多。房间收拾和夜里的安静不能掉，我宁可慢一点，也不想把口碑砸了。",
-                f"{business.name} 这轮客流上来了。住一晚值不值，最后还是看房间和人有没有把客人当回事。",
+                f"{business.name} 今天入住比昨天更稳。房间、热水和夜里的安静，我们会继续守住，欢迎来住一晚看看。",
+                f"{business.name} 这轮住客比预想多。房间整理、入住节奏和夜间安静都已经重新收稳了。",
+                f"{business.name} 今天夜住需求抬起来了。想找干净、安静、住得踏实的地方，可以来这边看看。",
             ]
         elif business.category == "market":
             options = [
-                f"{business.name} 今天人流比昨天更挤。东西新不新鲜、摊位顺不顺眼，决定大家愿不愿意再回来。",
-                f"{business.name} 这轮客人多，最怕的不是忙，是忙到最后只剩吆喝没剩体验。",
-                f"{business.name} 今天抢到了一波人流。便宜是一回事，大家最后还是记得住好不好逛。",
+                f"{business.name} 今天人流比昨天更挤。摊位更顺、东西更新鲜，欢迎再来逛一圈。",
+                f"{business.name} 这轮客人多，越忙越得把东西摆齐、把招呼打顺，别让人逛到一半就想走。",
+                f"{business.name} 今天接住了一波客流。价要实在，东西也得挑得出来，这才留得住回头客。",
             ]
         elif business.category == "workshop":
             options = [
-                f"{business.name} 这两天单子压得更满。做得快不难，难的是别把活做糙、别把人用得太狠。",
-                f"{business.name} 现在最难的不是接单，是接了单以后还能把品质守住。",
-                f"{business.name} 干活的人撑着，外面的人也盯着结果。工坊这口碑，经不起糊弄。",
+                f"{business.name} 这两天单子更满了。进度要稳，做出来的东西也得对得起价钱。",
+                f"{business.name} 现在最重要的是把手上的活按时交出去，别让品质在赶工里掉下来。",
+                f"{business.name} 这一轮工单更多了。想做定制、想看手艺，欢迎来店里细聊。",
             ]
         elif business.category == "co_op":
             options = [
-                f"{business.name} 这几天盯的是大家每天都要买的那点东西。价要稳，货要足，不然小镇日子会先拧巴起来。",
-                f"{business.name} 做的是日常供给，赚快钱没意义。东西别断，价别乱，大家才愿意一直来。",
-                f"{business.name} 说到底拼的不是热闹，是谁能把生活必需的东西一直稳稳摆在那儿。",
+                f"{business.name} 这几天盯的是每天都要买的那点东西。价稳、货足，大家买着才踏实。",
+                f"{business.name} 做的是日常供给。米面、蔬菜和常用货不断档，就是我们今天最重要的事。",
+                f"{business.name} 今天继续把常用货摆稳。想买实在的日常东西，可以先来这边看一圈。",
             ]
         else:
             options = [
-                f"{business.name} 今天后街又热了一点。有人图便宜，有人图快，但这种生意最怕风声一大就翻车。",
-                f"{business.name} 这边客流起来得快，掉下去也快。价压得太狠、货来得太野，最后都会反噬。",
-                f"{business.name} 靠的是抢客和速度，可大家真开始盯着品质和路数的时候，这种生意就难装没事了。",
+                f"{business.name} 今天后街又热了一点。想图快、图省钱的，可以来看看这一轮新到的货。",
+                f"{business.name} 这边今天主打快和实惠。东西和价先摆明白，合不合适你自己一眼能看出来。",
+                f"{business.name} 今天还是主打便宜和现货。想省一点、拿得快一点，可以先来这边看看。",
             ]
+        if business.strategy == "gray":
+            if reason == "pressure" and context:
+                options = [
+                    f"{business.name} 已经听见大家在念“{context}”。接下来先把价格说明和货路解释讲清楚，免得越传越偏。",
+                    f"{business.name} 这两天被人拿“{context}”说得很多。我们会把现在卖的货、现在给的价都摊开说清楚。",
+                ]
+            elif reason == "gray":
+                options = [
+                    f"{business.name} 最近风声有点杂。该摆出来的货和价我们都会摆出来，想省一点的可以自己来看看。",
+                    f"{business.name} 外面怎么传是一回事，来这里能买到什么、值不值，还是得你自己看一眼。",
+                ]
+            else:
+                options = [
+                    f"{business.name} 今天还是主打快和实惠。想图便宜、想少绕路的，可以直接来后街看看。",
+                    f"{business.name} 这边货转得快、价也压得低。想快点拿到东西的人，通常会先拐来这里。",
+                    f"{business.name} 今天后街又热了一点。省钱、省时间、拿得到货，这三样我们都尽量给到。",
+                ]
         content = options[self.random.randint(0, len(options) - 1)]
         if reason == "pressure" and context:
-            content = f"{business.name} 记下了今天这波“{context}”的抱怨。接下来会先把价格、货架和招呼人的方式收拾清楚。"
+            content = f"{business.name} 已经记下今天这波“{context}”的抱怨。接下来会先把价格、货架和招呼人的方式收拾清楚，欢迎回来再看看我们有没有改到位。"
         elif reason == "staff":
-            content = f"{business.name} 也听见了“{context}”这类议论。单子可以慢一点，别把里面干活的人先耗空。"
+            content = f"{business.name} 也听见了“{context}”这类议论。接下来会先把排班和做事节奏收一收，别让客人和员工都顶着难受。"
         elif reason == "gray":
-            content = f"{business.name} 这几天被人拿“{context}”反复念叨。后街生意再想抢客，也扛不住大家一直盯着它的路数。"
+            content = f"{business.name} 这几天被人拿“{context}”反复念叨。接下来会先把货路、价格说明和对外回应讲清楚，别让风声一直压着生意。"
         post = FeedPost(
             id=f"feed-{uuid4().hex[:8]}",
             author_type="business",
@@ -9746,7 +9843,7 @@ class GameEngine:
             desire_tags=["利润最大化", "留住客流", "压低负面舆情"],
             likes=4 + max(0, business.reputation // 18) + self.random.randint(0, 3),
             views=36 + business.daily_customers * 10 + self.random.randint(0, 22),
-            summary=f"{business.name} 发了一条公开经营动态。",
+            summary=f"{business.name} 发了一条经营说明。",
             impacts=["影响客流判断", "影响微博讨论"],
         )
         post.credibility = self._feed_credibility_for_post(post)
@@ -9872,11 +9969,16 @@ class GameEngine:
             ]
             for business in businesses
         }
-        if leader.daily_customers >= 2 and self.random.random() < 0.38:
+        if leader.daily_customers >= 3 and self._business_can_post(leader, 4) and self.random.random() < 0.14:
             self._append_feed_post(self._build_business_feed_post(leader), remember=True, apply_impacts=True)
-        if laggard.daily_profit < 0 and self.random.random() < 0.26:
+        if laggard.daily_profit < 0 and self._business_can_post(laggard, 4) and self.random.random() < 0.1:
             self._append_feed_post(self._build_business_feed_post(laggard, reason="pressure", context="价格和品质"), remember=True, apply_impacts=True)
-        if leader.category == "backstreet" and leader.daily_customers >= 2 and self.random.random() < 0.42:
+        if (
+            leader.category == "backstreet"
+            and leader.daily_customers >= 3
+            and self._business_can_post(leader, 5)
+            and self.random.random() < 0.12
+        ):
             comment = self._build_business_public_comment(leader, tone="negative", topic="灰色引流和压价")
             if comment is not None:
                 self._append_feed_post(comment, remember=True, apply_impacts=True)
@@ -9890,7 +9992,7 @@ class GameEngine:
             ),
             None,
         )
-        if spotlight is not None and self.random.random() < 0.28:
+        if spotlight is not None and self.random.random() < 0.18:
             comment = self._build_business_public_comment(spotlight, tone="positive", topic="品质和做事路数")
             if comment is not None:
                 self._append_feed_post(comment, remember=True, apply_impacts=True)
@@ -9899,7 +10001,11 @@ class GameEngine:
             if not mentions:
                 continue
             negative_mentions = [post for post in mentions if self._feed_tone(post.content) < 0 and post.author_type != "business"]
-            if negative_mentions and not any(post.author_type == "business" and post.author_id == business.id for post in current_slot_posts):
+            if (
+                negative_mentions
+                and self._business_can_post(business, 3)
+                and not any(post.author_type == "business" and post.author_id == business.id for post in current_slot_posts)
+            ):
                 issue = "价格和品质"
                 merged = " ".join(post.content for post in negative_mentions[:2])
                 if re.search(r"工人|员工|太累|赶工|没歇", merged):
@@ -12559,6 +12665,7 @@ class GameEngine:
         self._refresh_government_agent_state()
         if self.state.businesses is None:
             self.state.businesses = []
+        business_seed_map = {item.id: item for item in build_initial_world().businesses}
         for business in self.state.businesses or []:
             if getattr(business, "daily_tax_paid", None) is None:
                 business.daily_tax_paid = 0
@@ -12576,6 +12683,13 @@ class GameEngine:
                 business.merged_into_id = ""
             if getattr(business, "public_heat", None) is None:
                 business.public_heat = 0
+            if not getattr(business, "location_key", None):
+                business.location_key = getattr(business_seed_map.get(business.id), "location_key", "") or ""
+            if getattr(business, "last_post_day", None) is None:
+                business.last_post_day = 0
+            if getattr(business, "last_post_slot", None) is None:
+                business.last_post_slot = ""
+        self._sync_business_locations()
         if self.state.company is None:
             self.state.company = build_initial_world().company
         if self.state.bank_loans is None:

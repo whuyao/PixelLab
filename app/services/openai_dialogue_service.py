@@ -67,7 +67,7 @@ class OpenAIDialogueService:
                 {"role": "user", "content": user_prompt},
             ],
             "response_format": response_format,
-            "max_completion_tokens": 220 if schema_name == "feed_post" else 180,
+            "max_completion_tokens": 160 if schema_name == "feed_post" else 120,
         }
         if self.provider == "qwen":
             payload["enable_thinking"] = False
@@ -331,9 +331,9 @@ class OpenAIDialogueService:
 
     def _build_developer_prompt(self, world: WorldState, agent: Agent) -> str:
         latest_event = world.events[0].title if world.events else "暂无显著事件"
-        top_memories = "；".join(memory.text for memory in agent.short_term_memory[:2]) or "暂无"
-        long_memories = "；".join(memory.text for memory in agent.long_term_memory[:2]) or "暂无"
-        memory_stream = "；".join(agent.memory_stream[:3]) or "暂无"
+        top_memories = "；".join(memory.text for memory in agent.short_term_memory[:1]) or "暂无"
+        long_memories = "；".join(memory.text for memory in agent.long_term_memory[:1]) or "暂无"
+        memory_stream = "；".join(agent.memory_stream[:2]) or "暂无"
         location_label = ROOM_LABELS.get(agent.current_location, agent.current_location)
         relations = sorted(agent.relations.items(), key=lambda item: item[1], reverse=True)[:3]
         relation_text = "；".join(
@@ -342,11 +342,11 @@ class OpenAIDialogueService:
         style_note = voice_style_for_agent(agent.id)
         pressure_note = conversational_pressure(agent)
         recent_context = "；".join(event.title for event in world.events[:3]) or "暂无"
-        public_facts = "；".join(agent.public_facts[:3]) or "暂无"
-        hidden_facts = "；".join(agent.hidden_facts[:2]) or "暂无"
-        core_needs = "；".join(agent.core_needs[:3]) or "暂无"
-        speech_habits = "；".join(agent.speech_habits[:3]) or "暂无"
-        holdings = "；".join(f"{symbol}×{shares}" for symbol, shares in sorted(agent.portfolio.items())) or "空仓"
+        public_facts = "；".join(agent.public_facts[:2]) or "暂无"
+        hidden_facts = "；".join(agent.hidden_facts[:1]) or "暂无"
+        core_needs = "；".join(agent.core_needs[:2]) or "暂无"
+        speech_habits = "；".join(agent.speech_habits[:2]) or "暂无"
+        holdings = "；".join(f"{symbol}×{shares}" for symbol, shares in sorted(agent.portfolio.items())[:2]) or "空仓"
         desire_note = desire_note_for_agent(world, agent)
         debt_text = "；".join(
             f"{'欠' if loan.borrower_id == agent.id else '借出'} ${loan.amount_due}，到第 {loan.due_day} 天"
@@ -354,7 +354,7 @@ class OpenAIDialogueService:
             if loan.status in {"active", "overdue"} and (loan.borrower_id == agent.id or loan.lender_id == agent.id)
         ) or "暂无借款"
         market_board = "；".join(
-            f"{quote.symbol}:{quote.price:.2f}({quote.day_change_pct:+.2f}%)" for quote in world.market.stocks
+            f"{quote.symbol}:{quote.price:.2f}({quote.day_change_pct:+.2f}%)" for quote in world.market.stocks[:2]
         ) or "暂无"
         base_prompt = (
             "你是像素小镇里的中文 NPC。只按自己的身份、记忆、关系和眼前情况说话，不全知。"
@@ -395,6 +395,7 @@ class OpenAIDialogueService:
 
     def _build_feed_developer_prompt(self, world: WorldState, author_name: str, author_profile: str, category: str, is_reply: bool) -> str:
         is_government = "财政与监管局" in author_name or "政府" in author_profile
+        is_business = "企业" in author_profile or "商行" in author_name or "旅馆" in author_name or "集市" in author_name or "合作社" in author_name or "工坊" in author_name
         if is_government:
             government_prompt = (
                 "你在写政府机构的中文公开短帖，平台叫“小镇微博”。"
@@ -418,6 +419,36 @@ class OpenAIDialogueService:
                 " 用正常中文公告体，避免官样文章堆词。"
                 if self.provider == "openai"
                 else " 用正常中文公告体，避免公文腔堆叠和空话。"
+            )
+        if is_business:
+            is_gray_business = any(token in f"{author_name} {author_profile}" for token in ["后街", "灰", "灰货", "灰色"])
+            business_prompt = (
+                "你在写企业账号的中文公开短帖，平台叫“小镇微博”。"
+                " 输出必须是 JSON，只能有 content 和 summary。"
+                " 企业发帖要少话、具体、像营业动态、服务说明、促销提示或对外回应。"
+                " 重点是宣传产品和服务、稳定客流、回应舆情，不要像个人碎碎念。"
+                " 不要空喊口号，不要装热血，不要像个人情绪宣泄。"
+                " 绝对不要威胁、挑衅、阴阳怪气、说狠话，也不要用黑话。"
+                " 要像真商家在公开平台上发的内容：让人知道卖什么、有什么改动、为什么值得来。"
+                f" 企业：{author_name}。经营定位：{author_profile}。分类：{category}。"
+            )
+            if is_gray_business:
+                business_prompt += (
+                    " 这是偏灰色路线的企业账号。说话可以更会包装、更会带节奏、更会强调便宜和来得值，"
+                    " 但仍然要像公开营业账号，不能威胁、不能挑衅、不能露黑话。"
+                )
+            else:
+                business_prompt += (
+                    " 这是正规企业账号。说话要更克制，像服务公告、营业说明、品质说明或礼貌回应。"
+                )
+            if is_reply:
+                business_prompt += " 这是企业回复，要先回应问题，再说会怎么处理，最后给出一个对顾客有用的落点。"
+            else:
+                business_prompt += " 这是企业原发帖，要像营业动态、上新提示、品质说明、优惠提示或公开回应。"
+            return business_prompt + (
+                " 句子短一点，像真正会发出来的商家微博，优先写人能买到什么、体验会怎样。"
+                if self.provider == "openai"
+                else " 句子短一点，像商家会发的营业说明，不要分析，优先讲产品、服务和优惠。"
             )
         base = (
             "你在写中文公开短帖，平台叫“小镇微博”。"
