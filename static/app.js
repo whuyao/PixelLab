@@ -386,14 +386,11 @@ function sectorHeatRows(currentState) {
       .reduce((sum, business) => sum + (business.public_heat || 0) * 0.22 + (business.market_share_hint || 0) * 0.18, 0);
     const heat = Math.max(
       0,
-      Math.min(
-        100,
-        18
-          + Math.abs(Number(quote.day_change_pct || 0)) * 5.4
-          + Number(quote.turnover_pct || 0) * 9.5
-          + businessBoost
-          + (currentState?.market?.rotation_leader === quote.symbol ? 16 : 0),
-      ),
+      18
+        + Math.abs(Number(quote.day_change_pct || 0)) * 5.4
+        + Number(quote.turnover_pct || 0) * 9.5
+        + businessBoost
+        + (currentState?.market?.rotation_leader === quote.symbol ? 16 : 0),
     );
     bySymbol.set(quote.symbol, {
       symbol: quote.symbol,
@@ -3031,7 +3028,7 @@ function renderMarketModule() {
       </article>
       <article class="market-state-card market-sector-board">
         <strong>板块热度</strong>
-        <div class="metric-meta">按涨跌、换手、企业客流和舆情热度综合排序</div>
+        <div class="metric-meta">按 8 只股票的涨跌、换手、企业客流和舆情热度综合排序</div>
         <div class="market-sector-list">${sectorHeatMarkup}</div>
       </article>
     `;
