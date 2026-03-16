@@ -1388,6 +1388,10 @@ function gridToPixels(point) {
   };
 }
 
+function activeTouristsForState(currentState) {
+  return (currentState?.tourists || []).filter((tourist) => tourist.active_in_scene !== false);
+}
+
 function syncSceneEntities() {
   if (!state) return;
   const playerPoint = gridToPixels(state.player.position);
@@ -1409,7 +1413,7 @@ function syncSceneEntities() {
     sceneEntities.agents.set(agent.id, entity);
   });
   const activeTourists = new Set();
-  (state.tourists || []).forEach((tourist) => {
+  activeTouristsForState(state).forEach((tourist) => {
     activeTourists.add(tourist.id);
     const point = gridToPixels(tourist.position);
     const entity = sceneEntities.tourists.get(tourist.id) || {
@@ -1902,6 +1906,9 @@ function renderMetrics() {
 
 function renderHomeCockpit() {
   if (!homeCockpit || !homePulse) return;
+  const activeTourists = activeTouristsForState(state);
+  const activeTouristCount = activeTourists.length;
+  const totalTouristCount = state.tourists?.length || 0;
   const history = state.analysis_history || [];
   const latestPoint = history[history.length - 1] || null;
   const prevPoint = history[history.length - 2] || latestPoint;
@@ -1946,7 +1953,7 @@ function renderHomeCockpit() {
     },
     {
       label: "在场游客",
-      value: `${state.tourists?.length || 0}/${state.tourism?.active_visitor_cap || 5}`,
+      value: `${activeTouristCount}/${totalTouristCount}`,
       meta: tourismSeasonLabel(state.tourism?.season_mode),
       trend: trendLabel((latestPoint?.tourists_active || 0) - (prevPoint?.tourists_active || 0)),
       tone: "cool",
@@ -2730,6 +2737,8 @@ function renderMarketModule() {
   if (!state) return;
   const quotes = state.market?.stocks || [];
   const leader = state.market?.rotation_leader || "GEO";
+  const activeTouristCount = activeTouristsForState(state).length;
+  const totalTouristCount = state.tourists?.length || 0;
   if (marketSummary) {
     const breadth = `${state.market?.advancers ?? 0} 涨 / ${state.market?.decliners ?? 0} 跌`;
     const stateCards = `
@@ -2755,7 +2764,7 @@ function renderMarketModule() {
       </article>
       <article class="market-state-card">
         <strong>游客经济</strong>
-        <div class="metric-meta">${tourismSeasonLabel(state.tourism?.season_mode)} · 在场游客 ${state.tourists?.length || 0}/${state.tourism?.active_visitor_cap || 5}</div>
+        <div class="metric-meta">${tourismSeasonLabel(state.tourism?.season_mode)} · 活跃游客 ${activeTouristCount}/${totalTouristCount}</div>
         <div class="metric-meta">今到访 ${state.tourism?.daily_arrivals || 0} · 今离开 ${state.tourism?.daily_departures || 0} · 今日收入 $${state.tourism?.daily_revenue || 0}</div>
         <div class="metric-meta">私人 ${formatCompactCurrency(state.tourism?.daily_private_income || 0)} · 财政资产 ${formatCompactCurrency(state.tourism?.daily_government_income || 0)} · 公共运营 ${formatCompactCurrency(state.tourism?.daily_public_operator_income || 0)}</div>
         <div class="metric-meta">回头客 ${state.tourism?.repeat_customers_total || 0} · 高消费 ${state.tourism?.vip_customers_total || 0} · 看房线索 ${state.tourism?.buyer_leads_total || 0}</div>
@@ -2874,7 +2883,7 @@ function renderMarketModule() {
     const touristObservation = `
       <article class="position-card insight-card">
         <strong>游客与消费流</strong>
-        <div class="metric-meta">${tourismSeasonLabel(state.tourism?.season_mode)} · 当前 ${state.tourists?.length || 0}/${state.tourism?.active_visitor_cap || 5} 位游客</div>
+        <div class="metric-meta">${tourismSeasonLabel(state.tourism?.season_mode)} · 活跃 ${activeTouristCount} / 总量 ${totalTouristCount}</div>
         <div class="metric-meta">居民消费 ${formatCompactCurrency(todayResidentConsumption)} · 游客消费 ${formatCompactCurrency(todayTouristConsumption)}</div>
         <div class="metric-meta">私人收入 ${formatCompactCurrency(state.tourism?.daily_private_income || 0)} · 财政资产 ${formatCompactCurrency(state.tourism?.daily_government_income || 0)} · 公共运营 ${formatCompactCurrency(state.tourism?.daily_public_operator_income || 0)}</div>
         <div class="metric-meta">累计私人 ${formatCompactCurrency(state.tourism?.total_private_income || 0)} · 累计财政资产 ${formatCompactCurrency(state.tourism?.total_government_income || 0)} · 累计公共运营 ${formatCompactCurrency(state.tourism?.total_public_operator_income || 0)}</div>
@@ -3470,6 +3479,7 @@ function financeCategoryLabel(type) {
     welfare: "财政保障",
     tourism: "游客经济",
     government: "财政调节",
+    business: "企业经营",
   }[type] || type;
 }
 
@@ -3493,6 +3503,7 @@ function financeActionLabel(type) {
     coupon: "发券",
     invest: "投资",
     support: "补助",
+    operate: "营业",
   }[type] || type;
 }
 
@@ -3528,6 +3539,8 @@ function currentGiftRecipient() {
 
 function renderLifestylePanel() {
   if (!state) return;
+  const activeTouristCount = activeTouristsForState(state).length;
+  const totalTouristCount = state.tourists?.length || 0;
   const catalog = state.lifestyle_catalog || [];
   const playerProperties = (state.properties || []).filter((asset) => asset.owner_type === "player" && asset.owner_id === state.player.id && asset.status === "owned");
   const listedProperties = (state.properties || []).filter((asset) => ["market", "government"].includes(asset.owner_type) && asset.status === "listed");
@@ -3573,7 +3586,7 @@ function renderLifestylePanel() {
       </article>
       <article class="position-card">
         <strong>游客经济</strong>
-        <div class="metric-meta">${tourismSeasonLabel(state.tourism?.season_mode)} · 当前游客 ${state.tourists?.length || 0} / ${state.tourism?.active_visitor_cap || 5} · 今日收入 $${state.tourism?.daily_revenue || 0}</div>
+        <div class="metric-meta">${tourismSeasonLabel(state.tourism?.season_mode)} · 活跃游客 ${activeTouristCount} / 总量 ${totalTouristCount} · 今日收入 $${state.tourism?.daily_revenue || 0}</div>
         <div class="metric-meta">累计到访 ${state.tourism?.total_arrivals || 0} 人 · 回头客 ${state.tourism?.repeat_customers_total || 0} · 高消费 ${state.tourism?.vip_customers_total || 0}</div>
         <div class="metric-meta">${escapeHtml(state.tourism?.latest_signal || state.tourism?.last_note || "旅馆和集市会在这里汇总最新游客动向。")}</div>
       </article>
@@ -3939,6 +3952,7 @@ function renderEvents() {
 
 function renderHomeHighlights() {
   if (!homeHighlights) return;
+  const activeTouristCount = activeTouristsForState(state).length;
   const cards = [
     {
       title: "当前主线",
@@ -3952,7 +3966,7 @@ function renderHomeHighlights() {
     },
     {
       title: "游客与活力",
-      summary: `在场 ${state.tourists?.length || 0} 人 · 今日游客收入 ${formatCompactCurrency(state.tourism?.daily_revenue || 0)}`,
+      summary: `活跃 ${activeTouristCount} / 总量 ${state.tourists?.length || 0} · 今日游客收入 ${formatCompactCurrency(state.tourism?.daily_revenue || 0)}`,
       meta: state.tourism?.latest_signal || "游客和外部消息会不断影响市场与行为。",
     },
     ...((state.event_history || state.events || []).slice(0, 2).map((event) => ({

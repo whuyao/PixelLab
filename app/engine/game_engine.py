@@ -2636,7 +2636,7 @@ class GameEngine:
         return self.random.choice(variants)
 
     def _normalize_recent_dialogue_history(self) -> None:
-        for tourist in self.state.tourists:
+        for tourist in self._active_tourists():
             if tourist.favorite_topic:
                 tourist.favorite_topic = tourist.favorite_topic.replace("园区", "小镇")
             if tourist.brief_note:
@@ -5030,6 +5030,7 @@ class GameEngine:
         self._refresh_tourist_turnover()
         if self.state.time_slot != "night":
             self._maybe_spawn_tourist()
+        self._rebalance_tourist_activity()
         self._move_tourists()
         self._trigger_tourist_spending()
         self._trigger_tourist_investment()
@@ -5038,6 +5039,36 @@ class GameEngine:
         self._trigger_tourist_conversations()
         self._trigger_tourist_signals()
 
+    def _active_tourists(self) -> list[TouristAgent]:
+        return [tourist for tourist in (self.state.tourists or []) if getattr(tourist, "active_in_scene", True)]
+
+    def _active_tourist_count(self) -> int:
+        return len(self._active_tourists())
+
+    def _rebalance_tourist_activity(self) -> None:
+        tourists = self.state.tourists or []
+        if not tourists:
+            return
+        cap = max(1, min(getattr(self.state.tourism, "active_visitor_cap", 7), len(tourists)))
+        prioritized = sorted(
+            tourists,
+            key=lambda tourist: (
+                1 if tourist.visitor_tier == "vip" else 0,
+                1 if tourist.visitor_tier == "buyer" else 0,
+                1 if tourist.visitor_tier == "repeat" else 0,
+                1 if tourist.property_interest else 0,
+                1 if tourist.market_portfolio else 0,
+                tourist.message_influence,
+                min(4, len(tourist.short_term_memory or [])),
+                tourist.cash + tourist.budget,
+                tourist.mood,
+            ),
+            reverse=True,
+        )
+        active_ids = {tourist.id for tourist in prioritized[:cap]}
+        for tourist in tourists:
+            tourist.active_in_scene = tourist.id in active_ids
+
     def _trigger_tourist_market_investment(self) -> None:
         if not self.state.market.is_open or not self.state.market.stocks:
             return
@@ -5045,7 +5076,7 @@ class GameEngine:
             post.category in {"market", "tourism", "property"} and (post.heat or 0) >= 18
             for post in (self.state.feed_timeline or [])[:18]
         )
-        for tourist in self.state.tourists:
+        for tourist in self._active_tourists():
             if tourist.visitor_tier not in {"vip", "buyer", "repeat", "regular"}:
                 continue
             if tourist.market_last_action.startswith("刚把"):
@@ -5176,7 +5207,7 @@ class GameEngine:
     def _trigger_tourist_market_exit(self) -> None:
         if not self.state.market.is_open or not self.state.market.stocks:
             return
-        for tourist in self.state.tourists:
+        for tourist in self._active_tourists():
             positions = [(symbol, shares) for symbol, shares in (tourist.market_portfolio or {}).items() if shares > 0]
             if not positions:
                 continue
@@ -5442,7 +5473,7 @@ class GameEngine:
 
     def _maybe_spawn_tourist(self) -> None:
         tourism = self.state.tourism
-        if len(self.state.tourists) >= tourism.active_visitor_cap:
+        if len(self.state.tourists) >= getattr(tourism, "max_visitor_cap", 10):
             return
         weather_bonus = {"sunny": 0.09, "breezy": 0.06, "cloudy": 0.02, "drizzle": -0.01}[self.state.weather]
         reputation_bonus = max(0.0, (self.state.lab.reputation - 18) / 260)
@@ -5530,9 +5561,10 @@ class GameEngine:
             ),
         )
         self.state.events = self.state.events[:8]
+        self._rebalance_tourist_activity()
 
     def _move_tourists(self) -> None:
-        for tourist in self.state.tourists:
+        for tourist in self._active_tourists():
             if tourist.linger_ticks > 0 and tourist.target_position is not None and tourist.position == tourist.target_position:
                 tourist.linger_ticks = max(0, tourist.linger_ticks - 1)
                 tourist.current_location = self._room_for(tourist.position.x, tourist.position.y)
@@ -5575,7 +5607,7 @@ class GameEngine:
         candidate_keys = ["market_chat", "market_watch", "lakeside_pause", "workshop_huddle", "foyer_gossip", "noon_social"]
         candidates = [point for key in candidate_keys for point in self._activity_anchor_points(key)]
         room_loads: dict[str, int] = {}
-        for other in self.state.tourists:
+        for other in self._active_tourists():
             room = other.target_location or other.current_location
             room_loads[room] = room_loads.get(room, 0) + 1
         recent_rooms = set((tourist.last_locations or [])[-2:])
@@ -5612,7 +5644,7 @@ class GameEngine:
         return ranked[0].model_copy()
 
     def _rebalance_tourists_if_clustered(self) -> None:
-        tourists = self.state.tourists or []
+        tourists = self._active_tourists()
         if len(tourists) < 4:
             return
         counts: dict[str, int] = {}
@@ -5654,9 +5686,10 @@ class GameEngine:
         return point
 
     def _trigger_tourist_spending(self) -> None:
-        if not self.state.tourists:
+        active_tourists = self._active_tourists()
+        if not active_tourists:
             return
-        for tourist in self.state.tourists:
+        for tourist in active_tourists:
             if tourist.cash <= 5 or self.random.random() > 0.34:
                 continue
             multiplier = {"regular": 1.0, "repeat": 1.15, "vip": 1.42, "buyer": 1.18}.get(tourist.visitor_tier, 1.0)
@@ -5775,9 +5808,10 @@ class GameEngine:
             self.state.tourism.last_note = f"{tourist.name} 在 {facility_name} 消费 ${actual_amount}，其中缴税 ${tax}。"
 
     def _trigger_tourist_conversations(self) -> None:
-        if not self.state.tourists or self.random.random() > 0.46:
+        active_tourists = self._active_tourists()
+        if not active_tourists or self.random.random() > 0.46:
             return
-        tourist = self.random.choice(self.state.tourists)
+        tourist = self.random.choice(active_tourists)
         nearby_agents = [
             agent
             for agent in self.state.agents
@@ -5835,12 +5869,13 @@ class GameEngine:
 
     def _trigger_tourist_signals(self) -> None:
         tourism = self.state.tourism
-        if not self.state.tourists or tourism.daily_messages_count >= 2:
+        active_tourists = self._active_tourists()
+        if not active_tourists or tourism.daily_messages_count >= 2:
             return
-        chance = 0.09 + (0.06 if tourism.season_mode in {"peak", "festival"} else 0.0) + min(0.08, len(self.state.tourists) * 0.015)
+        chance = 0.09 + (0.06 if tourism.season_mode in {"peak", "festival"} else 0.0) + min(0.08, len(active_tourists) * 0.015)
         if self.random.random() > chance:
             return
-        tourist = self.random.choice(self.state.tourists)
+        tourist = self.random.choice(active_tourists)
         signal = self.random.choice(TOURIST_SIGNAL_BANK)
         event = LabEvent(
             id=f"tourist-signal-{uuid4().hex[:8]}",
@@ -6483,7 +6518,7 @@ class GameEngine:
             self._append_casino_event(agent.name, stake, str(result["outcome"]), int(result["net"]), tourist=False)
             self._log("agent_gamble", agent={"id": agent.id, "name": agent.name}, wager={"stake": stake, "tax": result["tax"], "payout": result["payout"], "net": result["net"]})
             triggered += 1
-        for tourist in self.state.tourists:
+        for tourist in self._active_tourists():
             if tourist_triggered >= 2:
                 break
             high_cash = tourist.cash >= 120
@@ -8237,7 +8272,7 @@ class GameEngine:
         government = self.state.government
         bank = self.state.bank
         tourism = self.state.tourism
-        tourist_pressure = len(self.state.tourists) / max(1, tourism.active_visitor_cap)
+        tourist_pressure = self._active_tourist_count() / max(1, tourism.active_visitor_cap)
         inflation = self.state.market.inflation_index or 100.0
         average_assets = (
             self._player_total_assets() + sum(self._agent_total_assets(agent) for agent in self.state.agents)
@@ -8304,14 +8339,14 @@ class GameEngine:
         government.daily_asset_revenue = daily_revenue
         government.daily_asset_maintenance = daily_maintenance
         government.daily_asset_net = daily_revenue - daily_maintenance
-        tourist_pressure = round(((len(self.state.tourists) / max(1, self.state.tourism.active_visitor_cap)) * 100))
+        tourist_pressure = round(((self._active_tourist_count() / max(1, self.state.tourism.active_visitor_cap)) * 100))
         average_satisfaction = round(
             (sum(agent.life_satisfaction for agent in self.state.agents) + self.state.player.life_satisfaction)
             / max(1, len(self.state.agents) + 1)
         )
         listed_assets = sum(1 for asset in self.state.properties if asset.owner_type == "government" and asset.listed)
         signals: list[str] = [
-            f"游客承压 {tourist_pressure}/100，当前 {len(self.state.tourists)} 人在场",
+            f"游客承压 {tourist_pressure}/100，当前 {self._active_tourist_count()} 人在场",
             f"财政储备 ${government.reserve_balance}，政府设施净流 ${government.daily_asset_net}",
             f"住房支持 {government.housing_support_level}，居民平均满意 {average_satisfaction}",
         ]
@@ -8552,7 +8587,7 @@ class GameEngine:
             return
         assets = self._government_owned_assets()
         facility_counts = self._government_facility_counts()
-        tourist_ratio = len(self.state.tourists) / max(1, self.state.tourism.active_visitor_cap)
+        tourist_ratio = self._active_tourist_count() / max(1, self.state.tourism.active_visitor_cap)
         average_satisfaction = (
             sum(agent.life_satisfaction for agent in self.state.agents) + self.state.player.life_satisfaction
         ) / max(1, len(self.state.agents) + 1)
@@ -9238,7 +9273,7 @@ class GameEngine:
             avg_credit=avg_credit,
             active_events=len(self.state.events or []),
             active_gray_cases=sum(1 for case in self.state.gray_cases if case.status == "active"),
-            tourists_active=len(self.state.tourists or []),
+            tourists_active=self._active_tourist_count(),
             tourist_revenue_daily=self.state.tourism.daily_revenue if self.state.tourism else 0,
             government_reserve=self.state.government.reserve_balance if self.state.government else 0,
             casino_heat=self.state.casino.current_heat if self.state.casino else 0,
@@ -9724,6 +9759,11 @@ class GameEngine:
             r"别逼我",
             r"收拾你",
             r"盯死你",
+            r"嫌贵就走",
+            r"爱来不来",
+            r"少废话",
+            r"你自己掂量",
+            r"别找事",
         ]
         score = sum(1 for pattern in patterns if re.search(pattern, text))
         if "！" in text and any(word in text for word in ["别", "敢", "后果", "滚"]):
@@ -9734,16 +9774,21 @@ class GameEngine:
         threat_score = self._business_threat_score(post.content)
         if threat_score <= 0:
             return
-        reputation_penalty = 4 + threat_score * 4
-        profit_penalty = 10 + threat_score * 14
+        reputation_penalty = 8 + threat_score * 6
+        profit_penalty = 45 + threat_score * 35
         business.reputation = max(18, min(92, business.reputation - reputation_penalty))
         business.public_heat = max(0, min(100, business.public_heat + 8 + threat_score * 6))
         business.daily_profit -= profit_penalty
         business.total_profit -= profit_penalty
-        business.loss_streak_days = max(1, business.loss_streak_days + 1)
-        business.last_note = f"{business.name} 刚因为公开话术太冲被骂了一轮，口碑和利润都被拖住了。"
-        post.credibility = max(12, min(96, int((post.credibility or 50) - (8 + threat_score * 10))))
-        post.topic_tags = list(dict.fromkeys((post.topic_tags or []) + ["强硬回应"]))
+        business.loss_streak_days = max(2, business.loss_streak_days + 2)
+        business.growth_streak_days = 0
+        if threat_score >= 2 and business.lifecycle_stage == "operating":
+            business.lifecycle_stage = "contracting"
+        business.last_note = f"{business.name} 刚因为公开话术太冲被骂了一轮，口碑、利润和客流预期都被拖住了。"
+        post.credibility = max(12, min(96, int((post.credibility or 50) - (12 + threat_score * 12))))
+        post.views = max(post.views or 0, (post.views or 0) + 16 + threat_score * 18)
+        post.likes = max(0, (post.likes or 0) - max(0, threat_score - 1))
+        post.topic_tags = list(dict.fromkeys((post.topic_tags or []) + ["话术翻车"]))
         self.state.events.insert(
             0,
             build_internal_event(
@@ -9775,30 +9820,63 @@ class GameEngine:
             mood = "warm"
         else:
             tags.append("客流")
+        regular_style = business.strategy != "gray"
         if business.category == "inn":
-            options = [
-                f"{business.name} 今天入住比昨天更稳。房间、热水和夜里的安静，我们会继续守住，欢迎来住一晚看看。",
-                f"{business.name} 这轮住客比预想多。房间整理、入住节奏和夜间安静都已经重新收稳了。",
-                f"{business.name} 今天夜住需求抬起来了。想找干净、安静、住得踏实的地方，可以来这边看看。",
-            ]
+            options = (
+                [
+                    f"{business.name} 今天入住比昨天更稳。热水、床品和夜里的安静，我们会继续守住，欢迎来住一晚看看。",
+                    f"{business.name} 这轮住客比预想多。房间整理、入住节奏和夜间安静都已经重新收稳了。",
+                    f"{business.name} 今天夜住需求抬起来了。想找干净、安静、住得踏实的地方，可以来这边看看。",
+                ]
+                if regular_style
+                else [
+                    f"{business.name} 今晚还是主打住得快、住得省心。临时想歇脚的，可以直接来问还有没有空房。",
+                    f"{business.name} 这边今晚房间周转顺，拎包就能住，想少折腾的人可以先来看看。",
+                    f"{business.name} 今天后街这边住一晚更省事。想赶紧落脚的，可以直接来问价。",
+                ]
+            )
         elif business.category == "market":
-            options = [
-                f"{business.name} 今天人流比昨天更挤。摊位更顺、东西更新鲜，欢迎再来逛一圈。",
-                f"{business.name} 这轮客人多，越忙越得把东西摆齐、把招呼打顺，别让人逛到一半就想走。",
-                f"{business.name} 今天接住了一波客流。价要实在，东西也得挑得出来，这才留得住回头客。",
-            ]
+            options = (
+                [
+                    f"{business.name} 今天人流比昨天更挤。摊位更顺、东西更新鲜，欢迎再来逛一圈。",
+                    f"{business.name} 这轮客人多，越忙越得把东西摆齐、把招呼打顺，别让人逛到一半就想走。",
+                    f"{business.name} 今天接住了一波客流。价要实在，东西也得挑得出来，这才留得住回头客。",
+                ]
+                if regular_style
+                else [
+                    f"{business.name} 今天这边还是主打便宜、拿得快。想顺手买点实在东西的，可以先来这边转一圈。",
+                    f"{business.name} 这边今天货转得快，价也压得低。想省一点、少绕一点的，可以直接来挑。",
+                    f"{business.name} 今天这边还是图一个来得快、拿得走。看中就拿，不用多绕路。",
+                ]
+            )
         elif business.category == "workshop":
-            options = [
-                f"{business.name} 这两天单子更满了。进度要稳，做出来的东西也得对得起价钱。",
-                f"{business.name} 现在最重要的是把手上的活按时交出去，别让品质在赶工里掉下来。",
-                f"{business.name} 这一轮工单更多了。想做定制、想看手艺，欢迎来店里细聊。",
-            ]
+            options = (
+                [
+                    f"{business.name} 这两天单子更满了。进度要稳，做出来的东西也得对得起价钱。",
+                    f"{business.name} 现在最重要的是把手上的活按时交出去，别让品质在赶工里掉下来。",
+                    f"{business.name} 这一轮工单更多了。想做定制、想看手艺，欢迎来店里细聊。",
+                ]
+                if regular_style
+                else [
+                    f"{business.name} 这边今天出活更快。想少等一点、赶进度一点的，可以先来问这一轮排单。",
+                    f"{business.name} 这边主打快做快拿。想赶时间、又不想多绕的，可以直接来说需求。",
+                    f"{business.name} 今天工单还是排得紧，但能快交的活我们会尽量先安排。",
+                ]
+            )
         elif business.category == "co_op":
-            options = [
-                f"{business.name} 这几天盯的是每天都要买的那点东西。价稳、货足，大家买着才踏实。",
-                f"{business.name} 做的是日常供给。米面、蔬菜和常用货不断档，就是我们今天最重要的事。",
-                f"{business.name} 今天继续把常用货摆稳。想买实在的日常东西，可以先来这边看一圈。",
-            ]
+            options = (
+                [
+                    f"{business.name} 这几天盯的是每天都要买的那点东西。价稳、货足，大家买着才踏实。",
+                    f"{business.name} 做的是日常供给。米面、蔬菜和常用货不断档，就是我们今天最重要的事。",
+                    f"{business.name} 今天继续把常用货摆稳。想买实在的日常东西，可以先来这边看一圈。",
+                ]
+                if regular_style
+                else [
+                    f"{business.name} 今天常用货还是摆得很实。想买得快一点、价别太虚的，可以先来这边看看。",
+                    f"{business.name} 这边今天还是主打实在和省心。米面蔬菜这些常用货，到了就能拿。",
+                    f"{business.name} 今天把常用货备得更足了。想少跑两趟的人，可以先来这边补一轮。",
+                ]
+            )
         else:
             options = [
                 f"{business.name} 今天后街又热了一点。想图快、图省钱的，可以来看看这一轮新到的货。",
@@ -9824,9 +9902,17 @@ class GameEngine:
                 ]
         content = options[self.random.randint(0, len(options) - 1)]
         if reason == "pressure" and context:
-            content = f"{business.name} 已经记下今天这波“{context}”的抱怨。接下来会先把价格、货架和招呼人的方式收拾清楚，欢迎回来再看看我们有没有改到位。"
+            content = (
+                f"{business.name} 已经记下今天这波“{context}”的抱怨。接下来会先把价格说明、货架摆放和招呼人的方式收拾清楚，欢迎回来再看看我们有没有改到位。"
+                if regular_style
+                else f"{business.name} 最近一直被人拿“{context}”说事。我们会先把现在卖的货、现在给的价和今天的做法讲清楚，省得外面越传越偏。"
+            )
         elif reason == "staff":
-            content = f"{business.name} 也听见了“{context}”这类议论。接下来会先把排班和做事节奏收一收，别让客人和员工都顶着难受。"
+            content = (
+                f"{business.name} 也听见了“{context}”这类议论。接下来会先把排班和做事节奏收一收，别让客人和员工都顶着难受。"
+                if regular_style
+                else f"{business.name} 最近被人拿“{context}”念得很紧。我们会先把排班和交接理顺，别让前台后场都绷着。"
+            )
         elif reason == "gray":
             content = f"{business.name} 这几天被人拿“{context}”反复念叨。接下来会先把货路、价格说明和对外回应讲清楚，别让风声一直压着生意。"
         post = FeedPost(
@@ -9843,7 +9929,7 @@ class GameEngine:
             desire_tags=["利润最大化", "留住客流", "压低负面舆情"],
             likes=4 + max(0, business.reputation // 18) + self.random.randint(0, 3),
             views=36 + business.daily_customers * 10 + self.random.randint(0, 22),
-            summary=f"{business.name} 发了一条经营说明。",
+            summary=f"{business.name} 发了一条营业说明。",
             impacts=["影响客流判断", "影响微博讨论"],
         )
         post.credibility = self._feed_credibility_for_post(post)
@@ -12049,6 +12135,17 @@ class GameEngine:
         text = value or ""
         for legacy, localized in LEGACY_NAME_REPLACEMENTS.items():
             text = text.replace(legacy, localized)
+        legacy_terms = {
+            "business price undercut": "压价抢客",
+            "business_price_undercut": "压价抢客",
+            "business gray competition": "灰色引流抢客",
+            "business_gray_competition": "灰色引流抢客",
+            "operate": "营业",
+            "business": "企业经营",
+            "general": "社会热点",
+        }
+        for legacy, localized in legacy_terms.items():
+            text = text.replace(legacy, localized)
         return text
 
     def _timeline_theme_cn(self, theme: str, category: str) -> str:
@@ -12291,7 +12388,9 @@ class GameEngine:
             self.state.tourism = TourismState()
         if getattr(self.state, "casino", None) is None:
             self.state.casino = CasinoState()
-        self.state.tourism.active_visitor_cap = 5
+        if getattr(self.state.tourism, "max_visitor_cap", None) is None:
+            self.state.tourism.max_visitor_cap = 10
+        self.state.tourism.active_visitor_cap = max(1, min(self.state.tourism.active_visitor_cap or 7, self.state.tourism.max_visitor_cap))
         if not self.state.tourism.season_mode:
             self.state.tourism.season_mode = "normal"
         if self.state.tourism.daily_arrivals is None:
@@ -12824,6 +12923,8 @@ class GameEngine:
             if getattr(case, "resolution_note", None) is None:
                 case.resolution_note = ""
         for tourist in self.state.tourists or []:
+            if getattr(tourist, "active_in_scene", None) is None:
+                tourist.active_in_scene = True
             if tourist.target_position is None:
                 tourist.target_position = None
             if tourist.target_location is None:
@@ -12832,6 +12933,10 @@ class GameEngine:
                 tourist.linger_ticks = 0
             if tourist.last_locations is None:
                 tourist.last_locations = []
+        if getattr(self.state.tourism, "max_visitor_cap", None) is None:
+            self.state.tourism.max_visitor_cap = 10
+        self.state.tourism.active_visitor_cap = max(1, min(7, self.state.tourism.max_visitor_cap))
+        self._rebalance_tourist_activity()
         self._rebalance_tourists_if_clustered()
         if previous_version < 28:
             self._normalize_extreme_relations_on_upgrade()

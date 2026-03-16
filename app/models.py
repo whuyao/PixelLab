@@ -311,6 +311,7 @@ class TouristAgent(BaseModel):
     current_activity: str = ""
     current_bubble: str = ""
     brief_note: str = ""
+    active_in_scene: bool = True
     short_term_memory: list[MemoryEntry] = Field(default_factory=list)
     market_portfolio: dict[str, int] = Field(default_factory=dict)
     market_cost_basis: dict[str, int] = Field(default_factory=dict)
@@ -331,7 +332,8 @@ class TourismState(BaseModel):
     market_name: str = "林间集市"
     market_position: Point = Field(default_factory=lambda: Point(x=7, y=16))
     market_location: str = "foyer"
-    active_visitor_cap: int = 5
+    max_visitor_cap: int = 10
+    active_visitor_cap: int = 7
     season_mode: Literal["off", "normal", "peak", "festival"] = "normal"
     event_day_title: str = ""
     total_arrivals: int = 0
