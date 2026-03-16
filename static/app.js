@@ -179,7 +179,7 @@ const llmApplyBtn = document.getElementById("llmApplyBtn");
 const llmStatusMeta = document.getElementById("llmStatusMeta");
 const llmSwitchStatus = document.getElementById("llmSwitchStatus");
 const llmSwitcherShell = llmToggleBtn?.closest(".llm-switcher-shell") || null;
-const ASSET_VERSION = "20260316m";
+const ASSET_VERSION = "20260316n";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -863,10 +863,20 @@ function recentBankSeries(limit = 10) {
 }
 
 function recentLoanRepaymentDays(limit = 10) {
-  const history = recentBankSeries(40).filter(
-    (point) => Number(point.loans_issued || 0) > 0 || Number(point.loans_repaid || 0) > 0,
-  );
-  return history.slice(-limit);
+  const settled = recentActiveBankDays(limit);
+  const currentPoint = currentIntradayBankPoint();
+  const hasIntradayLoanActivity = currentPoint && (Number(currentPoint.loans_issued || 0) > 0 || Number(currentPoint.loans_repaid || 0) > 0);
+  if (!hasIntradayLoanActivity) {
+    return settled;
+  }
+  const merged = [...settled];
+  const last = merged[merged.length - 1];
+  if (!last || Number(last.day || 0) !== Number(currentPoint.day || 0)) {
+    merged.push(currentPoint);
+  } else {
+    merged[merged.length - 1] = { ...last, ...currentPoint };
+  }
+  return merged.slice(-limit);
 }
 
 function recentConsumptionSeries(days = 10) {
@@ -2686,6 +2696,9 @@ function renderHeatStrip(metric, value, maxValue = 100) {
       ${levels.map((level) => `<span class="heat-cell level-${level} ${level === activeLevel ? "is-active" : ""}"></span>`).join("")}
     </div>
   `;
+  if (governmentHighlights && !governmentHighlights.innerHTML.trim()) {
+    renderGovernmentHighlights();
+  }
 }
 
 function renderAnalysisPanel() {
