@@ -284,6 +284,8 @@ GeoAI 是 `Geospatial Artificial Intelligence`，中文通常叫：
 
 - [recent_100day_emergence_report.md](recent_100day_emergence_report.md)
   如果你更关心“最近 100 天到底长出了什么真实行为”，可以直接看这份阶段分析报告。
+- [full_system_evolution_report.md](full_system_evolution_report.md)
+  如果你想把“从第 1 天到现在整个系统是怎么一步步长出来的”讲给学生听，这份全周期报告最合适。
 
 ## 6.1 空间与地图系统
 

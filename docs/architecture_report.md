@@ -241,6 +241,8 @@ flowchart LR
   基于最近 100 天模拟时间的系统阶段演化与角色分化分析。
 - [system_development_retrospective.md](system_development_retrospective.md)
   从原型到当前复合系统的整体发展复盘。
+- [full_system_evolution_report.md](full_system_evolution_report.md)
+  从第 1 天到当前状态的全周期总报告，专门回答系统迭代、智能体变化、涌现现象、经济耦合与教学解释这 5 个问题。
 - [big_government_mode_guide.md](big_government_mode_guide.md)
   面向演示与教学的大政府模式独立说明，聚焦权限、工期、锚点与制度影响。
 - [casino_system_guide.md](casino_system_guide.md)
