@@ -1579,6 +1579,10 @@ function renderDailyBrief() {
   const entryMarkup = (latestBrief.entries?.length ? latestBrief.entries : (latestBrief.items || []).map((text, index) => ({
     id: `fallback-${index}`,
     text,
+    title: "",
+    summary: "",
+    result: "",
+    impact: "",
     target_kind: "",
     target_id: "",
     target_filter: "",
@@ -1588,17 +1592,22 @@ function renderDailyBrief() {
       (item, index) => `
         <li class="daily-brief-item">
           <span class="daily-brief-index">${index + 1}</span>
-          ${
-            item.target_kind
-              ? `<button
-                  type="button"
-                  class="daily-brief-link"
-                  data-brief-target-kind="${escapeHtml(item.target_kind)}"
-                  data-brief-target-id="${escapeHtml(item.target_id || "")}"
-                  data-brief-target-filter="${escapeHtml(item.target_filter || "")}"
-                >${escapeHtml(item.text)}</button>`
-              : `<span>${escapeHtml(item.text)}</span>`
-          }
+          <div class="daily-brief-body">
+            ${
+              item.target_kind
+                ? `<button
+                    type="button"
+                    class="daily-brief-link"
+                    data-brief-target-kind="${escapeHtml(item.target_kind)}"
+                    data-brief-target-id="${escapeHtml(item.target_id || "")}"
+                    data-brief-target-filter="${escapeHtml(item.target_filter || "")}"
+                  >${escapeHtml(item.title || item.text)}</button>`
+                : `<strong class="daily-brief-title">${escapeHtml(item.title || item.text)}</strong>`
+            }
+            ${item.summary ? `<div class="daily-brief-summary">${escapeHtml(item.summary)}</div>` : ""}
+            ${item.result ? `<div class="daily-brief-result"><span>结果</span>${escapeHtml(item.result)}</div>` : ""}
+            ${item.impact ? `<div class="daily-brief-impact"><span>影响</span>${escapeHtml(item.impact)}</div>` : ""}
+          </div>
         </li>
       `,
     )

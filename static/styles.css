@@ -1899,6 +1899,16 @@ canvas {
   padding: 7px 8px;
 }
 
+.daily-brief-body {
+  display: grid;
+  gap: 6px;
+}
+
+.daily-brief-title {
+  color: var(--ink);
+  font-weight: 700;
+}
+
 .daily-brief-link {
   width: 100%;
   border: 0;
@@ -1913,6 +1923,31 @@ canvas {
 .daily-brief-link:hover {
   color: var(--accent-deep);
   text-decoration: underline;
+}
+
+.daily-brief-summary {
+  color: var(--ink);
+  line-height: 1.55;
+}
+
+.daily-brief-result,
+.daily-brief-impact {
+  display: grid;
+  gap: 4px;
+  padding: 7px 9px;
+  border-left: 3px solid rgba(92, 115, 69, 0.42);
+  background: rgba(228, 236, 218, 0.65);
+  color: var(--ink-muted);
+  line-height: 1.5;
+}
+
+.daily-brief-result span,
+.daily-brief-impact span {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-olive);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .daily-brief-index {

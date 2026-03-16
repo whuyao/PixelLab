@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import Settings, load_settings
-from app.engine.game_engine import GameEngine
+from app.engine.game_engine import GameEngine, ROOM_LABELS
 from app.models import AdvanceRequest, BankBorrowRequest, BankDepositRequest, BankRepayRequest, BankWithdrawRequest, ConsumeRequest, FeedPostRequest, FeedReactionRequest, GambleRequest, GovernmentCapabilityRequest, GovernmentModeRequest, GrayCaseActionRequest, LLMProviderRequest, LabEvent, MacroNewsRequest, MoveRequest, NewsRequest, NewsTimelinePolicyRequest, NewsTimelineRequest, PropertyFinanceRequest, SpeakRequest, StateDiffRequest, StateDiffResponse, TaxPolicyRequest, TimeSlot, TradeRequest, WorldState
 from app.services.activity_logger import ActivityLogger
 from app.services.openai_dialogue_service import OpenAIDialogueError, OpenAIDialogueService
@@ -115,7 +115,7 @@ def _feed_author_profile(post) -> str:
         }
         return (
             persona_map.get(agent.id, f"{agent.name}：公开发言有自己的脾气。")
-            + f" 角色：{agent.role}；专长：{agent.specialty}；当前地点：{agent.current_location}；当前计划：{agent.current_plan or '暂无'}。"
+            + f" 角色：{agent.role}；专长：{agent.specialty}；当前地点：{ROOM_LABELS.get(agent.current_location, agent.current_location)}；当前计划：{agent.current_plan or '暂无'}。"
         )
     if post.author_type == "tourist":
         tourist = next((item for item in world.tourists if item.id == post.author_id), None)
@@ -127,7 +127,7 @@ def _feed_author_profile(post) -> str:
             "vip": "高消费客户：花钱挑剔，讨厌被当提款机。",
             "buyer": "潜在购房者：对住房、租住和生活成本很敏感。",
         }
-        return f"{tier_map.get(tourist.visitor_tier, '游客：说话直接。')} 当前地点：{tourist.current_location}；最近兴趣：{tourist.favorite_topic or '逛逛看'}。"
+        return f"{tier_map.get(tourist.visitor_tier, '游客：说话直接。')} 当前地点：{ROOM_LABELS.get(tourist.current_location, tourist.current_location)}；最近兴趣：{tourist.favorite_topic or '逛逛看'}。"
     if post.author_type == "government":
         gov = world.government
         return (

@@ -157,6 +157,18 @@ LEGACY_NAME_REPLACEMENTS = {
     "Jo": "周铖",
     "Rae": "芮宁",
     "Kai": "凯川",
+    "general": "社会热点",
+    "market": "市场",
+    "geoai": "GeoAI",
+    "policy": "政策",
+    "gaming": "游戏行业",
+    "tech": "科技动向",
+    "foyer": "林间入口",
+    "office": "香草苗圃",
+    "compute": "石径工坊",
+    "data_wall": "果园坡地",
+    "meeting": "麦田广场",
+    "lounge": "湖畔营地",
 }
 
 FORCED_REST_THRESHOLD = 8
@@ -1281,6 +1293,7 @@ class GameEngine:
         style_seed = int(hashlib.sha1(f"{agent.id}-{target_post.id}-{self.state.day}".encode("utf-8")).hexdigest()[:6], 16)
         softener = (agent.speech_habits or [""])[0] if agent.speech_habits else ""
         content = self._agent_feed_reply_content(agent, target_post.author_name, topic, desire_code, style_seed, softener)
+        location_label = ROOM_LABELS.get(agent.current_location, agent.current_location)
         post = FeedPost(
             id=f"feed-{uuid4().hex[:8]}",
             author_type="agent",
@@ -1290,7 +1303,7 @@ class GameEngine:
             time_slot=self.state.time_slot,
             category=target_post.category if target_post.category in {"research", "market", "property", "tourism", "policy", "gossip", "mood"} else "daily",
             content=self._clean_feed_text(content),
-            topic_tags=list(dict.fromkeys((target_post.topic_tags or [])[:3] + [agent.current_location])),
+            topic_tags=list(dict.fromkeys((target_post.topic_tags or [])[:3] + [location_label])),
             desire_tags=[DESIRE_LABELS.get(desire_code, desire_code)],
             reply_to_post_id=target_post.id,
             likes=max(0, min(20, 2 + agent.state.focus // 22 + self.random.randint(0, 4))),
@@ -1312,6 +1325,7 @@ class GameEngine:
         base_text = tourist.brief_note or tourist.current_activity or "这里比我预想得更有意思。"
         style_seed = int(hashlib.sha1(f"{tourist.id}-{self.state.day}-{self.state.time_slot}-{tourist.visitor_tier}".encode("utf-8")).hexdigest()[:6], 16)
         angle = style_seed % 3
+        location_label = ROOM_LABELS.get(tourist.current_location, tourist.current_location)
         if category == "gossip":
             topic = (latest_event.title if latest_event is not None else tourist.favorite_topic or "这条小镇传闻")[:24]
             options = [
@@ -1322,7 +1336,7 @@ class GameEngine:
             content = options[angle]
         elif tourist.visitor_tier == "vip":
             options = [
-                f"今天在{tourist.current_location}转了一圈，我本来挺挑的，结果还真被这里留住了。不是因为它多贵，而是它居然有点真生活。",
+                f"今天在{location_label}转了一圈，我本来挺挑的，结果还真被这里留住了。不是因为它多贵，而是它居然有点真生活。",
                 "我花钱向来认感觉。这里最难得的是，不会让人觉得自己只是被当成一笔消费。",
                 "说实话，很多地方只会端着热闹给你看，这里倒是有点松弛，像能真的住人。",
             ]
@@ -1348,11 +1362,11 @@ class GameEngine:
                 "游客其实很容易被漂亮景观哄住，但这里偶尔会冒出一点真的生活感，这点挺戳人的。",
             ]
             content = options[angle]
-        tags = [tourist.current_location, self._tourist_tier_label(tourist.visitor_tier)]
+        tags = [location_label, self._tourist_tier_label(tourist.visitor_tier)]
         if category == "gossip":
             tags.append("社会热点")
         if latest_event is not None and latest_event.category in {"market", "general"}:
-            tags.append(latest_event.category)
+            tags.append(self._localized_text(latest_event.category))
         post = FeedPost(
             id=f"feed-{uuid4().hex[:8]}",
             author_type="tourist",
@@ -1377,6 +1391,7 @@ class GameEngine:
         if target_post.author_id == tourist.id:
             return self._build_tourist_feed_post(tourist, self.state.events[0] if self.state.events else None)
         style_seed = int(hashlib.sha1(f"{tourist.id}-{target_post.id}-{self.state.day}".encode("utf-8")).hexdigest()[:6], 16)
+        location_label = ROOM_LABELS.get(tourist.current_location, tourist.current_location)
         if target_post.category == "gossip":
             options = [
                 f"{tourist.name} 回复 {target_post.author_name}：我先不管真假，反正这种传闻一多，游客会先犹豫，还会不会来、还愿不愿意花钱。",
@@ -1399,7 +1414,7 @@ class GameEngine:
             time_slot=self.state.time_slot,
             category="gossip" if target_post.category == "gossip" else ("tourism" if target_post.category != "property" else "property"),
             content=self._clean_feed_text(content),
-            topic_tags=list(dict.fromkeys((target_post.topic_tags or [])[:3] + [tourist.current_location])),
+            topic_tags=list(dict.fromkeys((target_post.topic_tags or [])[:3] + [location_label])),
             desire_tags=[tourist.favorite_topic or "体验感"],
             reply_to_post_id=target_post.id,
             likes=max(0, min(14, 1 + tourist.message_influence * 2 + self.random.randint(0, 3))),
@@ -1502,6 +1517,7 @@ class GameEngine:
         angle = style_seed % 3
         speech = (agent.speech_habits or [""])[0] if agent.speech_habits else ""
         desire_code, _ = dominant_desire_for_agent(self.state, agent)
+        location_label = ROOM_LABELS.get(agent.current_location, agent.current_location)
         if category == "research":
             if agent.id == "lin":
                 options = [
@@ -1534,7 +1550,7 @@ class GameEngine:
                     f"我不觉得这轮只是技术问题。GeoAI 如果往前拱出来，后面整套话语权都会变，所以现在每一步都有人在看。",
                 ]
             content = options[angle]
-            tags = ["GeoAI", "研究讨论", agent.current_location]
+            tags = ["GeoAI", "研究讨论", location_label]
         elif category == "market":
             if agent.id == "lin":
                 options = [
@@ -1600,7 +1616,7 @@ class GameEngine:
                     f"我现在盯住房，不是因为它最浪漫，而是因为它最容易把别的信号都放大出来。",
                 ]
             content = options[angle]
-            tags = ["地产", "住房", agent.current_location]
+            tags = ["地产", "住房", location_label]
         elif category == "tourism":
             if agent.id == "lin":
                 options = [
@@ -1633,7 +1649,7 @@ class GameEngine:
                     f"别小看游客停留，他们一犹豫、一回头，后面整个市场的节奏都可能跟着动。",
                 ]
             content = options[angle]
-            tags = ["游客", "消费", agent.current_location]
+            tags = ["游客", "消费", location_label]
         elif category == "mood":
             if agent.id == "lin":
                 options = [
@@ -1666,7 +1682,7 @@ class GameEngine:
                     f"今天压着我的不是单独一件事，是“接下来可能一起变”的那种感觉。",
                 ]
             content = options[angle]
-            tags = ["情绪", "节奏", agent.current_location]
+            tags = ["情绪", "节奏", location_label]
         elif category == "gossip":
             latest_title = (latest_event.title if latest_event is not None else plan_hint)[:24]
             if agent.id == "lin":
@@ -1700,7 +1716,7 @@ class GameEngine:
                     f"很多人把热帖当情绪，我更把它当信号。像“{latest_title}”这种，后面通常不只是一阵风。",
                 ]
             content = options[angle]
-            tags = ["社会热点", latest_title, agent.current_location]
+            tags = ["社会热点", latest_title, location_label]
         else:
             if agent.id == "lin":
                 options = [
@@ -1733,7 +1749,7 @@ class GameEngine:
                     f"要说今天给自己的提醒，就是先盯信号、别急着下注，风还没吹透。",
                 ]
             content = options[angle]
-            tags = ["日常", agent.current_location]
+            tags = ["日常", location_label]
         if desire_code in DESIRE_LABELS:
             tags.append(DESIRE_LABELS[desire_code])
         return content[:160], [tag for tag in tags if tag]
@@ -3515,12 +3531,25 @@ class GameEngine:
         items: list[str] = []
         entries: list[DailyBriefItem] = []
 
-        def add_entry(text: str, target_kind: str = "", target_id: str = "", target_filter: str = "") -> None:
+        def add_entry(
+            text: str,
+            target_kind: str = "",
+            target_id: str = "",
+            target_filter: str = "",
+            title: str = "",
+            summary: str = "",
+            result: str = "",
+            impact: str = "",
+        ) -> None:
             items.append(text)
             entries.append(
                 DailyBriefItem(
                     id=f"brief-item-{uuid4().hex[:8]}",
                     text=text,
+                    title=title,
+                    summary=summary,
+                    result=result,
+                    impact=impact,
                     target_kind=target_kind,
                     target_id=target_id,
                     target_filter=target_filter,
@@ -3550,18 +3579,40 @@ class GameEngine:
         if previous_candle is not None:
             day_change = ((previous_candle.close - previous_candle.open) / max(1, previous_candle.open)) * 100
             market_tone = "大盘走强" if day_change >= 1.2 else "大盘承压" if day_change <= -1.2 else "大盘震荡"
-            add_entry(f"股市速写：{market_tone}，指数收在 {previous_candle.close:.2f}，昨日日内 {day_change:+.2f}%。", target_kind="market")
+            add_entry(
+                f"股市速写：{market_tone}，指数收在 {previous_candle.close:.2f}，昨日日内 {day_change:+.2f}%。",
+                target_kind="market",
+                title="股市速写",
+                summary=f"昨天市场整体呈现“{market_tone}”，收盘指数在 {previous_candle.close:.2f}。",
+                result=f"单日振幅落到 {day_change:+.2f}%，说明资金情绪已经偏向 {'追高' if day_change >= 1.2 else '谨慎' if day_change <= -1.2 else '观望'}。",
+                impact="今天一早关于仓位、止盈和要不要继续追板块主线的讨论会明显变多。",
+            )
         leader = self.state.market.rotation_leader or "GEO"
-        add_entry(f"板块主线：{leader} 仍是大家盯得最紧的方向，轮动已经持续 {self.state.market.rotation_age} 天。", target_kind="market")
+        add_entry(
+            f"板块主线：{leader} 仍是大家盯得最紧的方向，轮动已经持续 {self.state.market.rotation_age} 天。",
+            target_kind="market",
+            title="板块主线",
+            summary=f"{leader} 还在领跑当前轮动，已经连续走了 {self.state.market.rotation_age} 天。",
+            result="这说明注意力没有散掉，大家还在围着同一条叙事算下一步。",
+            impact="市场聊天、微博热帖和游客试水投资都会更容易往这只票上聚。",
+        )
         if previous_tax_revenue > 0:
             add_entry(
                 f"财政速递：昨日政府合计收税 ${previous_tax_revenue}，累计财政收入来到 ${self.state.government.total_revenue}。",
                 target_kind="market",
+                title="财政速递",
+                summary=f"昨天政府又收进 ${previous_tax_revenue} 的税费，财政盘子继续变厚。",
+                result=f"累计财政收入来到 ${self.state.government.total_revenue}，政府调税、补贴和建设都有了更大腾挪空间。",
+                impact="居民会更关注后续税率、补贴和建设动作，政府支持度也会跟着波动。",
             )
         if previous_tourist_revenue > 0:
             add_entry(
                 f"游客速递：昨天游客带来约 ${previous_tourist_revenue} 的本地收入，{self.state.tourism.market_name} 和 {self.state.tourism.inn_name} 都更热闹了；累计回头客 {self.state.tourism.repeat_customers_total}、高消费客户 {self.state.tourism.vip_customers_total}。",
                 target_kind="market",
+                title="游客速递",
+                summary=f"昨天游客消费又给小镇带来 ${previous_tourist_revenue} 的收入，旅馆和集市都吃到了热度。",
+                result=f"累计回头客已经到 {self.state.tourism.repeat_customers_total}，高消费客户来到 {self.state.tourism.vip_customers_total}。",
+                impact="今天的消费、看房和微博讨论会继续被游客体验带着走。",
             )
         hot_feed = next(
             (
@@ -3576,6 +3627,10 @@ class GameEngine:
                 f"微博热帖：{hot_feed.author_name} 昨天围绕“{self._feed_title_topic(hot_feed.content, hot_feed.category)}”发声，热度冲到 {hot_feed.heat}，很多人今天还在接着讨论。",
                 target_kind="feed",
                 target_id=hot_feed.id,
+                title="微博热帖",
+                summary=f"{hot_feed.author_name} 昨天那条围绕“{self._feed_title_topic(hot_feed.content, hot_feed.category)}”的帖子，热度已经冲到 {hot_feed.heat}。",
+                result="公开讨论没有在夜里散掉，今天还会继续发酵。",
+                impact="它会继续影响市场情绪、游客判断，甚至可能把政府也拖进回应里。",
             )
         if previous_tourist_signals:
             latest_signal = previous_tourist_signals[0]
@@ -3583,33 +3638,60 @@ class GameEngine:
                 f"游客耳语：{latest_signal.title}，这条外来消息昨天已经影响到小镇判断和盘面气氛。",
                 target_kind="event",
                 target_id=latest_signal.id,
+                title="游客耳语",
+                summary=f"昨天最显眼的外来消息是“{latest_signal.title}”，而且已经顺着游客嘴里扩散开了。",
+                result="这类消息没有正式文件背书，但已经足够改变大家的判断方式。",
+                impact="今天无论是微博、市场还是房产讨论，都会带着一点这条消息留下的偏向。",
             )
         if policy_event is not None:
             add_entry(
                 f"监管速递：{policy_event.title}，当前监管强度 {self.state.government.enforcement_level}，备注是“{self.state.government.last_policy_note}”。",
                 target_kind="event",
                 target_id=policy_event.id,
+                title="监管速递",
+                summary=f"昨天最硬的一条制度动作是“{policy_event.title}”。",
+                result=f"当前监管强度已经到 {self.state.government.enforcement_level}，而且政府还留下了“{self.state.government.last_policy_note}”的备注。",
+                impact="今天灰市、赌场和高风险投机这几条线都会更收着点，市场情绪也会更谨慎。",
             )
         elif audit_event is not None:
             add_entry(
                 f"监管速递：{audit_event.title}，大家都在讨论监管和罚缴会不会继续压情绪与盘面。",
                 target_kind="event",
                 target_id=audit_event.id,
+                title="监管速递",
+                summary=f"{audit_event.title} 在昨天晚上已经成了公开话题。",
+                result="大家开始重新估算监管继续收紧的概率。",
+                impact="今天无论是股市、赌场还是灰色交易，都会多一层被盯着看的紧张感。",
             )
         if geoai_milestone is not None:
             add_entry(
                 f"研究头条：{geoai_milestone.title}，实验室里已经有人开始押注 GEO 继续被重估。",
                 target_kind="event",
                 target_id=geoai_milestone.id,
+                title="研究头条",
+                summary=f"昨天最像里程碑的一件事，是“{geoai_milestone.title}”。",
+                result="研究讨论已经开始外溢到投资判断，大家不只是聊技术，也在聊它值多少钱。",
+                impact="今天的市场、微博和人物对话里，GeoAI 相关内容会更容易被放大。",
             )
         else:
-            add_entry(f"研究头条：空间智能累计推进到 {self.state.lab.geoai_progress} 点，GeoAI 主线还在缓慢发酵。", target_kind="market")
+            add_entry(
+                f"研究头条：空间智能累计推进到 {self.state.lab.geoai_progress} 点，GeoAI 主线还在缓慢发酵。",
+                target_kind="market",
+                title="研究头条",
+                summary=f"空间智能累计推进已经来到 {self.state.lab.geoai_progress} 点。",
+                result="虽然没有新的爆点，但这条主线没有熄火，还在慢慢积累注意力。",
+                impact="它会继续托着相关讨论和部分投资偏好，不至于一下退场。",
+            )
         if loan_record is not None:
             add_entry(
                 f"借贷消息：{loan_record.financial_note or loan_record.key_point}",
                 target_kind="dialogue",
                 target_id=loan_record.id,
                 target_filter="loan",
+                title="借贷消息",
+                summary=loan_record.financial_note or loan_record.key_point,
+                result="现金紧的人已经先动手借钱了，说明生活和投机压力都还在。",
+                impact="今天关于利率、还款、存款和要不要继续借的讨论会更密。",
             )
         else:
             active_loans = [loan for loan in self.state.loans if loan.status in {'active', 'overdue'}]
@@ -3618,6 +3700,10 @@ class GameEngine:
                     f"借贷消息：实验室里还有 {len(active_loans)} 笔借款挂着，口碑和现金流都在被盯。",
                     target_kind="dialogue",
                     target_filter="loan",
+                    title="借贷消息",
+                    summary=f"实验室里还挂着 {len(active_loans)} 笔活跃借款。",
+                    result="借贷这条线并没有过去，现金流和口碑仍然在承压。",
+                    impact="今天银行、存款和资金调度相关的动作会更频繁。",
                 )
         if gray_trade is not None:
             add_entry(
@@ -3625,6 +3711,10 @@ class GameEngine:
                 target_kind="dialogue",
                 target_id=gray_trade.id,
                 target_filter="gray",
+                title="小道消息",
+                summary=gray_trade.key_point,
+                result="说明昨晚的地下交易没有真的藏住，风声已经漏出来了。",
+                impact="今天微博、灰案和监管观察都会更容易顺着这条线继续发酵。",
             )
         if conflict is not None:
             add_entry(
@@ -3632,12 +3722,20 @@ class GameEngine:
                 target_kind="dialogue",
                 target_id=conflict.id,
                 target_filter="desire",
+                title="关系风波",
+                summary=conflict.key_point,
+                result="分歧已经不只是情绪，而是开始影响接下来的合作方式。",
+                impact="今天人物互动、站队和微博表态都可能继续沿着这条裂缝发展。",
             )
         if warm_pair is not None:
             add_entry(
                 f"八卦速递：{warm_pair.participant_names[0]} 和 {warm_pair.participant_names[1]} 昨天聊得很顺，圈子里都看出来了。",
                 target_kind="dialogue",
                 target_id=warm_pair.id,
+                title="八卦速递",
+                summary=f"{warm_pair.participant_names[0]} 和 {warm_pair.participant_names[1]} 昨天那轮对话很顺，别人也都看出来了。",
+                result="这种顺气的关系会继续往外传，慢慢改掉周围人看他们的方式。",
+                impact="今天社交圈的站位和亲近感会继续被这条线轻轻往前推。",
             )
         if self.state.story_beats:
             lead_story = self.state.story_beats[0]
@@ -3645,13 +3743,25 @@ class GameEngine:
                 f"故事线更新：{lead_story.title}，已经推进到第 {lead_story.stage} 段。",
                 target_kind="story",
                 target_id=lead_story.id,
+                title="故事线更新",
+                summary=f"{lead_story.title} 已经推进到第 {lead_story.stage} 段。",
+                result="这说明主线没有停，而是在继续累积后果和新动作。",
+                impact="今天任务、人物计划和微博讨论会继续围着这条故事线转。",
             )
         recent_events = [event for event in self.state.events[:6] if event.time_slot != "morning" or event.category != "general"]
         for event in recent_events:
             if len(items) >= 12:
                 break
             if event.title not in "".join(items):
-                add_entry(f"新闻摘录：{event.title} 还在被大家反复提起。", target_kind="event", target_id=event.id)
+                add_entry(
+                    f"新闻摘录：{event.title} 还在被大家反复提起。",
+                    target_kind="event",
+                    target_id=event.id,
+                    title="新闻摘录",
+                    summary=f"昨天留下的“{event.title}”并没有散掉，今天一早还在被反复提起。",
+                    result="这说明它已经从单条消息变成持续背景。",
+                    impact="今天很多判断和互动，都会带着这条消息留下的阴影或期待。",
+                )
         while len(items) < 6:
             fallback = [
                 f"日常杂闻：昨天是{weather_label(self.state.weather)}的一天，大家整体节奏比前天更慢一点。",
@@ -3660,7 +3770,14 @@ class GameEngine:
                 "情绪观察：高压的人昨天明显更想谈钱和体力，而不是谈理想。",
             ][len(items) % 4]
             if fallback not in items:
-                add_entry(fallback)
+                title, summary = fallback.split("：", 1)
+                add_entry(
+                    fallback,
+                    title=title,
+                    summary=summary,
+                    result="它不一定最响，但足够说明昨天的小镇气氛往哪边偏了。",
+                    impact="今天的闲聊、误会和临时决定，往往就会从这种小线索里长出来。",
+                )
         briefing = DailyBriefing(
             id=f"brief-{uuid4().hex[:8]}",
             day=self.state.day,
@@ -11751,6 +11868,17 @@ class GameEngine:
                 brief.entries = self._build_brief_entries_from_items(brief.items or [])
             for entry in brief.entries:
                 entry.text = self._localized_text(entry.text)
+                entry.title = self._localized_text(getattr(entry, "title", "") or "")
+                entry.summary = self._localized_text(getattr(entry, "summary", "") or "")
+                entry.result = self._localized_text(getattr(entry, "result", "") or "")
+                entry.impact = self._localized_text(getattr(entry, "impact", "") or "")
+                if not entry.title and not entry.summary and entry.text:
+                    entry.title = entry.text.split("：", 1)[0] if "：" in entry.text else entry.text[:12]
+                    entry.summary = entry.text.split("：", 1)[-1] if "：" in entry.text else entry.text
+                if not entry.result:
+                    entry.result = "这件事已经不只是夜里那一下，今天还会继续留下后劲。"
+                if not entry.impact:
+                    entry.impact = "它会继续影响今天的小镇讨论、资金判断和人物动作。"
         for item in self.state.news_timeline or []:
             item.title = self._localized_text(item.title)
             item.summary = self._localized_text(item.summary)
@@ -11819,6 +11947,8 @@ class GameEngine:
                 DailyBriefItem(
                     id=f"brief-item-{uuid4().hex[:8]}",
                     text=item,
+                    title=item.split("：", 1)[0] if "：" in item else item[:12],
+                    summary=item.split("：", 1)[-1] if "：" in item else item,
                     target_kind=target_kind,
                     target_id=target_id,
                     target_filter=target_filter,

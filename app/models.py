@@ -566,6 +566,10 @@ class DailyBriefing(BaseModel):
 class DailyBriefItem(BaseModel):
     id: str
     text: str
+    title: str = ""
+    summary: str = ""
+    result: str = ""
+    impact: str = ""
     target_kind: str = ""
     target_id: str = ""
     target_filter: str = ""
