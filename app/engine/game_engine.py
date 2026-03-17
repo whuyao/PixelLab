@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import random
 import re
 from dataclasses import dataclass
@@ -8700,8 +8701,22 @@ class GameEngine:
 
     def _compute_government_vote_result(self) -> None:
         government = self.state.government
-        if government.approval_vote_day == self.state.day:
+        if (
+            government.approval_vote_day == self.state.day
+            and (
+                government.approval_support_votes
+                + government.approval_neutral_votes
+                + government.approval_oppose_votes
+            ) > 0
+        ):
             return
+        previous_snapshot = (
+            government.approval_vote_day,
+            government.approval_support_votes,
+            government.approval_neutral_votes,
+            government.approval_oppose_votes,
+            government.approval_score,
+        )
         service_average = (
             government.public_service_level
             + government.tourism_support_level
@@ -8709,6 +8724,9 @@ class GameEngine:
         ) / 3
         average_satisfaction = sum(agent.life_satisfaction for agent in self.state.agents) / max(1, len(self.state.agents))
         fine_ratio = government.revenues.get("fine", 0) / max(1, government.total_revenue)
+        active_gray_cases = sum(1 for case in self.state.gray_cases if case.status == "active")
+        inflation_index = self.state.market.inflation_index or 100.0
+        living_pressure = self.state.market.living_cost_pressure or 0
         tax_load = (
             government.wage_tax_rate_pct
             + government.consumption_tax_rate_pct
@@ -8728,53 +8746,99 @@ class GameEngine:
         agent_votes = {"support": 0, "neutral": 0, "oppose": 0}
         tourist_votes = {"support": 0, "neutral": 0, "oppose": 0}
 
-        def classify(score: float) -> str:
-            if score >= 61:
+        def personal_bias(key: str) -> float:
+            raw = sum(ord(ch) for ch in f"{key}:{self.state.day}")
+            return ((raw % 13) - 6) * 0.9
+
+        def clamp_probability(value: float) -> float:
+            return max(0.02, min(0.92, value))
+
+        def vote_probabilities(score: float, softness: float) -> tuple[float, float, float]:
+            support_center = 63.0
+            neutral_center = 50.0
+            oppose_center = 37.0
+
+            support_weight = math.exp(-((score - support_center) ** 2) / (2 * softness**2))
+            neutral_weight = math.exp(-((score - neutral_center) ** 2) / (2 * (softness * 0.9) ** 2))
+            oppose_weight = math.exp(-((score - oppose_center) ** 2) / (2 * softness**2))
+
+            support_weight *= 1.0 + max(0.0, (score - 56.0) / 45.0)
+            oppose_weight *= 1.0 + max(0.0, (44.0 - score) / 40.0)
+            neutral_weight *= 1.16 if 44.0 <= score <= 58.0 else 0.94
+
+            total = max(0.001, support_weight + neutral_weight + oppose_weight)
+            return (
+                clamp_probability(support_weight / total),
+                clamp_probability(neutral_weight / total),
+                clamp_probability(oppose_weight / total),
+            )
+
+        def draw_vote(key: str, score: float, softness: float) -> str:
+            support_p, neutral_p, oppose_p = vote_probabilities(score, softness)
+            raw = int(hashlib.sha256(f"gov-vote:{self.state.day}:{key}:{score:.2f}".encode("utf-8")).hexdigest()[:8], 16)
+            roll = (raw % 10000) / 10000.0
+            if roll < support_p:
                 return "support"
-            if score <= 43:
-                return "oppose"
-            return "neutral"
+            if roll < support_p + neutral_p:
+                return "neutral"
+            return "oppose"
 
         for agent in self.state.agents:
-            score = 50.0
-            score += (agent.life_satisfaction - 55) * 0.28
-            score += (55 - agent.state.stress) * 0.18
-            score += (service_average - 50) * 0.22
-            score += positive_policy_events * 2.6
-            score -= negative_policy_events * 3.1
-            score -= max(0.0, tax_load - 19.0) * 0.9
-            score -= max(0.0, government.enforcement_level - 45) * 0.18
-            score -= fine_ratio * 22
+            score = 51.0 + personal_bias(agent.id)
+            score += (agent.life_satisfaction - 60) * 0.16
+            score += (52 - agent.state.stress) * 0.1
+            score += (service_average - 55) * 0.18
+            score += positive_policy_events * 1.8
+            score -= negative_policy_events * 2.8
+            score -= max(0.0, tax_load - 17.5) * 0.78
+            score -= max(0.0, government.enforcement_level - 45) * 0.14
+            score -= fine_ratio * 12
+            score -= max(0.0, inflation_index - 112.0) * 0.06
+            score -= max(0.0, living_pressure - 42.0) * 0.08
+            score -= active_gray_cases * 0.6
             if government.reserve_balance >= 5000:
-                score += 2.5
+                score += 2.0
             if self.state.market.regime == "bull":
-                score += 1.8
+                score += 1.2
+            elif self.state.market.regime == "risk":
+                score -= 0.6
             if agent.money_urgency >= 70:
                 score -= 3.0
-            agent_votes[classify(score)] += 1
+            if government.big_mode_enabled:
+                score -= 0.8
+            score = max(10.0, min(90.0, score))
+            agent_votes[draw_vote(f"agent:{agent.id}", score, 11.0)] += 1
 
         for tourist in self.state.tourists:
-            score = 50.0
-            score += (tourist.mood - 55) * 0.32
-            score += (tourist.spending_desire - 50) * 0.12
-            score += (government.tourism_support_level - 40) * 0.28
-            score += positive_policy_events * 2.0
-            score -= negative_policy_events * 2.4
-            score -= max(0.0, government.consumption_tax_rate_pct - 8.0) * 0.9
-            score -= max(0.0, government.enforcement_level - 48) * 0.12
+            score = 50.0 + personal_bias(tourist.id)
+            score += (tourist.mood - 58) * 0.16
+            score += (tourist.spending_desire - 54) * 0.08
+            score += (government.tourism_support_level - 48) * 0.14
+            score += positive_policy_events * 1.5
+            score -= negative_policy_events * 2.1
+            score -= max(0.0, government.consumption_tax_rate_pct - 7.5) * 0.82
+            score -= max(0.0, government.enforcement_level - 42) * 0.12
+            score -= max(0.0, inflation_index - 110.0) * 0.06
+            score -= max(0.0, living_pressure - 38.0) * 0.08
+            score -= active_gray_cases * 0.4
             if tourist.property_interest:
-                score += (government.housing_support_level - 35) * 0.16
+                score += (government.housing_support_level - 40) * 0.09
             if tourist.visitor_tier == "vip":
-                score += 2.0
-            if tourist.visitor_tier == "buyer":
                 score += 1.0
-            tourist_votes[classify(score)] += 1
+            if tourist.visitor_tier == "buyer":
+                score += 0.5
+            if government.big_mode_enabled:
+                score -= 0.5
+            if self.state.market.regime == "risk":
+                score -= 0.5
+            score = max(10.0, min(90.0, score))
+            tourist_votes[draw_vote(f"tourist:{tourist.id}", score, 12.5)] += 1
 
         support_votes = agent_votes["support"] + tourist_votes["support"]
         neutral_votes = agent_votes["neutral"] + tourist_votes["neutral"]
         oppose_votes = agent_votes["oppose"] + tourist_votes["oppose"]
         turnout = max(1, support_votes + neutral_votes + oppose_votes)
-        approval = round(((support_votes + neutral_votes * 0.5) / turnout) * 100)
+        approval = round(((support_votes + neutral_votes * 0.35) / turnout) * 100)
         government.approval_vote_day = self.state.day
         government.approval_support_votes = support_votes
         government.approval_neutral_votes = neutral_votes
@@ -8804,6 +8868,9 @@ class GameEngine:
         government.approval_vote_note = (
             f"今日匿名投票：支持 {support_votes} · 中立 {neutral_votes} · 反对 {oppose_votes}。"
         )
+        support_share = support_votes / turnout
+        neutral_share = neutral_votes / turnout
+        oppose_share = oppose_votes / turnout
         if government.approval_score >= 78:
             government.approval_note = "今天的匿名投票里，支持票明显占优，公众普遍认可政府当前做法。"
         elif government.approval_score >= 58:
@@ -8812,11 +8879,29 @@ class GameEngine:
             government.approval_note = "今天的匿名投票明显分裂，政府做法在支持和不满之间拉扯。"
         else:
             government.approval_note = "今天的匿名投票偏负面，公众对政府税负、罚缴或建设方向不太买账。"
-        self._append_government_event(
-            "匿名民意结果",
-            f"今天共有 {turnout} 张匿名票，支持 {support_votes}、中立 {neutral_votes}、反对 {oppose_votes}。{'；'.join(drivers[:3])}。",
-            tone="vote",
+        if government.big_mode_enabled:
+            if oppose_share >= 0.34:
+                government.current_agenda = "大政府模式：先稳民意和生活压力，再守财政与秩序。"
+                government.last_agent_reason = "反对票偏高，政府会先压住税负、监管和生活压力，再考虑继续扩张。"
+            elif support_share >= 0.34:
+                government.current_agenda = "大政府模式：趁支持度尚可，平衡财政收入、秩序和发展。"
+                government.last_agent_reason = "支持票相对更高，政府会把更多空间放到建设、发展和中长期财政安排上。"
+            else:
+                government.current_agenda = "大政府模式：在收入、秩序和发展之间谨慎平衡。"
+                government.last_agent_reason = "支持、反对和中立票比较接近，政府会保持小步微调，避免动作过猛。"
+        current_snapshot = (
+            government.approval_vote_day,
+            government.approval_support_votes,
+            government.approval_neutral_votes,
+            government.approval_oppose_votes,
+            government.approval_score,
         )
+        if current_snapshot != previous_snapshot:
+            self._append_government_event(
+                "匿名民意结果",
+                f"今天共有 {turnout} 张匿名票，支持 {support_votes}、中立 {neutral_votes}、反对 {oppose_votes}。{'；'.join(drivers[:3])}。",
+                tone="vote",
+            )
 
     def set_big_government_mode(self, enabled: bool) -> WorldState:
         government = self.state.government
@@ -8894,14 +8979,29 @@ class GameEngine:
         tourism = self.state.tourism
         tourist_pressure = self._active_tourist_count() / max(1, tourism.active_visitor_cap)
         inflation = self.state.market.inflation_index or 100.0
+        turnout = max(
+            1,
+            government.approval_support_votes
+            + government.approval_neutral_votes
+            + government.approval_oppose_votes,
+        )
+        support_share = government.approval_support_votes / turnout
+        neutral_share = government.approval_neutral_votes / turnout
+        oppose_share = government.approval_oppose_votes / turnout
         average_assets = (
             self._player_total_assets() + sum(self._agent_total_assets(agent) for agent in self.state.agents)
         ) / max(1, len(self.state.agents) + 1)
         action_notes: list[str] = []
+        approval_bias = support_share - oppose_share
+        development_bias = 1.0 if approval_bias >= 0.15 else (0.45 if approval_bias >= 0.0 else 0.0)
+        stability_bias = 1.0 if oppose_share >= 0.28 else (0.45 if oppose_share >= 0.18 else 0.0)
+        revenue_bias = 1.0 if government.reserve_balance < 600 else (0.45 if government.reserve_balance < 1800 else 0.0)
 
         if government.can_tune_taxes and (tourist_pressure >= 0.85 or tourism.buyer_leads_total > 0):
-            next_transfer = min(9.5, max(2.0, government.property_transfer_tax_rate_pct + 0.4))
-            next_holding = min(12.0, max(3.0, government.property_holding_tax_rate_pct + 0.3))
+            transfer_shift = 0.4 - (development_bias * 0.18) + (stability_bias * 0.12)
+            holding_shift = 0.3 - (development_bias * 0.14) + (stability_bias * 0.1)
+            next_transfer = min(9.5, max(2.0, government.property_transfer_tax_rate_pct + transfer_shift))
+            next_holding = min(12.0, max(3.0, government.property_holding_tax_rate_pct + holding_shift))
             if abs(next_transfer - government.property_transfer_tax_rate_pct) > 0.05:
                 government.property_transfer_tax_rate_pct = round(next_transfer, 1)
                 action_notes.append(f"地产过户税调到 {government.property_transfer_tax_rate_pct:.1f}%")
@@ -8910,21 +9010,38 @@ class GameEngine:
                 action_notes.append(f"地产持有税调到 {government.property_holding_tax_rate_pct:.1f}%")
 
         if government.can_tune_taxes and (inflation >= 132 or average_assets > 80000):
-            next_consumption = min(9.5, max(3.0, government.consumption_tax_rate_pct + 0.2))
+            next_consumption = min(
+                9.5,
+                max(
+                    3.0,
+                    government.consumption_tax_rate_pct
+                    + 0.2
+                    + (revenue_bias * 0.1)
+                    - (development_bias * 0.16)
+                    + (stability_bias * 0.08),
+                ),
+            )
             if abs(next_consumption - government.consumption_tax_rate_pct) > 0.05:
                 government.consumption_tax_rate_pct = round(next_consumption, 1)
                 action_notes.append(f"消费税调到 {government.consumption_tax_rate_pct:.1f}%")
         elif government.can_tune_taxes and government.reserve_balance < 400:
-            next_consumption = max(3.0, government.consumption_tax_rate_pct - 0.2)
+            next_consumption = max(
+                3.0,
+                government.consumption_tax_rate_pct - 0.2 - (development_bias * 0.08) + (revenue_bias * 0.05),
+            )
             if abs(next_consumption - government.consumption_tax_rate_pct) > 0.05:
                 government.consumption_tax_rate_pct = round(next_consumption, 1)
                 action_notes.append(f"消费税回落到 {government.consumption_tax_rate_pct:.1f}%")
 
         target_rate = bank.base_daily_rate_pct
         if government.can_tune_rates and tourist_pressure >= 0.9 and inflation > 125:
-            target_rate += 0.25
+            target_rate += 0.25 + (stability_bias * 0.08)
         if government.can_tune_rates and government.reserve_balance < 260:
-            target_rate -= 0.25
+            target_rate -= 0.25 + (development_bias * 0.05)
+        if government.can_tune_rates and oppose_share >= 0.24:
+            target_rate -= 0.1
+        if government.can_tune_rates and support_share >= 0.28 and inflation < 128:
+            target_rate += 0.06
         target_rate = max(1.2, min(8.6, target_rate))
         if government.can_tune_rates and abs(target_rate - bank.base_daily_rate_pct) >= 0.05:
             bank.base_daily_rate_pct = round(target_rate, 2)
@@ -8938,13 +9055,43 @@ class GameEngine:
                 if asset.listed and asset.purchase_price > int(asset.estimated_value * 1.15)
             ]
             adjusted = 0
+            price_cut_bias = 0.92 + (development_bias * 0.03) - (stability_bias * 0.02)
             for asset in overpriced_assets[:2]:
-                new_price = max(int(asset.estimated_value * 0.95), int(asset.purchase_price * 0.92))
+                new_price = max(int(asset.estimated_value * 0.95), int(asset.purchase_price * price_cut_bias))
                 if new_price < asset.purchase_price:
                     asset.purchase_price = new_price
                     adjusted += 1
             if adjusted:
                 action_notes.append(f"压低 {adjusted} 项挂牌资产价格")
+
+        if government.can_manage_construction:
+            if oppose_share >= 0.28 and government.enforcement_level > 40:
+                next_enforcement = max(40, government.enforcement_level - 2)
+                if next_enforcement != government.enforcement_level:
+                    government.enforcement_level = next_enforcement
+                    action_notes.append(f"监管强度回落到 {government.enforcement_level}")
+            elif support_share >= 0.32 and inflation > 128 and government.enforcement_level < 72:
+                next_enforcement = min(72, government.enforcement_level + 1)
+                if next_enforcement != government.enforcement_level:
+                    government.enforcement_level = next_enforcement
+                    action_notes.append(f"监管强度调到 {government.enforcement_level}")
+
+            if oppose_share >= 0.24 and government.public_service_level < 96:
+                government.public_service_level = min(96, government.public_service_level + 2)
+                action_notes.append(f"公共服务提高到 {government.public_service_level}")
+            elif support_share >= 0.34 and government.reserve_balance < 800 and government.public_service_level > 58:
+                government.public_service_level = max(58, government.public_service_level - 1)
+                action_notes.append(f"公共服务回调到 {government.public_service_level}")
+
+        if action_notes:
+            government.current_agenda = (
+                "大政府模式：在收入、秩序和发展之间做平衡。"
+                f" 今日民意为支持 {government.approval_support_votes} / 中立 {government.approval_neutral_votes} / 反对 {government.approval_oppose_votes}。"
+            )
+            government.last_agent_reason = (
+                f"当前民意结构为支持 {support_share:.0%}、中立 {neutral_share:.0%}、反对 {oppose_share:.0%}，"
+                "所以政府正在小幅调税、调息、调服务与监管强度。"
+            )
 
         if action_notes:
             government.last_macro_action = "；".join(action_notes)
@@ -10422,6 +10569,7 @@ class GameEngine:
         profit_penalty = 45 + threat_score * 35
         business.reputation = max(18, min(92, business.reputation - reputation_penalty))
         business.public_heat = max(0, min(100, business.public_heat + 8 + threat_score * 6))
+        business.quality_level = max(18, min(92, business.quality_level - max(2, threat_score * 2)))
         business.daily_profit -= profit_penalty
         business.total_profit -= profit_penalty
         business.loss_streak_days = max(2, business.loss_streak_days + 2)
@@ -10433,6 +10581,12 @@ class GameEngine:
         post.views = max(post.views or 0, (post.views or 0) + 16 + threat_score * 18)
         post.likes = max(0, (post.likes or 0) - max(0, threat_score - 1))
         post.topic_tags = list(dict.fromkeys((post.topic_tags or []) + ["话术翻车"]))
+        self._apply_symbol_signal(
+            self._business_market_symbol(business),
+            -1,
+            0.18 + threat_score * 0.12,
+            f"{business.name} 因公开话术翻车拖累了板块情绪",
+        )
         self.state.events.insert(
             0,
             build_internal_event(
