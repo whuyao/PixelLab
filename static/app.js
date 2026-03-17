@@ -178,7 +178,7 @@ const llmApplyBtn = document.getElementById("llmApplyBtn");
 const llmStatusMeta = document.getElementById("llmStatusMeta");
 const llmSwitchStatus = document.getElementById("llmSwitchStatus");
 const llmSwitcherShell = llmToggleBtn?.closest(".llm-switcher-shell") || null;
-const ASSET_VERSION = "20260316q";
+const ASSET_VERSION = "20260317a";
 const TALK_PLACEHOLDER = "例如：你觉得这个 GeoAI 线索值得继续做吗？";
 
 const timeLabels = {
@@ -2212,6 +2212,12 @@ function renderHomeCockpit() {
       `,
     )
     .join("");
+  const governmentTodayTaxes = (state.finance_history || [])
+    .filter((record) => record.category === "tax" && record.day === state.day)
+    .reduce((sum, record) => sum + Math.abs(Number(record.amount || 0)), 0);
+  const governmentTodayWelfare = (state.finance_history || [])
+    .filter((record) => record.category === "welfare" && record.day === state.day)
+    .reduce((sum, record) => sum + Math.abs(Number(record.amount || 0)), 0);
   const pulses = [
     {
       title: "任务推进",
@@ -2228,8 +2234,8 @@ function renderHomeCockpit() {
     {
       title: "制度脉搏",
       summary: state.government?.current_agenda || "财政与监管暂时平稳。",
-      meta: `今日税收 ${formatCompactCurrency(state.government?.daily_revenue || 0)} · 今日保障 ${formatCompactCurrency(state.government?.daily_welfare_paid || 0)}`,
-      tone: (state.government?.daily_welfare_paid || 0) > (state.government?.daily_revenue || 0) ? "warm" : "steady",
+      meta: `今日税收 ${formatCompactCurrency(governmentTodayTaxes)} · 今日保障 ${formatCompactCurrency(governmentTodayWelfare)}`,
+      tone: governmentTodayWelfare > governmentTodayTaxes ? "warm" : "steady",
     },
   ];
   homePulse.innerHTML = pulses
@@ -2496,6 +2502,12 @@ function renderFiscalPanel() {
 function buildGovernmentHighlightsMarkup() {
   if (!state) return "";
   const government = state.government || {};
+  const todayTaxes = (state.finance_history || [])
+    .filter((record) => record.category === "tax" && record.day === state.day)
+    .reduce((sum, record) => sum + Math.abs(Number(record.amount || 0)), 0);
+  const todayWelfare = (state.finance_history || [])
+    .filter((record) => record.category === "welfare" && record.day === state.day)
+    .reduce((sum, record) => sum + Math.abs(Number(record.amount || 0)), 0);
   const voteTurnout = Number(government.approval_support_votes || 0)
     + Number(government.approval_neutral_votes || 0)
     + Number(government.approval_oppose_votes || 0);
@@ -2554,8 +2566,8 @@ function buildGovernmentHighlightsMarkup() {
     },
     {
       title: "财政状态",
-      summary: `储备 ${formatCompactCurrency(government.reserve_balance || 0)} · 今日税收 ${formatCompactCurrency(government.daily_revenue || 0)}`,
-      meta: `公共投资 ${formatCompactCurrency(government.total_public_investment || 0)} · 今日保障 ${formatCompactCurrency(government.daily_welfare_paid || 0)}`,
+      summary: `储备 ${formatCompactCurrency(government.reserve_balance || 0)} · 今日税收 ${formatCompactCurrency(todayTaxes)}`,
+      meta: `公共投资 ${formatCompactCurrency(government.total_public_investment || 0)} · 今日保障 ${formatCompactCurrency(todayWelfare)}`,
       tone: "",
       serial: "fiscal",
     },
@@ -3478,6 +3490,8 @@ function renderBusinessPanel() {
   const recentBusinessFinance = (state.finance_history || []).filter((record) => record.category === "business").slice(0, 18);
   const recentBusinessTax = (state.finance_history || []).filter((record) => record.category === "tax" && record.asset_name === "营业税").slice(0, 18);
   const leaders = businesses.slice().sort((left, right) => (right.daily_profit || 0) - (left.daily_profit || 0));
+  const businessOwnedPosts = feedMentions.filter((post) => post.author_type === "business");
+  const messageRiskPosts = businessOwnedPosts.filter((post) => (post.topic_tags || []).includes("话术翻车"));
   const businessHeroCards = [
     ["活跃企业", String(activeBusinesses.length), `${expanding.length} 扩张 · ${contracting.length} 收缩`],
     ["今日营业额", formatCompactCurrency(totalRevenue), `${totalCustomers} 人次客流`],
@@ -3611,10 +3625,17 @@ function renderBusinessPanel() {
     </article>
     <article class="position-card insight-card">
       <strong>企业微博与舆情</strong>
-      <div class="metric-meta">近端提及 ${feedMentions.length} 条 · 企业官方帖 ${feedMentions.filter((post) => post.author_type === "business").length} 条</div>
+      <div class="metric-meta">近端提及 ${feedMentions.length} 条 · 企业官方帖 ${businessOwnedPosts.length} 条 · 话术翻车 ${messageRiskPosts.length} 条</div>
       <div class="memory-section compact">
         <strong>舆情焦点</strong>
         <div>${feedMentions.slice(0, 6).map((post) => `<span class="memory-chip">${escapeHtml(`${post.author_name} · ${(post.topic_tags || []).slice(0, 2).join(" / ") || "企业舆情"}`)}</span>`).join("") || '<span class="memory-meta">这一轮微博还没明显围住某家企业。</span>'}</div>
+      </div>
+    </article>
+    <article class="position-card insight-card">
+      <strong>企业话术风险</strong>
+      <div class="metric-meta">${messageRiskPosts.length ? "最近已经出现公开话术翻车，企业信誉、利润和客流预期会受损。" : "最近企业公开话术整体还算克制，没有明显翻车。"} </div>
+      <div class="memory-section compact">
+        <div>${messageRiskPosts.length ? messageRiskPosts.slice(0, 4).map((post) => `<span class="memory-chip">${escapeHtml(`${post.author_name} · ${post.summary || "公开话术翻车"}`)}</span>`).join("") : '<span class="memory-meta">目前还没有新的企业公开话术翻车记录。</span>'}</div>
       </div>
     </article>
     <article class="position-card insight-card">
