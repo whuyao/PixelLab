@@ -6768,6 +6768,9 @@ class GameEngine:
                 total_assets=total_assets,
                 bankruptcy=post_funds <= 0,
                 agent=agent,
+                daily_cost=self.state.player.daily_cost_baseline if actor_type == "player" else agent.daily_cost_baseline if agent is not None else 0,
+                monthly_burden=self.state.player.monthly_burden if actor_type == "player" else agent.monthly_burden if agent is not None else 0,
+                stress=self.state.player.stress if actor_type == "player" else agent.state.stress if agent is not None else 50,
             )
             if payout > 0:
                 self.state.events.insert(
@@ -7891,6 +7894,7 @@ class GameEngine:
             self._record_daily_business_point(previous_day)
             self._apply_daily_market_and_consumption_feedback(previous_day)
             self._refresh_tourism_cycle()
+            self._daily_welfare_scan()
             self.state.tourism.daily_revenue = 0
             self.state.tourism.daily_private_income = 0
             self.state.tourism.daily_government_income = 0
@@ -8236,19 +8240,30 @@ class GameEngine:
         total_assets: int = 0,
         bankruptcy: bool = False,
         agent: Agent | None = None,
+        daily_cost: int = 0,
+        monthly_burden: int = 0,
+        stress: int = 50,
     ) -> int:
         government = self.state.government
         if government.reserve_balance <= 0:
             return 0
+        if self._received_welfare_today(recipient_id):
+            return 0
         threshold = government.welfare_low_cash_threshold
-        asset_ceiling = threshold * (2 if bankruptcy else 4)
+        asset_ceiling = threshold * (3 if bankruptcy else 5) + min(40, int(monthly_burden * 0.08))
         if total_assets > asset_ceiling:
             return 0
         if current_cash > threshold and not bankruptcy:
             return 0
         support_floor = government.welfare_bankruptcy_support if bankruptcy else government.welfare_base_support
-        target_cash = threshold + (8 if bankruptcy else 0)
-        payout = max(support_floor, max(0, target_cash - current_cash))
+        daily_buffer = min(10, int(round(max(0, daily_cost) * 0.6)))
+        burden_buffer = min(10, int(round(max(0, monthly_burden) * 0.03)))
+        stress_boost = max(0, int(round(max(0, stress - 55) * 0.08)))
+        target_cash = threshold + daily_buffer + burden_buffer + (10 if bankruptcy else 2)
+        payout = max(
+            support_floor + daily_buffer // 2 + burden_buffer // 2,
+            max(0, target_cash - current_cash) + stress_boost,
+        )
         payout = max(0, min(government.reserve_balance, payout))
         if payout <= 0:
             return 0
@@ -8268,13 +8283,68 @@ class GameEngine:
             actor_id=recipient_id,
             actor_name=recipient_name,
             category="welfare",
-            action="support",
+            action="support_bankruptcy" if bankruptcy else "support_basic",
             summary=f"{recipient_name} 领取了 ${payout} 的{'破产' if bankruptcy else '低收入'}财政保障金。",
             amount=payout,
-            asset_name="财政保障",
+            asset_name="破产保障" if bankruptcy else "低收入保障",
             counterparty=government.name,
         )
         return payout
+
+    def _received_welfare_today(self, recipient_id: str) -> bool:
+        return any(
+            record.actor_id == recipient_id and record.category == "welfare" and record.day == self.state.day
+            for record in (self.state.finance_history or [])
+        )
+
+    def _daily_welfare_scan(self) -> None:
+        government = self.state.government
+        threshold = government.welfare_low_cash_threshold
+        payouts: list[str] = []
+
+        player_funds = self._player_total_funds()
+        player_cash_pressure = player_funds <= threshold + max(4, int(round(self.state.player.daily_cost_baseline * 0.5)))
+        if player_cash_pressure or player_funds <= 0:
+            payout = self._disburse_welfare(
+                recipient_type="player",
+                recipient_id=self.state.player.id,
+                recipient_name=self.state.player.name,
+                current_cash=self.state.player.cash,
+                total_assets=self._player_total_assets(),
+                bankruptcy=player_funds <= 0,
+                daily_cost=self.state.player.daily_cost_baseline,
+                monthly_burden=self.state.player.monthly_burden,
+                stress=self.state.player.stress,
+            )
+            if payout > 0:
+                payouts.append(f"{self.state.player.name} ${payout}")
+
+        for agent in self.state.agents:
+            agent_funds = self._agent_total_funds(agent)
+            cash_pressure = agent_funds <= threshold + max(4, int(round(agent.daily_cost_baseline * 0.5)))
+            if not cash_pressure and agent_funds > 0:
+                continue
+            payout = self._disburse_welfare(
+                recipient_type="agent",
+                recipient_id=agent.id,
+                recipient_name=agent.name,
+                current_cash=agent.cash,
+                total_assets=self._agent_total_assets(agent),
+                bankruptcy=agent_funds <= 0,
+                agent=agent,
+                daily_cost=agent.daily_cost_baseline,
+                monthly_burden=agent.monthly_burden,
+                stress=agent.state.stress or 50,
+            )
+            if payout > 0:
+                payouts.append(f"{agent.name} ${payout}")
+
+        if payouts:
+            self._append_government_event(
+                "每日低现金救济",
+                f"今天早晨按低现金扫描发放了财政保障：{' · '.join(payouts[:6])}。",
+                tone="revenue",
+            )
 
     def _issue_consumption_coupon(self, *, recipient_type: str, recipient_id: str, recipient_name: str, amount: int, note: str) -> int:
         if amount <= 0 or self.state.government.reserve_balance <= 0:
@@ -9517,6 +9587,9 @@ class GameEngine:
                 total_assets=self._player_total_assets() if recipient_type == "player" else self._agent_total_assets(self._find_agent(recipient_id)),
                 bankruptcy=False,
                 agent=None if recipient_type == "player" else self._find_agent(recipient_id),
+                daily_cost=self.state.player.daily_cost_baseline if recipient_type == "player" else self._find_agent(recipient_id).daily_cost_baseline,
+                monthly_burden=self.state.player.monthly_burden if recipient_type == "player" else self._find_agent(recipient_id).monthly_burden,
+                stress=self.state.player.stress if recipient_type == "player" else self._find_agent(recipient_id).state.stress or 50,
             )
             payouts += payout
 
