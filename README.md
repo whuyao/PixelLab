@@ -461,6 +461,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
   - [consumption_real_estate_design.md](docs/consumption_real_estate_design.md)：消费、地产与生活满意度系统设计
   - [full_system_evolution_report.md](docs/full_system_evolution_report.md)：从第 1 天到当前全周期的系统演化、智能体变化、经济耦合与教学说明总复盘
   - [llm_prompt_tuning_retrospective.md](docs/llm_prompt_tuning_retrospective.md)：OpenAI / Qwen 双模型 prompt 收敛、口吻分流与长期挂念整理复盘
+  - [spatial_behavior_and_institution_report.md](docs/spatial_behavior_and_institution_report.md)：空间分区、建筑锚点和活动锚点如何塑造对话、企业客流、灰案与制度反应
   - [undergrad_system_explainer.md](docs/undergrad_system_explainer.md)：面向本科生的系统解释
   - [system_development_retrospective.md](docs/system_development_retrospective.md)：系统发展过程复盘
   - 灰色交易链当前已经细分为 `房产私下转手 / 账外回扣 / 私货过手 / 拉高出货` 等更具体类型，不再都显示成笼统的“私下交换”

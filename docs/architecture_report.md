@@ -251,6 +251,8 @@ flowchart LR
   复盘这一轮 OpenAI / Qwen 双模型 prompt 收敛、角色口吻分流、内部代号清洗与长期挂念整理。
 - [casino_emergence_report.md](casino_emergence_report.md)
   复盘赌场上线后，在经济、微博、灰案与监管层面出现的涌现现象。
+- [spatial_behavior_and_institution_report.md](spatial_behavior_and_institution_report.md)
+  结合日志与在线状态，解释地图分区、建筑锚点和活动锚点怎样塑造对话密度、游客客流、企业竞争与制度治理。
 - [market_casino_social_emergence_report.md](market_casino_social_emergence_report.md)
   复盘最近 100 天里市场、赌场、微博、游客与政府形成的耦合结构，以及近期平衡性调优如何改变系统行为。
 - [simulation_day312_academic_analysis.md](simulation_day312_academic_analysis.md)
