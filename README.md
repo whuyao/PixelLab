@@ -460,6 +460,7 @@ nohup .venv/bin/python run_localfarmer.py > /tmp/pixellab.out 2>&1 &
   - [casino_emergence_report.md](docs/casino_emergence_report.md)：地下赌场接入后在经济、微博、灰案与监管层面的涌现复盘
   - [consumption_real_estate_design.md](docs/consumption_real_estate_design.md)：消费、地产与生活满意度系统设计
   - [full_system_evolution_report.md](docs/full_system_evolution_report.md)：从第 1 天到当前全周期的系统演化、智能体变化、经济耦合与教学说明总复盘
+  - [long_run_system_retrospective_1685d.md](docs/long_run_system_retrospective_1685d.md)：从第 1 天到第 1685 天的长周期复盘，集中讨论系统构建、人物发展、经济耦合、政府制度、地理空间与整体涌现
   - [llm_prompt_tuning_retrospective.md](docs/llm_prompt_tuning_retrospective.md)：OpenAI / Qwen 双模型 prompt 收敛、口吻分流与长期挂念整理复盘
   - [spatial_behavior_and_institution_report.md](docs/spatial_behavior_and_institution_report.md)：空间分区、建筑锚点和活动锚点如何塑造对话、企业客流、灰案与制度反应
   - [undergrad_system_explainer.md](docs/undergrad_system_explainer.md)：面向本科生的系统解释

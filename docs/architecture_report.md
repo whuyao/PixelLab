@@ -243,6 +243,8 @@ flowchart LR
   从原型到当前复合系统的整体发展复盘。
 - [full_system_evolution_report.md](full_system_evolution_report.md)
   从第 1 天到当前状态的全周期总报告，专门回答系统迭代、智能体变化、涌现现象、经济耦合与教学解释这 5 个问题。
+- [long_run_system_retrospective_1685d.md](long_run_system_retrospective_1685d.md)
+  从第 1 天到第 1685 天的长周期复盘，重点分析系统构建、人物发展、经济系统、政府系统、地理空间与整体涌现如何叠加成今天的小镇世界。
 - [big_government_mode_guide.md](big_government_mode_guide.md)
   面向演示与教学的大政府模式独立说明，聚焦权限、工期、锚点与制度影响。
 - [casino_system_guide.md](casino_system_guide.md)
